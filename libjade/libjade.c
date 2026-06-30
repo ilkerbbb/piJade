@@ -33,6 +33,7 @@
 #define HAVE_UNALIGNED_ACCESS 0
 
 #include <errno.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/random.h>
@@ -65,6 +66,13 @@
 #undef ESP_IDF_VERSION
 #undef ESP_PLATFORM
 #include "components/esp32_deflate/deflate.c"
+
+// Prevent "components/esp32-quirc/lib/identify.c" to include OpenMV's "fmath.h"
+// because we are redefining its functions below.
+#define __FMATH_H
+static inline int fast_roundf(float x) { return (int)(x); }
+static inline float fast_fabsf(float d) { return fabsf(d); }
+
 // qrCode encoding/decoding
 #include "components/esp32-quirc/lib/decode.c"
 #include "components/esp32-quirc/lib/identify.c"
