@@ -3,6 +3,9 @@
 #include "../ui.h"
 #include "jade_assert.h"
 
+// Maximum message text shown on a drilldown screen
+#define SIGN_MESSAGE_MAX_DISPLAY_LEN (MAX_DISPLAY_MESSAGE_LEN / 2)
+
 static gui_activity_t* make_sign_message_activities(const char* msgtxt, const char* hashhex, const char* pathstr,
     gui_activity_t** actmessage1, gui_activity_t** actmessage2, gui_activity_t** acthash, gui_activity_t** actpath)
 {
@@ -33,11 +36,10 @@ static gui_activity_t* make_sign_message_activities(const char* msgtxt, const ch
     // NOTE: maybe two value drilldown screens
     const size_t msgtxt_len = strlen(msgtxt);
     JADE_ASSERT(msgtxt_len <= MAX_DISPLAY_MESSAGE_LEN);
-    const size_t max_display_len = MAX_DISPLAY_MESSAGE_LEN / 2;
-    char buf[1 + max_display_len + 1];
+    char buf[1 + SIGN_MESSAGE_MAX_DISPLAY_LEN + 1];
     const char* message[] = { buf };
 
-    if (msgtxt_len <= max_display_len) {
+    if (msgtxt_len <= SIGN_MESSAGE_MAX_DISPLAY_LEN) {
         // Just the one message screen with a tick/accept button
         btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_BACK },
             { .txt = "S", .font = VARIOUS_SYMBOLS_FONT, .ev_id = BTN_SIGNMSG_ACCEPT } };
@@ -53,7 +55,7 @@ static gui_activity_t* make_sign_message_activities(const char* msgtxt, const ch
         btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_BACK },
             { .txt = ">", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_SIGNMSG_NEXT } };
 
-        int ret = snprintf(buf, sizeof(buf), "\n%.*s", max_display_len, msgtxt);
+        int ret = snprintf(buf, sizeof(buf), "\n%.*s", SIGN_MESSAGE_MAX_DISPLAY_LEN, msgtxt);
         JADE_ASSERT(ret > 0 && ret < sizeof(buf));
         *actmessage1 = make_show_message_activity(message, 1, "Message (1/2)", hdrbtns, 2, NULL, 0);
 
@@ -71,7 +73,7 @@ static gui_activity_t* make_sign_message_activities(const char* msgtxt, const ch
         hdrbtns[1].font = VARIOUS_SYMBOLS_FONT;
         hdrbtns[1].ev_id = BTN_SIGNMSG_ACCEPT;
 
-        ret = snprintf(buf, sizeof(buf), "\n%s", msgtxt + max_display_len);
+        ret = snprintf(buf, sizeof(buf), "\n%s", msgtxt + SIGN_MESSAGE_MAX_DISPLAY_LEN);
         JADE_ASSERT(ret > 0 && ret < sizeof(buf));
         *actmessage2 = make_show_message_activity(message, 1, "Message (2/2)", hdrbtns, 2, NULL, 0);
 
