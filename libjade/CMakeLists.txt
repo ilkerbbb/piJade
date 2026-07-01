@@ -39,7 +39,11 @@ target_include_directories(otpauth_migrate_target PUBLIC "${OTPAUTH_MIGRATE_SOUR
 set(OTPAUTH_MIGRATE_INCLUDE_DIR "${OTPAUTH_MIGRATE_SOURCE_DIR}")
 
 # Note -DVERIFY enables (expensive) libsecp256k1 verification
-set(CMAKE_C_FLAGS_DEBUG "-O0 -ggdb3 -DVERIFY -D_FORTIFY_SOURCE=3 -D_GLIBCXX_ASSERTIONS -fstack-protector-strong -fstack-clash-protection")
+set(CMAKE_C_FLAGS_DEBUG "-O0 -ggdb3 -DVERIFY -D_FORTIFY_SOURCE=3 -D_GLIBCXX_ASSERTIONS -fstack-protector-strong")
+# TODO: remove this when Clang gets a stable support for stack clash protection on MacOS
+if(NOT APPLE)
+    string(APPEND CMAKE_C_FLAGS_DEBUG " -fstack-clash-protection")
+endif()
 
 # BBB-AIRGAP: the shipping build gets the same hardening the debug build already had.
 # Measured on the image's own compiler (gcc 12.2.0, Raspbian) before being added here; nothing

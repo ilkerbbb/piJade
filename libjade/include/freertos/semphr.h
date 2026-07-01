@@ -1,3 +1,10 @@
+#ifdef __APPLE__
+// For macOS builds, include "semphr_darwin.h" instead. It is a full
+// replacement for this header and uses the same include guard macro, so the
+// rest of this file does not need to be wrapped in a conditional block.
+#include "semphr_darwin.h"
+#endif
+
 #ifndef _LIBJADE_FREERTOS_SEMPHR_H_
 #define _LIBJADE_FREERTOS_SEMPHR_H_ 1
 

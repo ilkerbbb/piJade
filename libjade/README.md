@@ -26,7 +26,7 @@ To build, run:
 ./libjade/make_libjade.sh [Debug|Release|RelWithDebInfo|MinSizeRel|Sanitize]
 ```
 
-The above command builds the files `libjade.so`, `libjade_static.a` and
+The above command builds the files `libjade.[so|dylib]`, `libjade_static.a` and
 `libjade_daemon` in the directory `build_linux/libjade/`.
 
 Use `--help` to print other command line options.
@@ -41,6 +41,8 @@ tests from the root directory of this repo:
 ```
 LD_LIBRARY_PATH=./build_linux/libjade:$LD_LIBRARY_PATH python test_jade.py --libjade
 ```
+
+On MacOS replace `LD_LIBRARY_PATH` with `DYLD_LIBRARY_PATH`.
 
 Note that the standard build uses CI-mode, where the firmware auto-selects a
 default option (OK/continue) instead of waiting for user input. To provide

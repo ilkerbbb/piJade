@@ -19,7 +19,11 @@ bool show_ota_versions_activity(
 // The running firmware info, loaded at startup
 extern esp_app_desc_t running_app_info;
 
-const __attribute__((section(".rodata_custom_desc"))) esp_custom_app_desc_t custom_app_desc
+const
+#ifndef CONFIG_LIBJADE
+    __attribute__((section(".rodata_custom_desc")))
+#endif
+    esp_custom_app_desc_t custom_app_desc
     = { .version = 1, .board_type = JADE_OTA_BOARD_TYPE, .features = JADE_OTA_FEATURES, .config = JADE_OTA_CONFIG };
 
 static const char* ota_get_status_text(const ota_status_t status)

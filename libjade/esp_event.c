@@ -1,7 +1,7 @@
 #include "esp_event.h"
 #include "jade_assert.h"
 #include "jade_log.h"
-#include <pthread.h>
+#include "libjade_port.h"
 #include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -44,6 +44,8 @@ static uint32_t next_entry_id = 0;
 
 void* _default_event_loop(void* params)
 {
+    libjade_thread_setname("event_loop");
+
     while (_default_event_loop_running) {
         // get next event from queue
         if (pthread_mutex_lock(&_queue_mutex)) {
@@ -112,10 +114,6 @@ esp_err_t esp_event_loop_create_default(void)
     _default_event_loop_running = true;
     if (pthread_create(&_default_event_loop_task, NULL, _default_event_loop, NULL)) {
         goto cleanup;
-    }
-    const char* task_name = "event_loop";
-    if (pthread_setname_np(_default_event_loop_task, task_name)) {
-        JADE_LOGW("pthread_setname_np failed for task %s", task_name);
     }
     // all succeeded
     result = ESP_OK;

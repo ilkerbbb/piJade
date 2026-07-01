@@ -1,8 +1,8 @@
 #define _GNU_SOURCE 1 // For extra pthread functions
 #include "freertos/timecvt.h"
 #include "jade_assert.h"
+#include "libjade_port.h"
 #include <limits.h>
-#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
@@ -75,6 +75,7 @@ TaskHandle_t xTaskGetCurrentTaskHandle(void) { return (TaskHandle_t)pthread_self
 typedef struct {
     TaskFunction_t func;
     void* arg;
+    char* name;
 } pthread_shim_args_t;
 
 void* pthread_shim_func(void* arg)
@@ -82,6 +83,10 @@ void* pthread_shim_func(void* arg)
     pthread_shim_args_t* args = (pthread_shim_args_t*)arg;
     TaskFunction_t func = args->func;
     void* func_arg = args->arg;
+
+    JADE_ASSERT(args->name);
+    libjade_thread_setname(args->name);
+    free(args->name);
     free(args);
     func(func_arg);
     return NULL;
@@ -137,8 +142,22 @@ BaseType_t xTaskCreatePinnedToCore(TaskFunction_t func, const char* name, uint32
     JADE_ASSERT(shim_args);
     shim_args->func = func;
     shim_args->arg = params;
+    // BBB-AIRGAP: Linux caps a thread name at 16 bytes including the terminator, so
+    // pthread_setname_np() answers ERANGE for anything longer - "auth_qr_client_task" (19
+    // characters, main/qrmode.c) is one such name, and it is the only one in the firmware. The API
+    // this shim emulates does not drop the name in that case: FreeRTOS copies
+    // configMAX_TASK_NAME_LEN bytes into the TCB - 16 by default, measured in ESP-IDF's
+    // components/freertos/Kconfig - and truncates the rest, so the task keeps a (shortened) label.
+    // Truncating here does the same for the one name that needs it, and keeps the naming call
+    // itself unconditional; the shim no longer fails task creation over a name either way.
+    char tname[16];
+    const int namelen = snprintf(tname, sizeof(tname), "%s", name);
+    JADE_ASSERT(namelen > 0);
+    shim_args->name = strdup(tname);
+    JADE_ASSERT(shim_args->name);
     JADE_LOGI("calling pthread_create");
     if (pthread_create(&thread_id, &attr, pthread_shim_func, shim_args) != 0) {
+        free(shim_args->name);
         free(shim_args);
         JADE_LOGE("pthread_create failed for task %s", name);
         result = pdFALSE;
@@ -147,20 +166,7 @@ BaseType_t xTaskCreatePinnedToCore(TaskFunction_t func, const char* name, uint32
     if (output) {
         *output = (TaskHandle_t)thread_id;
     }
-    // BBB-AIRGAP: Linux caps a thread name at 16 bytes including the terminator, so
-    // pthread_setname_np() answers ERANGE for anything longer - "auth_qr_client_task" (19
-    // characters, main/qrmode.c) is one such name, and it is the only one in the firmware. The API
-    // this shim emulates never fails a task creation over its name: FreeRTOS copies
-    // configMAX_TASK_NAME_LEN bytes into the TCB and truncates the rest. Returning pdFALSE here
-    // diverged from that contract, so handle_qr_auth() tripped its own assert (main/qrmode.c) on
-    // every pinserver-over-QR unlock. Truncate the way FreeRTOS does, and treat a naming failure as
-    // cosmetic - the task is created and running either way, only its debugger label is missing.
-    char tname[16];
-    const int namelen = snprintf(tname, sizeof(tname), "%s", name);
-    JADE_ASSERT(namelen > 0);
-    if (pthread_setname_np(thread_id, tname) != 0) {
-        JADE_LOGW("pthread_setname_np failed for task %s", name);
-    }
+
 cleanup:
     // BBB-AIRGAP: initialized attributes own resources on every later failure path, even when no
     // thread was created.

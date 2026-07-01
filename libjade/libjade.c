@@ -17,6 +17,7 @@
 #include "sdkconfig.h"
 
 #include "libjade.h"
+#include "libjade_port.h"
 
 #include "pijade_settings.h" // BBB-AIRGAP: persisted settings
 
@@ -32,7 +33,6 @@
 #define HAVE_UNALIGNED_ACCESS 0
 
 #include <errno.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/random.h>
@@ -289,7 +289,11 @@ void input_init(void) {}
 // Serial
 bool serial_init(TaskHandle_t* task) { return true; }
 
+#ifdef __APPLE__
+const uint8_t binary_pinserver_public_key_pub_start[33]
+#else
 const uint8_t _binary_pinserver_public_key_pub_start[33]
+#endif
     = { 0x03, 0x32, 0xb7, 0xb1, 0x34, 0x8b, 0xde, 0x8c, 0xa4, 0xb4, 0x6b, 0x9d, 0xcc, 0x30, 0x32, 0x0e, 0x14, 0x0c,
           0xa2, 0x64, 0x28, 0x16, 0x0a, 0x27, 0xbd, 0xbf, 0xc3, 0x0b, 0x34, 0xec, 0x87, 0xc5, 0x47 };
 
@@ -444,7 +448,7 @@ void get_random(void* bytes_out, size_t len)
     int getrandom_enosys = 0;
 
     while (remaining > 0) {
-        const ssize_t bytes_read = getrandom(current_ptr, remaining, 0);
+        const ssize_t bytes_read = libjade_getrandom(current_ptr, remaining);
 
         if (bytes_read == -1) {
             if (errno == EINTR) {
@@ -506,6 +510,7 @@ bool _libjade_is_firmware_thread(void) { return _libjade_fw_thread; }
 
 static void* jade_fw_thread_fn(void* arg)
 {
+    libjade_thread_setname("libjade_fw");
     _libjade_fw_thread = true;
     start_dashboard();
     return NULL; // Never reached
@@ -552,7 +557,6 @@ void libjade_start(void)
     boot_process();
     sensitive_assert_empty();
     pthread_create(&_libjade_thread_id, NULL, &jade_fw_thread_fn, NULL);
-    pthread_setname_np(_libjade_thread_id, "libjade_fw");
 }
 
 void libjade_stop(void)

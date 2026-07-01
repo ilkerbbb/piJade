@@ -1,12 +1,13 @@
 from ctypes import CDLL, POINTER, c_ubyte, c_size_t, byref
 import logging
+import sys
 from .jade_error import JadeError
 
 
 logger = logging.getLogger(__name__)
 
 try:
-    _libjade = CDLL('libjade.so')
+    _libjade = CDLL('libjade.dylib' if sys.platform == 'darwin' else 'libjade.so')
     _libjade.libjade_receive.restype = POINTER(c_ubyte)
 except Exception as _:
     raise ImportError  # libjade.so not available

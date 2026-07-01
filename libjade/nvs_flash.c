@@ -1,6 +1,6 @@
 #include "nvs_flash.h"
+#include "libjade_port.h"
 #include "pijade_settings.h" // BBB-AIRGAP: see nvs_commit() below
-#include <endian.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
