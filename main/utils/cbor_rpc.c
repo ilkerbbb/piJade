@@ -326,33 +326,6 @@ uint64_t rpc_get_uint64_or(const char* field, const CborValue* value, const uint
     return res;
 }
 
-bool rpc_get_sizet(const char* field, const CborValue* value, size_t* res)
-{
-    JADE_ASSERT(value);
-    JADE_ASSERT(res);
-    CborValue result;
-    const bool ok = rpc_get_data(field, value, &result);
-
-    if (!ok || !cbor_value_is_unsigned_integer(&result)) {
-        return false;
-    }
-    uint64_t tmp = 0;
-    const CborError cberr = cbor_value_get_uint64(&result, &tmp);
-    JADE_ASSERT(cberr == CborNoError);
-    if (tmp > 0xFFFFFFFF) {
-        return false;
-    }
-    *res = tmp & 0xFFFFFFFF;
-    return true;
-}
-
-size_t rpc_get_sizet_or(const char* field, const CborValue* value, const size_t default_value)
-{
-    size_t res = default_value;
-    IGNORE_RESULT(rpc_get_sizet(field, value, &res));
-    return res;
-}
-
 bool rpc_get_uint32(const char* field, const CborValue* value, uint32_t* res)
 {
     JADE_ASSERT(value && res);

@@ -54,8 +54,6 @@ void rpc_get_bytes_ptr(const char* field, const CborValue* value, const uint8_t*
 void rpc_get_bytes(const char* field, size_t max, const CborValue* value, uint8_t* data, size_t* written);
 
 WARN_UNUSED_RESULT bool rpc_get_n_bytes(const char* field, const CborValue* value, size_t expected_size, uint8_t* data);
-WARN_UNUSED_RESULT bool rpc_get_sizet(const char* field, const CborValue* value, size_t* res);
-WARN_UNUSED_RESULT size_t rpc_get_sizet_or(const char* field, const CborValue* value, size_t default_value);
 WARN_UNUSED_RESULT bool rpc_get_uint32(const char* field, const CborValue* value, uint32_t* res);
 WARN_UNUSED_RESULT uint32_t rpc_get_uint32_or(const char* field, const CborValue* value, uint32_t default_value);
 WARN_UNUSED_RESULT bool rpc_get_uint64(const char* field, const CborValue* value, uint64_t* res);
