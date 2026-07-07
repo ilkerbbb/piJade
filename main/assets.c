@@ -1,4 +1,6 @@
 #ifndef AMALGAMATED_BUILD
+#include <inttypes.h>
+
 #include "assets.h"
 #include "jade_assert.h"
 #include "jade_wally_verify.h"
@@ -15,7 +17,7 @@
 
 // Compute the asset-id given the contract hash and the issuance prevout details
 static void compute_asset_id(const uint8_t* contract_hash, const size_t contract_hash_len, const uint8_t* txhash,
-    const size_t txhash_len, const size_t index, uint8_t* assetid, const size_t assetid_len)
+    const size_t txhash_len, const uint32_t index, uint8_t* assetid, const size_t assetid_len)
 {
     JADE_ASSERT(contract_hash);
     JADE_ASSERT(contract_hash_len == SHA256_LEN);
@@ -133,8 +135,8 @@ bool assets_get_allocate(const char* field, const CborValue* value, asset_info_t
             }
             reverse_in_place(txhash, sizeof(txhash));
 
-            size_t index;
-            if (!rpc_get_sizet("vout", &issuanceprevout, &index)) {
+            uint32_t index;
+            if (!rpc_get_uint32("vout", &issuanceprevout, &index)) {
                 free(assets);
                 return false;
             }
@@ -169,9 +171,9 @@ bool assets_get_allocate(const char* field, const CborValue* value, asset_info_t
             }
 
             // "precision" field is optional in the asset contract and defaults to 0
-            const size_t precision = rpc_get_sizet_or("precision", &contract, 0);
+            const uint32_t precision = rpc_get_uint32_or("precision", &contract, 0);
             if (precision > ASSET_PRECISION_MAX) {
-                JADE_LOGE("Invalid asset precision %zu", precision);
+                JADE_LOGE("Invalid asset precision %" PRIu32, precision);
                 free(assets);
                 return false;
             }
