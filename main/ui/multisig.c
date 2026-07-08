@@ -198,7 +198,7 @@ static bool show_view_multisig_activity(const char* multisig_name, const bool in
     }
 }
 
-static gui_activity_t* make_final_multisig_summary_activities(const char* multisig_name, const size_t threshold,
+static gui_activity_t* make_final_multisig_summary_activities(const char* multisig_name, const uint32_t threshold,
     const size_t num_signers, const size_t num_signer_details, const bool initial_confirmation, const bool overwriting,
     gui_activity_t** actname, gui_activity_t** acttype)
 {
@@ -237,7 +237,7 @@ static gui_activity_t* make_final_multisig_summary_activities(const char* multis
     gui_set_parent(type, splittype);
 
     char typestr[16];
-    const int ret = snprintf(typestr, sizeof(typestr), "%uof%u", threshold, num_signers);
+    const int ret = snprintf(typestr, sizeof(typestr), "%" PRIu32 "of%u", threshold, num_signers);
     JADE_ASSERT(ret > 0 && ret < sizeof(typestr));
 
     gui_make_text(&type, typestr, TFT_WHITE);
@@ -282,7 +282,7 @@ static gui_activity_t* make_final_multisig_summary_activities(const char* multis
     return act;
 }
 
-static bool show_final_multisig_summary_activity(const char* multisig_name, const size_t threshold,
+static bool show_final_multisig_summary_activity(const char* multisig_name, const uint32_t threshold,
     const size_t num_signers, const size_t num_signer_details, const bool initial_confirmation, const bool overwriting)
 {
     JADE_ASSERT(multisig_name);
@@ -324,7 +324,7 @@ static bool show_final_multisig_summary_activity(const char* multisig_name, cons
     }
 }
 
-bool show_multisig_activity(const char* multisig_name, const bool is_sorted, const size_t threshold,
+bool show_multisig_activity(const char* multisig_name, const bool is_sorted, const uint32_t threshold,
     const size_t num_signers, const signer_t* signer_details, const size_t num_signer_details,
     const char* master_blinding_key_hex, const uint8_t* wallet_fingerprint, const size_t wallet_fingerprint_len,
     const bool initial_confirmation, const bool overwriting, const bool is_valid)

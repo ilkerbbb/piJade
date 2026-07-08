@@ -34,7 +34,7 @@ bool multisig_open_registration(
     return registration_open(CURRENT_MULTISIG_RECORD_VERSION, bytes, bytes_len, body, body_len, written);
 }
 
-bool multisig_body_to_bytes(const script_variant_t variant, const bool sorted, const uint8_t threshold,
+bool multisig_body_to_bytes(const script_variant_t variant, const bool sorted, const uint32_t threshold,
     const uint8_t* master_blinding_key, const size_t master_blinding_key_len, const signer_t* signers,
     const size_t num_signers, const size_t total_num_path_elements, uint8_t* body, const size_t body_len)
 {
@@ -43,6 +43,7 @@ bool multisig_body_to_bytes(const script_variant_t variant, const bool sorted, c
     JADE_ASSERT(signers);
     JADE_ASSERT(num_signers >= threshold);
     JADE_ASSERT(num_signers <= MAX_ALLOWED_SIGNERS);
+    JADE_STATIC_ASSERT(MAX_ALLOWED_SIGNERS <= 0xff); // Must fit in uint8_t
     JADE_ASSERT(total_num_path_elements <= num_signers * 2 * MAX_PATH_LEN);
     JADE_ASSERT(body);
     JADE_ASSERT(body_len == MULTISIG_BODY_LEN(master_blinding_key_len, num_signers, total_num_path_elements));
@@ -54,18 +55,13 @@ bool multisig_body_to_bytes(const script_variant_t variant, const bool sorted, c
     write_ptr += sizeof(variant_byte);
 
     // 'sorted' flag
-    const uint8_t sorted_byte = (uint8_t)sorted;
-    memcpy(write_ptr, &sorted_byte, sizeof(sorted_byte));
-    write_ptr += sizeof(sorted_byte);
+    *write_ptr++ = (uint8_t)sorted;
 
     // Threshold
-    memcpy(write_ptr, &threshold, sizeof(threshold));
-    write_ptr += sizeof(threshold);
+    *write_ptr++ = (uint8_t)threshold;
 
     // Blinding key len, and data
-    const uint8_t keylen = (uint8_t)master_blinding_key_len;
-    memcpy(write_ptr, &keylen, sizeof(keylen));
-    write_ptr += sizeof(keylen);
+    *write_ptr++ = (uint8_t)master_blinding_key_len;
 
     if (master_blinding_key_len) {
         memcpy(write_ptr, master_blinding_key, master_blinding_key_len);

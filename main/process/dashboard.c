@@ -224,7 +224,7 @@ bool select_registered_wallet(const char multisig_names[][NVS_KEY_NAME_MAX_SIZE]
     const bool* owned_multisigs, const char descriptor_names[][NVS_KEY_NAME_MAX_SIZE], size_t num_descriptors,
     const bool* owned_descriptors, const char** wallet_name_out, bool* is_multisig);
 gui_activity_t* make_view_delete_wallet_activity(const char* wallet_name, bool allow_export);
-bool show_multisig_activity(const char* multisig_name, bool is_sorted, size_t threshold, size_t num_signers,
+bool show_multisig_activity(const char* multisig_name, bool is_sorted, uint32_t threshold, size_t num_signers,
     const signer_t* signer_details, size_t num_signer_details, const char* master_blinding_key_hex,
     const uint8_t* wallet_fingerprint, size_t wallet_fingerprint_len, bool initial_confirmation, bool overwriting,
     bool is_valid);

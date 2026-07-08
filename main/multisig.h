@@ -60,7 +60,7 @@ typedef struct _multisig_data {
     uint8_t xpubs[MAX_ALLOWED_SIGNERS * BIP32_SERIALIZED_LEN];
 } multisig_data_t;
 
-WARN_UNUSED_RESULT bool multisig_body_to_bytes(script_variant_t variant, bool sorted, uint8_t threshold,
+WARN_UNUSED_RESULT bool multisig_body_to_bytes(script_variant_t variant, bool sorted, uint32_t threshold,
     const uint8_t* master_blinding_key, size_t master_blinding_key_len, const signer_t* signers, size_t num_signers,
     size_t total_num_path_elements, uint8_t* body, size_t body_len);
 

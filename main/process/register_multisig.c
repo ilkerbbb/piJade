@@ -18,14 +18,14 @@
 #include <ctype.h>
 #include <sodium/utils.h>
 
-bool show_multisig_activity(const char* multisig_name, bool is_sorted, size_t threshold, size_t num_signers,
+bool show_multisig_activity(const char* multisig_name, bool is_sorted, uint32_t threshold, size_t num_signers,
     const signer_t* signer_details, const size_t num_signer_details, const char* master_blinding_key_hex,
     const uint8_t* wallet_fingerprint, size_t wallet_fingerprint_len, bool initial_confirmation, bool overwriting,
     bool is_valid);
 
 // Function to validate multsig parameters and persist the record
 static int register_multisig(const char* multisig_name, const network_t network_id,
-    const script_variant_t script_variant, const bool sorted, const size_t threshold, const signer_t* signers,
+    const script_variant_t script_variant, const bool sorted, const uint32_t threshold, const signer_t* signers,
     const size_t num_signers, const uint8_t* master_blinding_key, const size_t master_blinding_key_len,
     const char** errmsg)
 {
@@ -790,12 +790,11 @@ void register_multisig_process(void* process_ptr)
     }
 
     // Threshold
-    written = rpc_get_sizet_or("threshold", &descriptor, 0);
-    if (written == 0 || written > MAX_ALLOWED_SIGNERS) {
+    const uint32_t threshold = rpc_get_uint32_or("threshold", &descriptor, 0);
+    if (threshold == 0 || threshold > MAX_ALLOWED_SIGNERS) {
         jade_process_reject_message(process, CBOR_RPC_BAD_PARAMETERS, "Invalid multisig threshold value");
         goto cleanup;
     }
-    const uint8_t threshold = (uint8_t)written;
 
     // Co-Signers
     signer_t* signers = NULL;
