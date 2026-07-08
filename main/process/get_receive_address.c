@@ -1,4 +1,6 @@
 #ifndef AMALGAMATED_BUILD
+#include <inttypes.h>
+
 #include "../descriptor.h"
 #include "../gui.h"
 #include "../jade_assert.h"
@@ -110,9 +112,9 @@ void get_receive_address_process(void* process_ptr)
         }
 
         // The path is given in two parts - optional (change) branch and mandatory index pointer
-        const size_t branch = rpc_get_sizet_or("branch", &params, 0); // optional
-        size_t pointer = 0;
-        if (!rpc_get_sizet("pointer", &params, &pointer)) {
+        const uint32_t branch = rpc_get_uint32_or("branch", &params, 0); // optional
+        uint32_t pointer = 0;
+        if (!rpc_get_uint32("pointer", &params, &pointer)) {
             jade_process_reject_message(
                 process, CBOR_RPC_BAD_PARAMETERS, "Failed to extract path elements from parameters");
             goto cleanup;
@@ -148,9 +150,9 @@ void get_receive_address_process(void* process_ptr)
 
         if (is_greenaddress(script_variant)) {
             // For green-multisig the path is constructed from subaccount, branch and pointer
-            size_t subaccount = 0, branch = 0, pointer = 0;
-            if (!rpc_get_sizet("subaccount", &params, &subaccount) || !rpc_get_sizet("branch", &params, &branch)
-                || !rpc_get_sizet("pointer", &params, &pointer)) {
+            uint32_t subaccount = 0, branch = 0, pointer = 0;
+            if (!rpc_get_uint32("subaccount", &params, &subaccount) || !rpc_get_uint32("branch", &params, &branch)
+                || !rpc_get_uint32("pointer", &params, &pointer)) {
                 jade_process_reject_message(
                     process, CBOR_RPC_BAD_PARAMETERS, "Failed to extract path elements from parameters");
                 goto cleanup;
@@ -163,11 +165,11 @@ void get_receive_address_process(void* process_ptr)
             rpc_get_string("recovery_xpub", sizeof(xpubrecovery), &params, xpubrecovery, &written);
 
             // Optional 'blocks' for csv outputs
-            const size_t csv_blocks = rpc_get_sizet_or("csv_blocks", &params, 0);
+            const uint32_t csv_blocks = rpc_get_uint32_or("csv_blocks", &params, 0);
 
             if (csv_blocks && !network_is_known_csv_blocks(network_id, csv_blocks)) {
                 const int ret
-                    = snprintf(warning_msg, sizeof(warning_msg), "\nWarning:\nNon-standard csv:\n%u", csv_blocks);
+                    = snprintf(warning_msg, sizeof(warning_msg), "\nWarning:\nNon-standard csv:\n%" PRIu32, csv_blocks);
                 JADE_ASSERT(ret > 0 && ret < sizeof(warning_msg));
             }
 
