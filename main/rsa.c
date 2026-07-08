@@ -1,9 +1,11 @@
 #ifndef AMALGAMATED_BUILD
 
-#include "rsa.h"
+#include <inttypes.h>
+
 #include "jade_assert.h"
 #include "keychain.h"
 #include "random.h"
+#include "rsa.h"
 #include "sensitive.h"
 #include "utils/shake256.h"
 #include "wallet.h"
@@ -13,7 +15,7 @@
 
 // Function to get bip85-generated rsa context
 // See: https://github.com/bitcoin/bips/blob/master/bip-0085.mediawiki
-static bool get_bip85_rsa_ctx(const size_t key_bits, const size_t index, mbedtls_rsa_context* output)
+static bool get_bip85_rsa_ctx(const uint32_t key_bits, const uint32_t index, mbedtls_rsa_context* output)
 {
     JADE_ASSERT(key_bits <= MAX_RSA_GEN_KEY_LEN);
     JADE_ASSERT(RSA_KEY_SIZE_VALID(key_bits));
@@ -21,7 +23,7 @@ static bool get_bip85_rsa_ctx(const size_t key_bits, const size_t index, mbedtls
     JADE_ASSERT(output);
 
     JADE_ASSERT(keychain_get());
-    JADE_LOGI("Deriving BIP85 RSA context for index %u, key length: %u", index, key_bits);
+    JADE_LOGI("Deriving BIP85 RSA context for index %" PRIu32 ", key length: %" PRIu32, index, key_bits);
 
     uint8_t entropy[HMAC_SHA512_LEN];
     size_t entropy_len = 0;
@@ -39,7 +41,7 @@ static bool get_bip85_rsa_ctx(const size_t key_bits, const size_t index, mbedtls
 }
 
 // Function to get bip85-generated rsa key pem
-bool rsa_get_bip85_pubkey_pem(const size_t key_bits, const size_t index, char* output, const size_t output_len)
+bool rsa_get_bip85_pubkey_pem(const uint32_t key_bits, const uint32_t index, char* output, const size_t output_len)
 {
     JADE_ASSERT(key_bits <= MAX_RSA_GEN_KEY_LEN);
     JADE_ASSERT(RSA_KEY_SIZE_VALID(key_bits));
@@ -91,7 +93,7 @@ cleanup:
 }
 
 // Function to get bip85-generated rsa key pem
-bool rsa_bip85_key_sign_digests(const size_t key_bits, const size_t index, const rsa_signing_digest_t* digests,
+bool rsa_bip85_key_sign_digests(const uint32_t key_bits, const uint32_t index, const rsa_signing_digest_t* digests,
     const size_t digests_len, rsa_signature_t* signatures, const size_t signatures_len)
 {
     JADE_ASSERT(key_bits <= MAX_RSA_GEN_KEY_LEN);
@@ -135,7 +137,7 @@ bool rsa_bip85_key_sign_digests(const size_t key_bits, const size_t index, const
         struct shake256_ctx sctx = {};
         shake256_init(&sctx, keychain_get()->master_unblinding_key, sizeof(keychain_get()->master_unblinding_key));
         const int rc = mbedtls_rsa_rsassa_pss_sign(&rsa, shake256_mbedtls_rnd_cb, &sctx, MBEDTLS_MD_SHA256,
-            digest->digest_len, digest->digest, sigout->signature);
+            (unsigned int)digest->digest_len, digest->digest, sigout->signature);
 #else
         const int rc = mbedtls_rsa_rsassa_pss_sign(
             &rsa, random_mbedtls_cb, NULL, MBEDTLS_MD_SHA256, digest->digest_len, digest->digest, sigout->signature);

@@ -19,8 +19,8 @@ void get_bip85_pubkey_process(void* process_ptr)
     GET_MSG_PARAMS(process);
 
     const char* errmsg = NULL;
-    size_t key_bits = 0;
-    size_t index = 0;
+    uint32_t key_bits = 0;
+    uint32_t index = 0;
 
     if (!params_get_bip85_rsa_key(&params, &key_bits, &index, &errmsg)) {
         jade_process_reject_message(process, CBOR_RPC_BAD_PARAMETERS, errmsg);

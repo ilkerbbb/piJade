@@ -22,10 +22,10 @@ typedef struct {
 } rsa_signature_t;
 
 // Function to get bip85-generated rsa key pem
-WARN_UNUSED_RESULT bool rsa_get_bip85_pubkey_pem(size_t key_bits, size_t index, char* output, size_t output_len);
+WARN_UNUSED_RESULT bool rsa_get_bip85_pubkey_pem(uint32_t key_bits, uint32_t index, char* output, size_t output_len);
 
 // Function to get bip85-generated rsa key pem
-WARN_UNUSED_RESULT bool rsa_bip85_key_sign_digests(size_t key_bits, size_t index, const rsa_signing_digest_t* digests,
-    size_t digests_len, rsa_signature_t* signatures, size_t signatures_len);
+WARN_UNUSED_RESULT bool rsa_bip85_key_sign_digests(uint32_t key_bits, uint32_t index,
+    const rsa_signing_digest_t* digests, size_t digests_len, rsa_signature_t* signatures, size_t signatures_len);
 
 #endif /* JADE_RSA_H_ */

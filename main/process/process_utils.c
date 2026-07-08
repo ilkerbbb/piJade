@@ -423,7 +423,7 @@ bool params_tx_input_signing_data(const bool use_ae_signatures, CborValue* param
 }
 
 // Bip85 RSA key parameters (key size and index)
-bool params_get_bip85_rsa_key(CborValue* params, size_t* key_bits, size_t* index, const char** errmsg)
+bool params_get_bip85_rsa_key(CborValue* params, uint32_t* key_bits, uint32_t* index, const char** errmsg)
 {
     JADE_ASSERT(params);
     JADE_ASSERT(key_bits);
@@ -440,13 +440,13 @@ bool params_get_bip85_rsa_key(CborValue* params, size_t* key_bits, size_t* index
     }
 
     // Get number of key_bits and final index
-    if (!rpc_get_sizet("key_bits", params, key_bits) || *key_bits > MAX_RSA_GEN_KEY_LEN
+    if (!rpc_get_uint32("key_bits", params, key_bits) || *key_bits > MAX_RSA_GEN_KEY_LEN
         || !RSA_KEY_SIZE_VALID(*key_bits)) {
         *errmsg = "Failed to fetch valid key length from message";
         return false;
     }
 
-    if (!rpc_get_sizet("index", params, index) || *index > BIP32_MAX_CHILD_INDEX) {
+    if (!rpc_get_uint32("index", params, index) || *index > BIP32_MAX_CHILD_INDEX) {
         *errmsg = "Failed to fetch valid index from message";
         return false;
     }

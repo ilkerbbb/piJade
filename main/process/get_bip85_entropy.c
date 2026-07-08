@@ -1,4 +1,6 @@
 #ifndef AMALGAMATED_BUILD
+#include <inttypes.h>
+
 #include "../aes.h"
 #include "../bcur.h"
 #include "../button_events.h"
@@ -49,7 +51,7 @@ static void reply_bip85_data(const void* ctx, CborEncoder* container)
     populate_bip85_reply_data(container, bip85_data);
 }
 
-static bool get_encrypted_bip85_bip39_entropy(const size_t nwords, const size_t index, const uint8_t* pubkey,
+static bool get_encrypted_bip85_bip39_entropy(const uint32_t nwords, const uint32_t index, const uint8_t* pubkey,
     const size_t pubkey_len, bip85_data_t* bip85_data, const char** errmsg)
 {
     JADE_ASSERT(nwords);
@@ -103,7 +105,7 @@ cleanup:
     return retval;
 }
 
-static bool get_encrypted_bip85_rsa_entropy(const size_t key_bits, const size_t index, const uint8_t* pubkey,
+static bool get_encrypted_bip85_rsa_entropy(const uint32_t key_bits, const uint32_t index, const uint8_t* pubkey,
     const size_t pubkey_len, bip85_data_t* bip85_data, const char** errmsg)
 {
     JADE_ASSERT(key_bits);
@@ -164,14 +166,14 @@ static int get_bip85_bip39_entropy_data(const CborValue* params, bip85_data_t* b
     JADE_INIT_OUT_PPTR(errmsg);
 
     // Get number of words and final index
-    size_t nwords = 0;
-    if (!rpc_get_sizet("num_words", params, &nwords) || (nwords != 12 && nwords != 24)) {
+    const uint32_t nwords = rpc_get_uint32_or("num_words", params, 0);
+    if (nwords != 12 && nwords != 24) {
         *errmsg = "Failed to fetch valid number of words from message";
         return CBOR_RPC_BAD_PARAMETERS;
     }
 
-    size_t index = 0;
-    if (!rpc_get_sizet("index", params, &index) || index > BIP32_MAX_CHILD_INDEX) {
+    uint32_t index = 0;
+    if (!rpc_get_uint32("index", params, &index) || index > BIP32_MAX_CHILD_INDEX) {
         *errmsg = "Failed to fetch valid index from message";
         return CBOR_RPC_BAD_PARAMETERS;
     }
@@ -195,11 +197,11 @@ static int get_bip85_bip39_entropy_data(const CborValue* params, bip85_data_t* b
     } else {
         // User to confirm
         char nwordphrase[24];
-        int ret = snprintf(nwordphrase, sizeof(nwordphrase), "%u word seed phrase", nwords);
+        int ret = snprintf(nwordphrase, sizeof(nwordphrase), "%" PRIu32 " word seed phrase", nwords);
         JADE_ASSERT(ret > 0 && ret < sizeof(nwordphrase));
 
         char txtindex[32];
-        ret = snprintf(txtindex, sizeof(txtindex), "for BIP85 index %u?", index);
+        ret = snprintf(txtindex, sizeof(txtindex), "for BIP85 index %" PRIu32 "?", index);
         JADE_ASSERT(ret > 0 && ret < sizeof(txtindex));
 
         const char* message[] = { "Export an encrypted", nwordphrase, txtindex };
@@ -228,14 +230,14 @@ static int get_bip85_rsa_entropy_data(const CborValue* params, bip85_data_t* bip
     JADE_INIT_OUT_PPTR(errmsg);
 
     // Get number of key_bits and final index
-    size_t key_bits = 0;
-    if (!rpc_get_sizet("key_bits", params, &key_bits) || !RSA_KEY_SIZE_VALID(key_bits)) {
+    const uint32_t key_bits = rpc_get_uint32_or("key_bits", params, 0);
+    if (!RSA_KEY_SIZE_VALID(key_bits)) {
         *errmsg = "Failed to fetch valid number of key_bits from message";
         return CBOR_RPC_BAD_PARAMETERS;
     }
 
-    size_t index = 0;
-    if (!rpc_get_sizet("index", params, &index) || index > BIP32_MAX_CHILD_INDEX) {
+    uint32_t index = 0;
+    if (!rpc_get_uint32("index", params, &index) || index > BIP32_MAX_CHILD_INDEX) {
         *errmsg = "Failed to fetch valid index from message";
         return CBOR_RPC_BAD_PARAMETERS;
     }
@@ -250,11 +252,11 @@ static int get_bip85_rsa_entropy_data(const CborValue* params, bip85_data_t* bip
 
     // User to confirm
     char nwordphrase[24];
-    int ret = snprintf(nwordphrase, sizeof(nwordphrase), "%u rsa key size", key_bits);
+    int ret = snprintf(nwordphrase, sizeof(nwordphrase), "%" PRIu32 " rsa key size", key_bits);
     JADE_ASSERT(ret > 0 && ret < sizeof(nwordphrase));
 
     char txtindex[32];
-    ret = snprintf(txtindex, sizeof(txtindex), "for BIP85 index %u?", index);
+    ret = snprintf(txtindex, sizeof(txtindex), "for BIP85 index %" PRIu32 "?", index);
     JADE_ASSERT(ret > 0 && ret < sizeof(txtindex));
 
     const char* message[] = { "Export an encrypted", nwordphrase, txtindex };

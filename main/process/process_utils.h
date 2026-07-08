@@ -1,6 +1,8 @@
 #ifndef PROCESS_UTILS_H_
 #define PROCESS_UTILS_H_
 
+#include <stdint.h>
+
 #include "../jade_assert.h"
 #include "../keychain.h"
 #include "../process.h"
@@ -147,7 +149,7 @@ WARN_UNUSED_RESULT bool params_tx_input_signing_data(const bool use_ae_signature
     size_t* script_len, script_flavour_t* aggregate_script_flavour, const char** errmsg);
 
 WARN_UNUSED_RESULT bool params_get_bip85_rsa_key(
-    CborValue* params, size_t* key_bits, size_t* index, const char** errmsg);
+    CborValue* params, uint32_t* key_bits, uint32_t* index, const char** errmsg);
 
 // Track the types of the input prevout scripts
 script_flavour_t get_script_flavour(const uint8_t* script, const size_t script_len, bool* is_p2tr);

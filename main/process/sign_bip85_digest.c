@@ -1,5 +1,7 @@
 #ifndef AMALGAMATED_BUILD
 
+#include <inttypes.h>
+
 #include "../jade_assert.h"
 #include "../process.h"
 #include "../rsa.h"
@@ -95,8 +97,8 @@ void sign_bip85_digests_process(void* process_ptr)
     GET_MSG_PARAMS(process);
 
     const char* errmsg = NULL;
-    size_t key_bits = 0;
-    size_t index = 0;
+    uint32_t key_bits = 0;
+    uint32_t index = 0;
 
     if (!params_get_bip85_rsa_key(&params, &key_bits, &index, &errmsg)) {
         jade_process_reject_message(process, CBOR_RPC_BAD_PARAMETERS, errmsg);
@@ -131,9 +133,9 @@ void sign_bip85_digests_process(void* process_ptr)
         ret = snprintf(buf1, sizeof(buf1), "Sign passed digest");
     }
     JADE_ASSERT(ret > 0 && ret < sizeof(buf1));
-    ret = snprintf(buf2, sizeof(buf2), "with %u-bit key", key_bits);
+    ret = snprintf(buf2, sizeof(buf2), "with %" PRIu32 "-bit key", key_bits);
     JADE_ASSERT(ret > 0 && ret < sizeof(buf2));
-    ret = snprintf(buf3, sizeof(buf3), "index: %u?", index);
+    ret = snprintf(buf3, sizeof(buf3), "index: %" PRIu32 "?", index);
     JADE_ASSERT(ret > 0 && ret < sizeof(buf3));
 
     const char* message[] = { buf1, buf2, buf3 };
