@@ -552,7 +552,7 @@ bool rpc_get_bip32_path_from_value(CborValue* value, uint32_t* path_ptr, const s
         if (tmp > 0xFFFFFFFF) {
             return false;
         }
-        path_ptr[counter] = tmp;
+        path_ptr[counter] = (uint32_t)tmp;
 
         cberr = cbor_value_advance_fixed(&arrayItem);
         JADE_ASSERT(cberr == CborNoError);
