@@ -21,7 +21,7 @@ void get_blinding_factor_process(void* process_ptr)
     // hash-prevouts and output index are needed to generate deterministic blinding factors
     size_t hash_prevouts_len = 0;
     const uint8_t* hash_prevouts = NULL;
-    size_t output_index = 0;
+    uint32_t output_index = 0;
     if (!params_hashprevouts_outputindex(&params, &hash_prevouts, &hash_prevouts_len, &output_index, &errmsg)) {
         jade_process_reject_message(process, CBOR_RPC_BAD_PARAMETERS, errmsg);
         goto cleanup;

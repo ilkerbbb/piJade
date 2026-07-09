@@ -129,7 +129,7 @@ WARN_UNUSED_RESULT bool params_identity_curve_index(CborValue* params, const cha
     const char** curve, size_t* curve_len, size_t* index, const char** errmsg);
 
 WARN_UNUSED_RESULT bool params_hashprevouts_outputindex(CborValue* params, const uint8_t** hash_prevouts,
-    size_t* hash_prevouts_len, size_t* output_index, const char** errmsg);
+    size_t* hash_prevouts_len, uint32_t* output_index, const char** errmsg);
 
 typedef struct _descriptor_data descriptor_data_t;
 WARN_UNUSED_RESULT bool params_load_descriptor(CborValue* params, char* descriptor_name,
