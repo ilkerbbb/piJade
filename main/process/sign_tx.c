@@ -59,9 +59,8 @@ static struct wally_tx* params_txn(jade_process_t* process, const CborValue* par
     }
     jade_process_call_on_exit(process, jade_wally_free_tx_wrapper, tx);
 
-    size_t num_inputs = 0;
-    bool ret = rpc_get_sizet("num_inputs", params, &num_inputs);
-    if (!ret || num_inputs == 0) {
+    const uint32_t num_inputs = rpc_get_uint32_or("num_inputs", params, 0);
+    if (num_inputs == 0) {
         errmsg = "Failed to extract valid number of inputs from parameters";
         goto fail;
     }
@@ -188,9 +187,9 @@ static bool params_signing_outputs(jade_process_t* process, const CborValue* par
                 }
 
                 // The path is given in two parts - optional (change) branch and mandatory index pointer
-                const size_t branch = rpc_get_sizet_or("branch", &arrayItem, 0); // optional
-                size_t pointer = 0;
-                if (!rpc_get_sizet("pointer", &arrayItem, &pointer)) {
+                const uint32_t branch = rpc_get_uint32_or("branch", &arrayItem, 0); // optional
+                uint32_t pointer = 0;
+                if (!rpc_get_uint32("pointer", &arrayItem, &pointer)) {
                     errmsg = "Failed to extract path elements from parameters";
                     goto cleanup;
                 }
@@ -239,14 +238,14 @@ static bool params_signing_outputs(jade_process_t* process, const CborValue* par
                     }
 
                     // Optional 'blocks' for csv outputs, defaults to 0
-                    const size_t csv_blocks = rpc_get_sizet_or("csv_blocks", &arrayItem, 0);
+                    const uint32_t csv_blocks = rpc_get_uint32_or("csv_blocks", &arrayItem, 0);
 
                     // If number of csv blocks unexpected show a warning message and ask the user to confirm
                     if (csv_blocks && !network_is_known_csv_blocks(network_id, csv_blocks)) {
-                        JADE_LOGW("Unexpected number of csv blocks in path for output: %u", csv_blocks);
+                        JADE_LOGW("Unexpected number of csv blocks in path for output: %" PRIu32, csv_blocks);
                         const int ret = snprintf(outinfo->message, sizeof(outinfo->message),
-                            "This wallet output has a non-standard csv value (%u), so it may be difficult to find.  "
-                            "Proceed at your own risk.",
+                            "This wallet output has a non-standard csv value (%" PRIu32
+                            "), so it may be difficult to find.  Proceed at your own risk.",
                             csv_blocks);
                         JADE_ASSERT(
                             ret > 0 && ret < sizeof(outinfo->message)); // Keep message within size handled by gui
@@ -566,7 +565,7 @@ static void sign_tx_impl(jade_process_t* process, const bool for_liquid)
     uint32_t num_p2tr_to_sign = 0; // Total number of p2tr inputs to sign
 
     // Loop to fetch data for and validate all inputs
-    for (size_t index = 0; index < tx->num_inputs; ++index) {
+    for (uint32_t index = 0; index < tx->num_inputs; ++index) {
         jade_process_load_in_message(process, true);
         if (!IS_CURRENT_MESSAGE(process, "tx_input")) {
             // Protocol error
@@ -607,7 +606,7 @@ static void sign_tx_impl(jade_process_t* process, const bool for_liquid)
                 goto cleanup;
             }
             if (!sighash_is_supported(txtype, input_data->sig_type, input_data->sighash, for_liquid, is_partial)) {
-                JADE_LOGW("Unsupported sighash for signing input %u", index);
+                JADE_LOGW("Unsupported sighash for signing input %" PRIu32, index);
                 jade_process_reject_message(process, CBOR_RPC_BAD_PARAMETERS, "Unsupported sighash value");
                 goto cleanup;
             }

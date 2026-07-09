@@ -68,6 +68,8 @@ static uint32_t get_asset_scale_factor(const asset_info_t* asset_info)
 static bool display_output(
     const struct wally_tx_output* outputs, const output_info_t* output_info, const size_t i, const bool show_scriptless)
 {
+    JADE_ASSERT(outputs);
+
     if (!show_scriptless && !outputs[i].script) {
         // Hide outputs with no script
         return false;
@@ -93,6 +95,8 @@ static bool display_output(
 static uint32_t displayable_outputs(
     const struct wally_tx* tx, const output_info_t* output_info, const bool show_scriptless)
 {
+    JADE_ASSERT(tx && tx->num_outputs <= UINT32_MAX);
+
     uint32_t nDisplayable = 0;
     for (size_t i = 0; i < tx->num_outputs; ++i) {
         if (display_output(tx->outputs, output_info, i, show_scriptless)) {
@@ -101,7 +105,7 @@ static uint32_t displayable_outputs(
     }
 
     // If we would hide all outputs, then don't hide any
-    return nDisplayable > 0 ? nDisplayable : tx->num_outputs;
+    return nDisplayable > 0 ? nDisplayable : (uint32_t)tx->num_outputs;
 }
 
 // Lookup the passed asset-id in the asset data, and return the asset-id, issuer,
