@@ -11,6 +11,7 @@
 #include <ctype.h>
 #include <esp_efuse.h>
 #include <sodium/utils.h>
+#include <stdint.h>
 #include <string.h>
 
 bool show_ota_versions_activity(
@@ -204,17 +205,17 @@ jade_ota_ctx_t* ota_init(jade_process_t* process, const bool is_delta)
         JADE_ASSERT(!keychain_has_temporary());
     }
 
-    size_t firmwaresize = 0;
-    size_t compressedsize = 0;
-    size_t uncompressedpatchsize = 0;
+    uint32_t firmwaresize = 0;
+    uint32_t compressedsize = 0;
+    uint32_t uncompressedpatchsize = 0;
 
-    if (!rpc_get_sizet("fwsize", &params, &firmwaresize) || !rpc_get_sizet("cmpsize", &params, &compressedsize)
+    if (!rpc_get_uint32("fwsize", &params, &firmwaresize) || !rpc_get_uint32("cmpsize", &params, &compressedsize)
         || firmwaresize <= compressedsize) {
         errmsg = "Bad filesize parameters";
         goto cleanup;
     }
     if (is_delta
-        && (!rpc_get_sizet("patchsize", &params, &uncompressedpatchsize) || uncompressedpatchsize <= compressedsize)) {
+        && (!rpc_get_uint32("patchsize", &params, &uncompressedpatchsize) || uncompressedpatchsize <= compressedsize)) {
         errmsg = "Bad delta filesize parameters";
         goto cleanup;
     }
@@ -252,11 +253,11 @@ jade_ota_ctx_t* ota_init(jade_process_t* process, const bool is_delta)
     JADE_WALLY_VERIFY(wally_hex_from_bytes(expected_hash, sizeof(expected_hash), &joctx->expected_hash_hexstr));
     joctx->ota_return_status = OTA_ERR_SETUP;
     joctx->expected_source = ota_source;
-    joctx->compressedsize = compressedsize;
+    joctx->compressedsize = (size_t)compressedsize;
     joctx->remaining_compressed = joctx->compressedsize;
-    joctx->uncompressedsize = is_delta ? uncompressedpatchsize : firmwaresize;
+    joctx->uncompressedsize = is_delta ? (size_t)uncompressedpatchsize : (size_t)firmwaresize;
     joctx->remaining_uncompressed = joctx->uncompressedsize;
-    joctx->firmwaresize = firmwaresize;
+    joctx->firmwaresize = (size_t)firmwaresize;
     joctx->fwwritten = 0;
     joctx->extended_replies = extended_replies;
     joctx->validated_confirmed = false;
