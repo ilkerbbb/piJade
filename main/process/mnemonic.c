@@ -29,6 +29,7 @@
 
 #define MAX_NUM_FINAL_WORDS 128
 #define NUM_WORDS_SELECT 10
+#define WORD_ENTRY_KEYS_LEN 26
 
 #define WORDLIST_PASSPHRASE_MAX_WORDS 10
 
@@ -41,12 +42,12 @@ gui_activity_t* make_mnemonic_setup_type_activity(void);
 gui_activity_t* make_mnemonic_setup_method_activity(bool advanced);
 gui_activity_t* make_new_mnemonic_activity(void);
 gui_activity_t* make_restore_mnemonic_activity(bool temporary_restore);
+gui_activity_t* make_restore_mnemonic_method_activity(size_t nwords);
 
 void make_show_mnemonic_activities(gui_activity_t** first_activity_ptr, gui_activity_t** last_activity_ptr,
     const char* mnemonic, uint16_t word_offs[], size_t nwords);
 gui_activity_t* make_confirm_mnemonic_word_activity(gui_view_node_t** text_box_ptr, uint8_t first_word_index,
     uint8_t offset_word_to_confirm, const char* mnemonic, uint16_t word_offs[], size_t nwords);
-
 gui_activity_t* make_enter_wordlist_word_activity(gui_view_node_t** titletext, bool show_enter_btn,
     gui_view_node_t** textbox, gui_view_node_t** backspace, gui_view_node_t** enter, gui_view_node_t** keys,
     size_t keys_len);
@@ -61,6 +62,12 @@ gui_activity_t* make_export_qr_fragment_activity(
 
 gui_activity_t* make_bip85_mnemonic_words_activity(void);
 
+// Checks if the given number of mnemonic words is supported by this implementation
+static inline bool is_valid_mnemonic_length(const size_t nwords) { return nwords == 12 || nwords == 24; }
+
+// Returns the size of a buffer needed for storing the given number of mnemonic words
+static inline size_t mnemonic_buffer_size(const size_t nwords) { return (MNEMONIC_MAX_WORD_LEN + 1) * nwords; }
+
 #ifdef CONFIG_HAS_CAMERA
 // Export a mnemonic by asking the user to transcribe it to hard copy, then
 // scanning that hard copy back in and verifying the data matches.
@@ -71,8 +78,7 @@ gui_activity_t* make_bip85_mnemonic_words_activity(void);
 // 'false' implies they pressed a 'back' button and we should NOT move forward.
 static bool mnemonic_export_qr(const char* mnemonic, bool* export_qr_verified)
 {
-    JADE_ASSERT(mnemonic);
-    JADE_ASSERT(export_qr_verified);
+    JADE_ASSERT(mnemonic && export_qr_verified);
 
     // Will be set if scan succeeds
     *export_qr_verified = false;
@@ -232,8 +238,7 @@ static bool mnemonic_export_qr(const char* mnemonic, bool* export_qr_verified)
             gui_view_node_t* text_node = NULL;
             gui_activity_t* const act_qr_part
                 = make_export_qr_fragment_activity(&icons[0], context_available, &icon_node, &text_node);
-            JADE_ASSERT(icon_node);
-            JADE_ASSERT(text_node);
+            JADE_ASSERT(icon_node && text_node);
             bool show_context = false;
             bool part_changed = true;
 
@@ -371,8 +376,7 @@ static void export_wallet_seedqr(void)
 static void change_mnemonic_word_separator(char* mnemonic, const size_t len, const char old_separator,
     const char new_separator, uint16_t word_offs[], const size_t nwords)
 {
-    JADE_ASSERT(mnemonic && len < 16384u);
-    JADE_ASSERT(word_offs);
+    JADE_ASSERT(mnemonic && len < 16384u && word_offs);
 
     size_t word = 0, i = 0;
     for (/*nothing*/; i < len && word < nwords; ++i, ++word) {
@@ -384,8 +388,7 @@ static void change_mnemonic_word_separator(char* mnemonic, const size_t len, con
             }
         }
     }
-    JADE_ASSERT(word == nwords);
-    JADE_ASSERT(i == len + 1);
+    JADE_ASSERT(word == nwords && i == len + 1);
 }
 
 // BBB-AIRGAP: waits on the mnemonic pages for the button that leaves them, and returns its id.
@@ -449,8 +452,7 @@ static int32_t await_mnemonic_pages_exit(gui_activity_t* first_activity)
 static bool display_confirm_mnemonic(const size_t nwords, char* mnemonic, const size_t mnemonic_len)
 {
     // Support 12-word and 24-word mnemonics only
-    JADE_ASSERT(nwords == 12 || nwords == 24);
-    JADE_ASSERT(mnemonic);
+    JADE_ASSERT(is_valid_mnemonic_length(nwords) && mnemonic);
 
     // Show the warning banner screen, user to confirm
     // BBB-AIRGAP: a device can be set to leave this banner out (Features).  What it guards is
@@ -473,8 +475,7 @@ static bool display_confirm_mnemonic(const size_t nwords, char* mnemonic, const 
     gui_activity_t* first_activity = NULL;
     gui_activity_t* last_activity = NULL;
     make_show_mnemonic_activities(&first_activity, &last_activity, mnemonic, word_offs, nwords);
-    JADE_ASSERT(first_activity);
-    JADE_ASSERT(last_activity);
+    JADE_ASSERT(first_activity && last_activity);
 
     while (!mnemonic_confirmed) {
         int32_t ev_id = await_mnemonic_pages_exit(first_activity);
@@ -503,7 +504,7 @@ static bool display_confirm_mnemonic(const size_t nwords, char* mnemonic, const 
             gui_activity_t* const confirm_act
                 = make_confirm_mnemonic_word_activity(&textbox, i, offset_word_to_confirm, mnemonic, word_offs, nwords);
             gui_activity_set_escape(confirm_act, false);
-            JADE_LOGD("selected = %u", selected);
+            JADE_LOGD("selected = %zu", selected);
 
             // Pick some other words from the mnemonic as options, but avoid
             // the words currently displayed on screen (neighbouring words).
@@ -721,7 +722,6 @@ void handle_wallet_backup(void)
 }
 #endif // CONFIG_HAS_CAMERA
 
-#ifndef CONFIG_DEBUG_UNATTENDED_CI
 // NOTE: only the English wordlist is supported.
 // BBB-AIRGAP: 'entropy' is user-supplied (eg. dice rolls); pass NULL to use the
 // device RNG, which is the upstream behaviour.
@@ -729,9 +729,7 @@ static bool mnemonic_new(
     const size_t nwords, const uint8_t* entropy, const size_t entropy_len, char* mnemonic, const size_t mnemonic_len)
 {
     // Support 12-word and 24-word mnemonics only
-    JADE_ASSERT(nwords == 12 || nwords == 24);
-    JADE_ASSERT(mnemonic);
-    JADE_ASSERT(mnemonic_len == MNEMONIC_BUFLEN);
+    JADE_ASSERT(is_valid_mnemonic_length(nwords) && mnemonic && mnemonic_len == MNEMONIC_BUFLEN);
 
     // Generate and show the mnemonic - NOTE: only the English wordlist is supported.
     char* new_mnemonic = NULL;
@@ -758,27 +756,20 @@ static bool mnemonic_new(
 
     return mnemonic_confirmed;
 }
-#endif // CONFIG_DEBUG_UNATTENDED_CI
 
 // NOTE: only the English wordlist is supported.
 static void enable_relevant_chars(const bool is_mnemonic, const char* word, const size_t word_len,
     const size_t* filter_word_list, const size_t filter_word_list_size, gui_activity_t* act, gui_view_node_t* backspace,
     gui_view_node_t* enter, gui_view_node_t** btns, const size_t btns_len)
 {
-    JADE_ASSERT(word);
     // word_len may be zero if no word entered as yet
     // input_wordlist is optional
-    JADE_ASSERT(filter_word_list || !filter_word_list_size);
-    JADE_ASSERT(act);
-    JADE_ASSERT(backspace);
-    JADE_ASSERT(enter);
-    JADE_ASSERT(btns);
-    JADE_ASSERT(btns_len == 26); // ie A->Z
+    JADE_ASSERT(word && (filter_word_list || !filter_word_list_size));
+    // btns_len is expected to be 26 (A->Z)
+    JADE_ASSERT(act && backspace && enter && btns && btns_len == 26);
+    JADE_ASSERT(backspace->activity == act && enter->activity == act);
 
-    JADE_ASSERT(backspace->activity == act);
-    JADE_ASSERT(enter->activity == act);
-
-    JADE_LOGD("word = %s, word_len = %u", word, word_len);
+    JADE_LOGD("word = %s, word_len = %zu", word, word_len);
 
     // Enable enter if a) not entering a mnemonic, and b) not part-way through entering a word
     // Enable backspace in all cases.
@@ -848,13 +839,10 @@ static void enable_relevant_chars(const bool is_mnemonic, const char* word, cons
 static size_t valid_words(const char* word, const size_t word_len, const size_t* filter_word_list,
     const size_t filter_word_list_size, size_t* output_word_list, const size_t output_word_list_len, bool* exact_match)
 {
-    JADE_ASSERT(word);
     // word_len may be zero if no word entered as yet
     // input_wordlist is optional
-    JADE_ASSERT(filter_word_list || !filter_word_list_size);
-    JADE_ASSERT(output_word_list);
-    JADE_ASSERT(output_word_list_len);
-    JADE_ASSERT(exact_match);
+    JADE_ASSERT(word && (filter_word_list || !filter_word_list_size));
+    JADE_ASSERT(output_word_list && output_word_list_len && exact_match);
 
     *exact_match = false;
     size_t num_possible_words = 0;
@@ -913,17 +901,16 @@ static size_t valid_words(const char* word, const size_t word_len, const size_t*
 static size_t valid_final_words(const char** mnemonic_words, const size_t num_mnemonic_words,
     size_t* possible_word_list, const size_t possible_word_list_len)
 {
-    JADE_ASSERT(mnemonic_words);
-    JADE_ASSERT(num_mnemonic_words == 11 || num_mnemonic_words == 23);
-    JADE_ASSERT(possible_word_list);
-    JADE_ASSERT(possible_word_list_len);
+    JADE_ASSERT(mnemonic_words && num_mnemonic_words < SIZE_MAX && is_valid_mnemonic_length(num_mnemonic_words + 1));
+    JADE_ASSERT(possible_word_list && possible_word_list_len);
 
     // Copy the mnemonic-thus-far into a work area
     char buf[MNEMONIC_BUFLEN];
+    SENSITIVE_PUSH(buf, sizeof(buf));
     size_t offset = 0;
     for (size_t i = 0; i < num_mnemonic_words; ++i) {
         const size_t remaining = sizeof(buf) - offset;
-        const int ret = snprintf(buf + offset, remaining, mnemonic_words[i]);
+        const int ret = snprintf(buf + offset, remaining, "%s", mnemonic_words[i]);
         JADE_ASSERT(ret > 0 && ret < remaining);
         offset += ret;
         buf[offset++] = ' ';
@@ -934,7 +921,7 @@ static size_t valid_final_words(const char** mnemonic_words, const size_t num_mn
         const char* wordlist_extracted = bip39_get_word_by_index(NULL, wordlist_index);
         JADE_ASSERT(wordlist_extracted);
         const size_t remaining = sizeof(buf) - offset;
-        const int ret = snprintf(buf + offset, remaining, wordlist_extracted);
+        const int ret = snprintf(buf + offset, remaining, "%s", wordlist_extracted);
         JADE_ASSERT(ret >= 3 && ret < remaining && buf[offset + ret] == '\0');
 
         if (bip39_mnemonic_validate(NULL, buf) == WALLY_OK) {
@@ -946,7 +933,300 @@ static size_t valid_final_words(const char** mnemonic_words, const size_t num_mn
         }
     }
 
+    SENSITIVE_POP(buf);
     return num_possible_words;
+}
+
+typedef enum { FINAL_WORD_EXISTING, FINAL_WORD_CALCULATE, FINAL_WORD_ABANDON } final_word_action_t;
+
+static final_word_action_t select_final_word_action(void)
+{
+    gui_activity_t* const act = make_calculate_final_word_activity();
+    while (true) {
+        // BBB-AIRGAP: this question and its help screen are escapable even though the word entry
+        // they sit in front of is exempt, so an escape raised on either is reported to the caller
+        // rather than swallowed by reopening the question.
+        if (gui_escape_pending()) {
+            return FINAL_WORD_ABANDON;
+        }
+        gui_set_current_activity(act);
+
+        int32_t ev_id = GUI_BUTTON_EVENT_NONE;
+        if (gui_activity_wait_event(act, GUI_BUTTON_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0)) {
+            if (ev_id == BTN_MNEMONIC_FINAL_WORD_EXISTING) {
+                return FINAL_WORD_EXISTING;
+            } else if (ev_id == BTN_MNEMONIC_FINAL_WORD_CALCULATE) {
+                return FINAL_WORD_CALCULATE;
+            } else if (ev_id == BTN_MNEMONIC_FINAL_WORD_HELP) {
+                await_qr_help_activity("blkstrm.com/finalword");
+            }
+        }
+    }
+}
+
+static size_t calculate_valid_final_words(
+    const char* wordlist_words[], const size_t word_index, const size_t nwords, size_t* final_words)
+{
+    JADE_ASSERT(wordlist_words && is_valid_mnemonic_length(nwords) && word_index == nwords - 1 && final_words);
+
+    const size_t num_words = valid_final_words(wordlist_words, word_index, final_words, MAX_NUM_FINAL_WORDS);
+    JADE_ASSERT(num_words == (nwords == 12 ? 128 : 8)); // expected due to checksum bits
+    return num_words;
+}
+
+static void write_wordlist_words(
+    const char* wordlist_words[], const size_t nwords, char* output, const size_t output_len)
+{
+    JADE_ASSERT(wordlist_words && nwords <= MNEMONIC_MAXWORDS);
+    JADE_ASSERT(output && output_len >= mnemonic_buffer_size(nwords));
+
+    output[0] = '\0';
+    size_t offset = 0;
+    for (size_t word_index = 0; word_index < nwords; ++word_index) {
+        JADE_ASSERT(wordlist_words[word_index]);
+        if (offset > 0) {
+            output[offset++] = ' ';
+        }
+        const int ret = snprintf(output + offset, output_len - offset, "%s", wordlist_words[word_index]);
+        JADE_ASSERT(ret > 0 && ret < output_len - offset);
+        offset += ret;
+    }
+}
+
+typedef enum { WORDLIST_WORD_SELECTED, WORDLIST_WORD_BACKSPACE, WORDLIST_WORD_DONE } wordlist_word_result_t;
+
+// Nodes shared by the keyboard and carousel used to select a BIP39 word.
+typedef struct {
+    gui_activity_t* enter_word_activity;
+    gui_view_node_t* titletext;
+    gui_view_node_t* textbox;
+    gui_view_node_t* backspace;
+    gui_view_node_t* enter;
+    gui_view_node_t* keys[WORD_ENTRY_KEYS_LEN];
+    gui_activity_t* choose_word_activity;
+    gui_view_node_t* label;
+    gui_view_node_t* text_selection;
+} word_entry_ui_t;
+
+static void make_word_entry_ui(word_entry_ui_t* ui, const bool show_enter_btn, const char* select_word_title)
+{
+    JADE_ASSERT(ui && select_word_title);
+
+    ui->enter_word_activity = make_enter_wordlist_word_activity(
+        &ui->titletext, show_enter_btn, &ui->textbox, &ui->backspace, &ui->enter, ui->keys, WORD_ENTRY_KEYS_LEN);
+    JADE_ASSERT(ui->enter);
+    ui->enter->is_active = show_enter_btn;
+
+    ui->choose_word_activity = make_carousel_activity(select_word_title, &ui->label, &ui->text_selection);
+
+    // BBB-AIRGAP: both word entry screens opt out of the KEY3 escape - one press must not throw
+    // away the letters typed for this word, nor the words entered before it.  The screens' own
+    // backspace and 'back' remain the way out.
+    gui_activity_set_escape(ui->enter_word_activity, false);
+    gui_activity_set_escape(ui->choose_word_activity, false);
+}
+
+static wordlist_word_result_t select_wordlist_word(const bool is_mnemonic, const size_t word_index,
+    const char* wordlist_words[], const size_t* p_filter_words, const size_t num_filter_words,
+    const bool random_first_selection_word, word_entry_ui_t* ui, const char** selected_word)
+{
+    JADE_ASSERT(word_index < MNEMONIC_MAXWORDS && wordlist_words);
+    JADE_ASSERT(!p_filter_words == !num_filter_words); // p_filter_words and num_filter_words are optional
+    JADE_ASSERT(ui && ui->enter_word_activity && ui->textbox && ui->backspace && ui->enter && ui->choose_word_activity
+        && ui->label && ui->text_selection);
+    JADE_ASSERT(selected_word);
+    *selected_word = NULL;
+
+    size_t char_index = 0;
+    char word[MNEMONIC_MAX_WORD_LEN + 1] = { 0 };
+    SENSITIVE_PUSH(word, sizeof(word));
+    gui_update_text(ui->textbox, word);
+    wordlist_word_result_t result = WORDLIST_WORD_DONE;
+
+    while (true) {
+        JADE_ASSERT(char_index < 6); // must have found a word by then!
+
+        size_t possible_word_list[NUM_WORDS_SELECT];
+        bool exact_match = false; // not interested in any case
+        const size_t possible_words = valid_words(
+            word, char_index, p_filter_words, num_filter_words, possible_word_list, NUM_WORDS_SELECT, &exact_match);
+        JADE_ASSERT(possible_words > 0);
+
+        bool selected_backspace = false;
+        if (possible_words <= NUM_WORDS_SELECT) {
+            // 'Small' number of words - allow user to select from these words
+            char choose_word_title[16]; // sufficient
+            const int ret = snprintf(choose_word_title, sizeof(choose_word_title), "Select word %zu", word_index + 1);
+            JADE_ASSERT(ret > 0 && ret < sizeof(choose_word_title));
+            gui_update_text(ui->label, choose_word_title);
+
+            bool stop = false;
+            size_t selected = random_first_selection_word ? get_uniform_random_byte(possible_words) : 0;
+            const char* wordlist_extracted = NULL;
+            while (!stop) {
+                JADE_ASSERT(selected <= possible_words && !wordlist_extracted);
+
+                // Update current selection
+                if (selected == possible_words) { // delete
+                    gui_set_text_font(ui->text_selection, DEJAVU24_FONT);
+                    gui_update_text(ui->text_selection, "|");
+                } else {
+                    // word from wordlist
+                    wordlist_extracted = bip39_get_word_by_index(NULL, possible_word_list[selected]);
+                    JADE_ASSERT(wordlist_extracted);
+                    gui_set_text_font(ui->text_selection, GUI_DEFAULT_FONT);
+                    gui_update_text(ui->text_selection, wordlist_extracted);
+                }
+
+                // Ensure activity displayed
+                gui_set_current_activity(ui->choose_word_activity);
+
+                int32_t ev_id = GUI_BUTTON_EVENT_NONE;
+                gui_activity_wait_event(ui->choose_word_activity, GUI_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0);
+
+                switch (ev_id) {
+                case GUI_WHEEL_LEFT_EVENT:
+                    // Avoid unsigned wrapping below zero
+                    selected = (selected + (possible_words + 1) - 1) % (possible_words + 1);
+                    break;
+
+                case GUI_WHEEL_RIGHT_EVENT:
+                    selected = (selected + 1) % (possible_words + 1);
+                    break;
+
+                default:
+                    // Stop the loop on a 'click' event
+                    stop = (ev_id == gui_get_click_event());
+                }
+
+                // If looping to new word, NULL the current word
+                if (!stop && wordlist_extracted) {
+                    wordlist_extracted = NULL;
+                }
+            } // while !stop
+
+            // Word (or backspace) selected
+            JADE_ASSERT(selected <= possible_words);
+            selected_backspace = (selected == possible_words);
+
+            if (!selected_backspace) {
+                JADE_ASSERT(wordlist_extracted);
+                *selected_word = wordlist_extracted;
+                result = WORDLIST_WORD_SELECTED;
+                break;
+            }
+        } else {
+            // 'Large' number of words for any typed stem - use keyboard screen to further restrict words
+
+            // Update the typed word and ensure activity set as current
+            if (is_mnemonic) {
+                // For a mnemonic, show only the current word
+                gui_update_text(ui->textbox, word);
+            } else {
+                // Otherwise show last 3 words
+                char buf[32]; // sufficient
+                const char* shown[3] = { "", "", "" };
+                if (word_index == 0) {
+                    shown[0] = word;
+                } else if (word_index == 1) {
+                    shown[0] = wordlist_words[0];
+                    shown[1] = word;
+                } else if (word_index == 2) {
+                    shown[0] = wordlist_words[word_index - 2];
+                    shown[1] = wordlist_words[word_index - 1];
+                    shown[2] = word;
+                } else if (char_index == 0) {
+                    shown[0] = wordlist_words[word_index - 3];
+                    shown[1] = wordlist_words[word_index - 2];
+                    shown[2] = wordlist_words[word_index - 1];
+                } else {
+                    shown[0] = wordlist_words[word_index - 2];
+                    shown[1] = wordlist_words[word_index - 1];
+                    shown[2] = word;
+                }
+                const bool show_ellipsis = (word_index > 3) || (word_index == 3 && char_index > 0);
+                const char* prefix = show_ellipsis ? "... " : "";
+                const int ret = snprintf(buf, sizeof(buf), "%s%s %s %s", prefix, shown[0], shown[1], shown[2]);
+                JADE_ASSERT(ret >= 0 && ret < sizeof(buf));
+                gui_update_text(ui->textbox, buf);
+            }
+            gui_set_current_activity(ui->enter_word_activity);
+
+            // Update which letters are active/available
+            enable_relevant_chars(is_mnemonic, word, char_index, p_filter_words, num_filter_words,
+                ui->enter_word_activity, ui->backspace, ui->enter, ui->keys, WORD_ENTRY_KEYS_LEN);
+
+            int32_t ev_id = GUI_BUTTON_EVENT_NONE;
+            gui_activity_wait_event(ui->enter_word_activity, GUI_BUTTON_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0);
+            selected_backspace = (ev_id == BTN_KEYBOARD_BACKSPACE);
+            if (ev_id == BTN_KEYBOARD_ENTER) {
+                result = WORDLIST_WORD_DONE;
+                break;
+            }
+            if (!selected_backspace) {
+                // Character/letter was clicked
+                const char letter_selected = ev_id - BTN_KEYBOARD_ASCII_OFFSET;
+                if (letter_selected >= 'A' && letter_selected <= 'Z') {
+                    word[char_index] = tolower(letter_selected);
+                    word[++char_index] = '\0';
+                }
+            }
+        }
+
+        // Handle any backspace/delete option
+        if (selected_backspace) {
+            if (char_index > 0) {
+                // Go back one character
+                word[--char_index] = '\0';
+            } else {
+                result = WORDLIST_WORD_BACKSPACE;
+                break;
+            }
+        }
+    }
+
+    SENSITIVE_POP(word);
+    return result;
+}
+
+static wordlist_word_result_t select_resolved_word_number(const size_t word_index, const char* word,
+    gui_activity_t* choose_word_activity, gui_view_node_t* label, gui_view_node_t* text_selection)
+{
+    JADE_ASSERT(word && choose_word_activity && label && text_selection);
+
+    char confirm_word_title[16]; // sufficient
+    const int ret = snprintf(confirm_word_title, sizeof(confirm_word_title), "Confirm word %zu", word_index + 1);
+    JADE_ASSERT(ret > 0 && ret < sizeof(confirm_word_title));
+    gui_update_text(label, confirm_word_title);
+
+    size_t selected = 0;
+    while (true) {
+        if (selected == 0) {
+            gui_set_text_font(text_selection, GUI_DEFAULT_FONT);
+            gui_update_text(text_selection, word);
+        } else {
+            gui_set_text_font(text_selection, DEJAVU24_FONT);
+            gui_update_text(text_selection, "|");
+        }
+
+        gui_set_current_activity(choose_word_activity);
+
+        int32_t ev_id = GUI_BUTTON_EVENT_NONE;
+        gui_activity_wait_event(choose_word_activity, GUI_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0);
+
+        switch (ev_id) {
+        case GUI_WHEEL_LEFT_EVENT:
+        case GUI_WHEEL_RIGHT_EVENT:
+            selected = (selected + 1) % 2;
+            break;
+
+        default:
+            if (ev_id == gui_get_click_event()) {
+                return selected == 0 ? WORDLIST_WORD_SELECTED : WORDLIST_WORD_BACKSPACE;
+            }
+            break;
+        }
+    }
 }
 
 // NOTE: only the English wordlist is supported.
@@ -955,42 +1235,26 @@ static size_t get_wordlist_words(
 {
     // 'title' is optional (and will default if not provided)
     JADE_ASSERT(nwords <= MNEMONIC_MAXWORDS);
-    JADE_ASSERT(output);
-    JADE_ASSERT(output_len >= (8 + 1) * nwords); // words plus trailing space
+    JADE_ASSERT(output && output_len >= mnemonic_buffer_size(nwords)); // words plus trailing space
 
     // Only 12 and 24 word mnemonics are supported
     const bool is_mnemonic = (purpose == MNEMONIC_SIMPLE) || (purpose == MNEMONIC_ADVANCED);
-    JADE_ASSERT(nwords == 12 || nwords == 24 || !is_mnemonic);
+    JADE_ASSERT(is_valid_mnemonic_length(nwords) || !is_mnemonic);
 
-    gui_view_node_t* btns[26] = {};
-    const size_t btns_len = sizeof(btns) / sizeof(btns[0]);
-    gui_view_node_t *titletext = NULL, *textbox = NULL, *backspace = NULL, *enter = NULL;
     const bool show_enter_btn = !is_mnemonic; // Don't show 'done' button when entering mnemonic words
-    gui_activity_t* const enter_word_activity
-        = make_enter_wordlist_word_activity(&titletext, show_enter_btn, &textbox, &backspace, &enter, btns, btns_len);
-    // BBB-AIRGAP: word entry opts out of the KEY3 escape - one press must not throw away
-    // the letters typed so far.  The screen's own backspace and 'back' remain the way out.
-    gui_activity_set_escape(enter_word_activity, false);
-    JADE_ASSERT(enter);
-    enter->is_active = show_enter_btn;
+    const char* select_word_title = purpose == WORDLIST_PASSPHRASE ? "Enter Passphrase" : "Recover Wallet";
+    word_entry_ui_t ui = { 0 };
+    make_word_entry_ui(&ui, show_enter_btn, select_word_title);
 
-    JADE_ASSERT(titletext);
+    JADE_ASSERT(ui.titletext);
     if (purpose == WORDLIST_PASSPHRASE) {
         // Fixed title for all words
-        gui_update_text(titletext, "Enter Passphrase");
+        gui_update_text(ui.titletext, "Enter Passphrase");
     }
-
-    gui_view_node_t* text_selection = NULL;
-    gui_view_node_t* label = NULL;
-    const char* select_word_title = ((purpose == WORDLIST_PASSPHRASE) ? "Enter Passphrase" : "Recover Wallet");
-    gui_activity_t* const choose_word_activity = make_carousel_activity(select_word_title, &label, &text_selection);
-    // BBB-AIRGAP: word entry opts out of the KEY3 escape - one press must not throw away
-    // the words entered so far.  The screen's own backspace and 'back' remain the way out.
-    gui_activity_set_escape(choose_word_activity, false);
-    int32_t ev_id;
 
     // For each word
     const char* wordlist_words[MNEMONIC_MAXWORDS] = { 0 };
+    SENSITIVE_PUSH(wordlist_words, sizeof(wordlist_words));
     size_t word_index = 0;
     bool done_entering_words = false;
     while (word_index < nwords && !done_entering_words) {
@@ -1001,216 +1265,78 @@ static size_t get_wordlist_words(
         const size_t* p_filter_words = NULL;
         size_t num_filter_words = 0;
         size_t final_words[MAX_NUM_FINAL_WORDS];
+        SENSITIVE_PUSH(final_words, sizeof(final_words));
         bool random_first_selection_word = false;
         if (purpose == MNEMONIC_ADVANCED && word_index == nwords - 1) {
-            gui_activity_t* const final_word_activity = make_calculate_final_word_activity();
-            while (true) {
-                // BBB-AIRGAP: this question and its help are escapable even though word typing
-                // is exempt. Return the existing abandoned-entry result before reopening either.
-                if (gui_escape_pending()) {
-                    return 0;
-                }
-                gui_set_current_activity(final_word_activity);
+            const final_word_action_t action = select_final_word_action();
+            if (action == FINAL_WORD_ABANDON) {
+                // BBB-AIRGAP: the escape ends the whole entry, as a backspace on the first word
+                // does - the caller reads a count of zero as abandoned.
+                SENSITIVE_POP(final_words);
+                SENSITIVE_POP(wordlist_words);
+                return 0;
+            }
+            if (action == FINAL_WORD_CALCULATE) {
+                // Fetch valid final words to use as additional filter
+                display_processing_message_activity();
+                num_filter_words = calculate_valid_final_words(wordlist_words, word_index, nwords, final_words);
+                p_filter_words = final_words;
 
-                if (gui_activity_wait_event(
-                        final_word_activity, GUI_BUTTON_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0)) {
-                    if (ev_id == BTN_MNEMONIC_FINAL_WORD_EXISTING) {
-                        // Do nothing/skip, just let user enter final word as per other words
-                        break;
-                    } else if (ev_id == BTN_MNEMONIC_FINAL_WORD_CALCULATE) {
-                        // Fetch valid final words to use as additional filter
-                        display_processing_message_activity();
-                        num_filter_words
-                            = valid_final_words(wordlist_words, word_index, final_words, MAX_NUM_FINAL_WORDS);
-                        p_filter_words = final_words;
-                        JADE_ASSERT(num_filter_words == (nwords == 12 ? 128 : 8)); // expected due to checksum bits
-
-                        // When we select from the valid words, randomise the initally selected word
-                        random_first_selection_word = true;
-                        break;
-                    } else if (ev_id == BTN_MNEMONIC_FINAL_WORD_HELP) {
-                        await_qr_help_activity("blkstrm.com/finalword");
-                    }
-                }
+                // When we select from the valid words, randomise the initally selected word
+                random_first_selection_word = true;
             }
         }
 
         // Reset default title for next word when entering mnemonic phrase
         if (is_mnemonic) {
             char enter_word_title[16];
-            const int ret = snprintf(enter_word_title, sizeof(enter_word_title), "Insert word %u", word_index + 1);
+            const int ret = snprintf(enter_word_title, sizeof(enter_word_title), "Insert word %zu", word_index + 1);
             JADE_ASSERT(ret > 0 && ret < sizeof(enter_word_title));
-            gui_update_text(titletext, enter_word_title);
+            gui_update_text(ui.titletext, enter_word_title);
         }
 
-        char word[16] = { 0 };
-        size_t char_index = 0;
-        gui_update_text(textbox, word);
+        const char* wordlist_extracted = NULL;
+        const wordlist_word_result_t word_rslt = select_wordlist_word(is_mnemonic, word_index, wordlist_words,
+            p_filter_words, num_filter_words, random_first_selection_word, &ui, &wordlist_extracted);
 
-        const size_t current_word_index = word_index;
-        while (word_index == current_word_index && !done_entering_words) {
-            JADE_ASSERT(!wordlist_words[word_index]);
-            JADE_ASSERT(char_index < 6); // must have found a word by then!
+        switch (word_rslt) {
+        case WORDLIST_WORD_SELECTED:
+            // Store the matched word in the selected words array
+            JADE_ASSERT(wordlist_extracted && !wordlist_words[word_index]);
+            wordlist_words[word_index++] = wordlist_extracted;
+            break;
 
-            size_t possible_word_list[NUM_WORDS_SELECT];
-            bool exact_match = false; // not interested in any case
-            const size_t possible_words = valid_words(
-                word, char_index, p_filter_words, num_filter_words, possible_word_list, NUM_WORDS_SELECT, &exact_match);
-            JADE_ASSERT(possible_words > 0);
+        case WORDLIST_WORD_DONE:
+            done_entering_words = true;
+            break;
 
-            bool selected_backspace = false;
-            if (possible_words && possible_words <= NUM_WORDS_SELECT) {
-                // 'Small' number of words - allow user to select from these words
-                char choose_word_title[16];
-                const int ret
-                    = snprintf(choose_word_title, sizeof(choose_word_title), "Select word %u", word_index + 1);
-                JADE_ASSERT(ret > 0 && ret < sizeof(choose_word_title));
-                gui_update_text(label, choose_word_title);
+        case WORDLIST_WORD_BACKSPACE:
+            if (word_index > 0) {
+                // Deleting when no characters entered for this word
+                // Go back to previous word - this breaks out of the 'per character'
+                // loop so we go back round the outer 'per word' loop.
+                JADE_ASSERT(!wordlist_words[word_index]);
+                --word_index;
 
-                bool stop = false;
-                uint8_t selected = random_first_selection_word ? get_uniform_random_byte(possible_words) : 0;
-                const char* wordlist_extracted = NULL;
-                while (!stop) {
-                    JADE_ASSERT(selected <= possible_words);
-                    JADE_ASSERT(!wordlist_extracted);
-
-                    // Update current selection
-                    if (selected == possible_words) { // delete
-                        gui_set_text_font(text_selection, DEJAVU24_FONT);
-                        gui_update_text(text_selection, "|");
-                    } else {
-                        // word from wordlist
-                        wordlist_extracted = bip39_get_word_by_index(NULL, possible_word_list[selected]);
-                        JADE_ASSERT(wordlist_extracted);
-                        gui_set_text_font(text_selection, GUI_DEFAULT_FONT);
-                        gui_update_text(text_selection, wordlist_extracted);
-                    }
-
-                    // Ensure activity displayed
-                    gui_set_current_activity(choose_word_activity);
-
-                    // wait for a GUI event
-                    gui_activity_wait_event(choose_word_activity, GUI_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0);
-
-                    switch (ev_id) {
-                    case GUI_WHEEL_LEFT_EVENT:
-                        // Avoid unsigned wrapping below zero
-                        selected = (selected + (possible_words + 1) - 1) % (possible_words + 1);
-                        break;
-
-                    case GUI_WHEEL_RIGHT_EVENT:
-                        selected = (selected + 1) % (possible_words + 1);
-                        break;
-
-                    default:
-                        // Stop the loop on a 'click' event
-                        stop = (ev_id == gui_get_click_event());
-                    }
-
-                    // If looping to new word, NULL the current word
-                    if (!stop && wordlist_extracted) {
-                        wordlist_extracted = NULL;
-                    }
-                } // while !stop
-
-                // Word (or backspace) selected
-                JADE_ASSERT(selected <= possible_words);
-                selected_backspace = (selected == possible_words);
-
-                if (selected_backspace) {
-                    JADE_ASSERT(!wordlist_extracted);
-                } else {
-                    // Store the matched word in the selected words array
-                    JADE_ASSERT(wordlist_extracted);
-                    JADE_ASSERT(!wordlist_words[word_index]);
-                    wordlist_words[word_index++] = wordlist_extracted;
-                    wordlist_extracted = NULL; // relinquish
-                }
+                // NULL the cached previous word, as we start that one from scratch
+                JADE_ASSERT(wordlist_words[word_index]);
+                wordlist_words[word_index] = NULL;
             } else {
-                // 'Large' number of words for any typed stem - use keyboard screen to further restrict words
-
-                // Update the typed word and ensure activity set as current
+                // Backspace at start of first word -
+                // - if entering a mnemonic, abandon mnemonic entry back to previous screen
+                // - if not entering a mnemonic, ignore this button at this time - user can
+                //   use 'enter' button to select empty string / no words.
+                JADE_ASSERT(!wordlist_words[word_index]);
                 if (is_mnemonic) {
-                    // For a mnemonic, show only the current word
-                    gui_update_text(textbox, word);
-                } else {
-                    // Otherwise show last 3 words
-                    char buf[32];
-                    const char* shown[3] = { "", "", "" };
-                    if (word_index == 0) {
-                        shown[0] = word;
-                    } else if (word_index == 1) {
-                        shown[0] = wordlist_words[0];
-                        shown[1] = word;
-                    } else if (word_index == 2) {
-                        shown[0] = wordlist_words[word_index - 2];
-                        shown[1] = wordlist_words[word_index - 1];
-                        shown[2] = word;
-                    } else if (char_index == 0) {
-                        shown[0] = wordlist_words[word_index - 3];
-                        shown[1] = wordlist_words[word_index - 2];
-                        shown[2] = wordlist_words[word_index - 1];
-                    } else {
-                        shown[0] = wordlist_words[word_index - 2];
-                        shown[1] = wordlist_words[word_index - 1];
-                        shown[2] = word;
-                    }
-                    const bool show_ellipsis = (word_index > 3) || (word_index == 3 && char_index > 0);
-                    const char* prefix = show_ellipsis ? "... " : "";
-                    const int ret = snprintf(buf, sizeof(buf), "%s%s %s %s", prefix, shown[0], shown[1], shown[2]);
-                    JADE_ASSERT(ret >= 0 && ret < sizeof(buf));
-                    gui_update_text(textbox, buf);
-                }
-                gui_set_current_activity(enter_word_activity);
-
-                // Update which letters are active/available
-                JADE_ASSERT(is_mnemonic || !p_filter_words);
-                enable_relevant_chars(is_mnemonic, word, char_index, p_filter_words, num_filter_words,
-                    enter_word_activity, backspace, enter, btns, btns_len);
-
-                // Wait for kb button click
-                gui_activity_wait_event(enter_word_activity, GUI_BUTTON_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0);
-                selected_backspace = (ev_id == BTN_KEYBOARD_BACKSPACE);
-                done_entering_words = (ev_id == BTN_KEYBOARD_ENTER);
-                if (!selected_backspace && !done_entering_words) {
-                    // Character/letter was clicked
-                    const char letter_selected = ev_id - BTN_KEYBOARD_ASCII_OFFSET;
-                    if (letter_selected >= 'A' && letter_selected <= 'Z') {
-                        word[char_index] = tolower(letter_selected);
-                        word[++char_index] = '\0';
-                    }
+                    SENSITIVE_POP(final_words);
+                    SENSITIVE_POP(wordlist_words);
+                    return 0; // no words entered
                 }
             }
+            break;
+        }
 
-            // Handle any backspace/delete option
-            if (selected_backspace) {
-                JADE_ASSERT(!done_entering_words);
-
-                if (char_index > 0) {
-                    // Go back one character
-                    word[--char_index] = '\0';
-                } else if (word_index > 0) {
-                    // Deleting when no characters entered for this word
-                    // Go back to previous word - this breaks outof the  'per character'
-                    // loop so we go back round the outer 'per word' loop.
-                    JADE_ASSERT(!wordlist_words[word_index]);
-                    --word_index;
-
-                    // NULL the cached previous word, as we start that one from scratch
-                    JADE_ASSERT(wordlist_words[word_index]);
-                    wordlist_words[word_index] = NULL;
-                } else {
-                    // Backspace at start of first word -
-                    // - if entering a mnemonic, abandon mnemonic entry back to previous screen
-                    // - if not entering a mnemonic, ignore this button at this time - user can
-                    //   use 'enter' button to select empty string / no words.
-                    JADE_ASSERT(!wordlist_words[word_index]);
-                    if (is_mnemonic) {
-                        return 0; // no words entered
-                    }
-                }
-            }
-        } // cycle on characters
+        SENSITIVE_POP(final_words);
     } // cycle on words
 
     // If entering mnemonic should have 'nwords' word indices in 'wordlist_words'
@@ -1218,29 +1344,155 @@ static size_t get_wordlist_words(
     JADE_ASSERT(words_entered == nwords || !is_mnemonic);
 
     // Convert array of wally wordlist strings to a single string
-    size_t offset = 0;
-    for (word_index = 0; word_index < words_entered; ++word_index) {
-        if (offset > 0) {
-            output[offset++] = ' ';
-        }
-        const int ret = snprintf(output + offset, output_len - offset, wordlist_words[word_index]);
-        JADE_ASSERT(ret > 0 && ret < output_len - offset);
-        offset += ret;
-    }
+    write_wordlist_words(wordlist_words, words_entered, output, output_len);
+    SENSITIVE_POP(wordlist_words);
     return words_entered;
 }
 
-#ifndef CONFIG_DEBUG_UNATTENDED_CI
+static void clear_word_number_restore_ui(
+    digit_entry_t* digit_entry, word_entry_ui_t* calc_ui, gui_view_node_t* number_text_selection)
+{
+    JADE_ASSERT(digit_entry && calc_ui && calc_ui->textbox && calc_ui->text_selection && number_text_selection);
+
+    reset_digit_entry(digit_entry, "Word Number");
+    gui_update_text(calc_ui->textbox, "");
+    gui_update_text(calc_ui->text_selection, "");
+    gui_update_text(number_text_selection, "");
+}
+
+static size_t get_word_number_words(
+    const size_t nwords, const bool advanced_mode, char* output, const size_t output_len)
+{
+    JADE_ASSERT(is_valid_mnemonic_length(nwords));
+    JADE_ASSERT(output && output_len >= mnemonic_buffer_size(nwords));
+
+    digit_entry_t digit_entry = { .entry_type = DIGIT_ENTRY_WORD_NUMBER,
+        .initial_state = RANDOM,
+        .digits_shown = true,
+        .max_digits = DIGIT_ENTRY_WORD_NUMBER_SIZE,
+        .max_value = BIP39_WORDLIST_LEN };
+    make_digit_entry_activity(&digit_entry, "Word Number", NULL);
+    JADE_ASSERT(digit_entry.activity);
+    SENSITIVE_PUSH(&digit_entry, sizeof(digit_entry));
+
+    word_entry_ui_t calc_ui = { 0 };
+    make_word_entry_ui(&calc_ui, false, "Recover Wallet");
+
+    gui_view_node_t* number_text_selection = NULL;
+    gui_view_node_t* number_label = NULL;
+    gui_activity_t* const number_choose_word_activity
+        = make_carousel_activity("Recover Wallet", &number_label, &number_text_selection);
+
+    const char* wordlist_words[MNEMONIC_MAXWORDS] = { 0 };
+    SENSITIVE_PUSH(wordlist_words, sizeof(wordlist_words));
+    size_t word_index = 0;
+    while (word_index < nwords) {
+        JADE_ASSERT(!wordlist_words[word_index]);
+
+        char title[24];
+        const int ret = snprintf(title, sizeof(title), "Word %zu/%zu", word_index + 1, nwords);
+        JADE_ASSERT(ret > 0 && ret < sizeof(title));
+
+        const char* word = NULL;
+        bool word_selected = false;
+        if (advanced_mode && word_index == nwords - 1) {
+            const final_word_action_t action = select_final_word_action();
+            if (action == FINAL_WORD_ABANDON) {
+                // BBB-AIRGAP: the escape ends the whole recovery, as the number entry does on the
+                // first word - the caller reads a count of zero as abandoned.
+                clear_word_number_restore_ui(&digit_entry, &calc_ui, number_text_selection);
+                word_index = 0;
+                goto cleanup;
+            }
+            if (action == FINAL_WORD_CALCULATE) {
+                size_t final_words[MAX_NUM_FINAL_WORDS];
+                SENSITIVE_PUSH(final_words, sizeof(final_words));
+                // Fetch valid final words to use as additional filter
+                display_processing_message_activity();
+                const size_t num_filter_words
+                    = calculate_valid_final_words(wordlist_words, word_index, nwords, final_words);
+
+                char enter_word_title[16];
+                const int ret = snprintf(enter_word_title, sizeof(enter_word_title), "Insert word %zu", word_index + 1);
+                JADE_ASSERT(ret > 0 && ret < sizeof(enter_word_title));
+                gui_update_text(calc_ui.titletext, enter_word_title);
+
+                const wordlist_word_result_t word_rslt = select_wordlist_word(
+                    true, word_index, wordlist_words, final_words, num_filter_words, true, &calc_ui, &word);
+                if (word_rslt == WORDLIST_WORD_BACKSPACE) {
+                    // Go back to the previous accepted word so it can be replaced.
+                    wordlist_words[--word_index] = NULL;
+                } else {
+                    JADE_ASSERT(word_rslt == WORDLIST_WORD_SELECTED && word);
+                    word_selected = true;
+                }
+                SENSITIVE_POP(final_words);
+            }
+        }
+
+        if (!word) {
+            reset_digit_entry(&digit_entry, title);
+            gui_set_current_activity(digit_entry.activity);
+            if (!run_digit_entry_loop(&digit_entry)) {
+                if (word_index == 0) {
+                    clear_word_number_restore_ui(&digit_entry, &calc_ui, number_text_selection);
+                    word_index = 0;
+                    goto cleanup;
+                }
+
+                // Go back to the previous accepted word so it can be replaced.
+                wordlist_words[--word_index] = NULL;
+                continue;
+            }
+
+            const uint32_t word_number = get_entry_as_number(&digit_entry);
+            if (word_number == 0 || word_number > BIP39_WORDLIST_LEN) {
+                await_error("Invalid word number");
+                continue;
+            }
+
+            word = bip39_get_word_by_index(NULL, word_number - 1);
+        }
+        JADE_ASSERT(word);
+
+        if (!word_selected) {
+            const wordlist_word_result_t word_rslt = select_resolved_word_number(
+                word_index, word, number_choose_word_activity, number_label, number_text_selection);
+            if (word_rslt == WORDLIST_WORD_BACKSPACE) {
+                continue;
+            }
+            JADE_ASSERT(word_rslt == WORDLIST_WORD_SELECTED);
+        }
+
+        wordlist_words[word_index++] = word;
+    }
+
+    write_wordlist_words(wordlist_words, nwords, output, output_len);
+    clear_word_number_restore_ui(&digit_entry, &calc_ui, number_text_selection);
+cleanup:
+    SENSITIVE_POP(wordlist_words);
+    SENSITIVE_POP(&digit_entry);
+    return word_index;
+}
+
+typedef enum { RECOVERY_WORDS, RECOVERY_WORD_NUMBERS } recovery_method_t;
+
 // NOTE: only the English wordlist is supported.
-static bool mnemonic_recover(const size_t nwords, const bool advanced_mode, char* mnemonic, const size_t mnemonic_len)
+static bool mnemonic_recover(const size_t nwords, const bool advanced_mode, const recovery_method_t recovery_method,
+    char* mnemonic, const size_t mnemonic_len)
 {
     // Support 12-word and 24-word mnemonics only
-    JADE_ASSERT(nwords == 12 || nwords == 24);
-    JADE_ASSERT(mnemonic);
-    JADE_ASSERT(mnemonic_len == MNEMONIC_BUFLEN);
+    JADE_ASSERT(is_valid_mnemonic_length(nwords));
+    JADE_ASSERT(recovery_method == RECOVERY_WORDS || recovery_method == RECOVERY_WORD_NUMBERS);
+    JADE_ASSERT(mnemonic && mnemonic_len == MNEMONIC_BUFLEN);
 
-    const wordlist_purpose_t purpose = advanced_mode ? MNEMONIC_ADVANCED : MNEMONIC_SIMPLE;
-    const size_t words_entered = get_wordlist_words(purpose, nwords, mnemonic, mnemonic_len);
+    size_t words_entered;
+    if (recovery_method == RECOVERY_WORD_NUMBERS) {
+        words_entered = get_word_number_words(nwords, advanced_mode, mnemonic, mnemonic_len);
+    } else {
+        const wordlist_purpose_t purpose = advanced_mode ? MNEMONIC_ADVANCED : MNEMONIC_SIMPLE;
+        words_entered = get_wordlist_words(purpose, nwords, mnemonic, mnemonic_len);
+    }
 
     if (!words_entered) {
         // Mnemonic entry abandoned
@@ -1249,14 +1501,17 @@ static bool mnemonic_recover(const size_t nwords, const bool advanced_mode, char
 
     if (words_entered != nwords || bip39_mnemonic_validate(NULL, mnemonic) != WALLY_OK) {
         // Invalid mnemonic entered
-        JADE_LOGW("Invalid mnemonic entered");
+        if (recovery_method == RECOVERY_WORD_NUMBERS) {
+            JADE_LOGW("Invalid mnemonic entered using word numbers");
+        } else {
+            JADE_LOGW("Invalid mnemonic entered");
+        }
         await_error("Invalid recovery phrase");
         return false;
     }
 
     return true;
 }
-#endif // CONFIG_DEBUG_UNATTENDED_CI
 
 // Take a nul terminated string of space-separated mnemonic-word prefixes, and populate a string of
 // space-separated full mnemonic words (also nul terminated).
@@ -1269,9 +1524,7 @@ static bool mnemonic_recover(const size_t nwords, const bool advanced_mode, char
 // NOTE: only the English wordlist is supported.
 static bool expand_words(const uint8_t* bytes, const size_t bytes_len, char* buf, const size_t buf_len, size_t* written)
 {
-    JADE_ASSERT(bytes);
-    JADE_ASSERT(buf);
-    JADE_ASSERT(buf_len);
+    JADE_ASSERT(bytes && buf && buf_len);
     JADE_INIT_OUT_SIZE(written);
 
     JADE_ASSERT(bytes[bytes_len] == '\0');
@@ -1334,8 +1587,7 @@ static bool expand_words(const uint8_t* bytes, const size_t bytes_len, char* buf
 static bool import_bcur_bip39(
     const uint8_t* bytes, const size_t bytes_len, char* buf, const size_t buf_len, size_t* written)
 {
-    JADE_ASSERT(bytes);
-    JADE_ASSERT(buf && buf_len);
+    JADE_ASSERT(bytes && buf && buf_len);
     JADE_INIT_OUT_SIZE(written);
 
     JADE_ASSERT(bytes[bytes_len] == '\0');
@@ -1355,12 +1607,8 @@ static bool import_bcur_bip39(
 static bool import_seedqr(
     const uint8_t* bytes, const size_t bytes_len, char* buf, const size_t buf_len, size_t* written)
 {
-    JADE_ASSERT(bytes);
-    JADE_ASSERT(buf);
-    JADE_ASSERT(buf_len);
+    JADE_ASSERT(bytes && buf && buf_len && bytes[bytes_len] == '\0');
     JADE_INIT_OUT_SIZE(written);
-
-    JADE_ASSERT(bytes[bytes_len] == '\0');
 
     // Must be a string of appropriate length and all digits
     if ((bytes_len != 48 && bytes_len != 96) || !string_all((const char*)bytes, isdigit)) {
@@ -1379,8 +1627,7 @@ static bool import_seedqr(
         const size_t index = strtol(index_code, NULL, 10);
         if (index > 2047) {
             JADE_LOGE("Error, provided a bip39 word out of range");
-            SENSITIVE_POP(index_code);
-            return false;
+            goto cleanup;
         }
 
         const char* wordlist_extracted = bip39_get_word_by_index(NULL, index);
@@ -1389,8 +1636,7 @@ static bool import_seedqr(
         if (write_pos + 1 + wordlen + 1 >= buf_len) {
             // Not enough remaining for space, word, nul
             JADE_LOGE("Error, expanded mnemonic string too large for buffer");
-            SENSITIVE_POP(index_code);
-            return false;
+            goto cleanup;
         }
 
         if (i > 0) {
@@ -1403,10 +1649,11 @@ static bool import_seedqr(
         write_pos += wordlen;
     }
 
-    SENSITIVE_POP(index_code);
     buf[write_pos++] = '\0';
     *written = write_pos;
-    return true;
+cleanup:
+    SENSITIVE_POP(index_code);
+    return *written != 0;
 }
 
 // SeedSigner CompactSeedQR support (ie raw entropy).
@@ -1414,9 +1661,7 @@ static bool import_seedqr(
 static bool import_compactseedqr(
     const uint8_t* bytes, const size_t bytes_len, char* buf, const size_t buf_len, size_t* written)
 {
-    JADE_ASSERT(bytes);
-    JADE_ASSERT(buf);
-    JADE_ASSERT(buf_len);
+    JADE_ASSERT(bytes && buf && buf_len);
     JADE_INIT_OUT_SIZE(written);
 
     // Any buffer of appropriate length will work as a compactseedqr as it's just raw entropy
@@ -1443,8 +1688,7 @@ static bool import_compactseedqr(
 // Attempt to import mnemonic from supported formats
 bool import_mnemonic(const uint8_t* bytes, const size_t bytes_len, char* buf, const size_t buf_len, size_t* written)
 {
-    JADE_ASSERT(bytes);
-    JADE_ASSERT(buf && buf_len >= MNEMONIC_BUFLEN);
+    JADE_ASSERT(bytes && buf && buf_len >= MNEMONIC_BUFLEN);
     JADE_INIT_OUT_SIZE(written);
 
     JADE_ASSERT(bytes[bytes_len] == '\0');
@@ -1464,9 +1708,7 @@ bool import_mnemonic(const uint8_t* bytes, const size_t bytes_len, char* buf, co
 // NOTE: not 'static' here as also called from debug/test code.
 bool import_and_validate_mnemonic(qr_data_t* qr_data)
 {
-    JADE_ASSERT(qr_data);
-    JADE_ASSERT(qr_data->len < sizeof(qr_data->data));
-    JADE_ASSERT(qr_data->data[qr_data->len] == '\0');
+    JADE_ASSERT(qr_data && qr_data->len < sizeof(qr_data->data) && qr_data->data[qr_data->len] == '\0');
 
     char mnemonic[sizeof(qr_data->data)];
     SENSITIVE_PUSH(mnemonic, sizeof(mnemonic));
@@ -1484,7 +1726,6 @@ bool import_and_validate_mnemonic(qr_data_t* qr_data)
     } else {
         // Show the user that a valid qr was scanned, but the string data
         // did not constitute (or expand to) a valid bip39 mnemonic string.
-
         await_error("Invalid recovery phrase");
         qr_data->len = 0;
         ret = false;
@@ -1499,8 +1740,7 @@ bool import_and_validate_mnemonic(qr_data_t* qr_data)
 // PSBT or an address.
 bool mnemonic_qr(char* mnemonic, const size_t mnemonic_len)
 {
-    JADE_ASSERT(mnemonic);
-    JADE_ASSERT(mnemonic_len == MNEMONIC_BUFLEN);
+    JADE_ASSERT(mnemonic && mnemonic_len == MNEMONIC_BUFLEN);
 
     // Pass validation callback above to qr scanner
     qr_data_t qr_data = { .len = 0, .is_valid = import_and_validate_mnemonic };
@@ -1516,7 +1756,7 @@ bool mnemonic_qr(char* mnemonic, const size_t mnemonic_len)
     }
 
     if (qr_data.len >= mnemonic_len) {
-        JADE_LOGW("String data from qr unexpectedly long - ignored: %u", qr_data.len);
+        JADE_LOGW("String data from qr unexpectedly long - ignored: %zu", qr_data.len);
         goto cleanup;
     }
 
@@ -1531,8 +1771,7 @@ cleanup:
 
 static void get_freetext_passphrase(char* passphrase, const size_t passphrase_len)
 {
-    JADE_ASSERT(passphrase);
-    JADE_ASSERT(passphrase_len);
+    JADE_ASSERT(passphrase && passphrase_len);
     passphrase[0] = '\0';
 
     // We will need this activity later when confirming
@@ -1552,8 +1791,8 @@ static void get_freetext_passphrase(char* passphrase, const size_t passphrase_le
     JADE_ASSERT(kb_entry.activity);
 
     SENSITIVE_PUSH(kb_entry.strdata, sizeof(kb_entry.strdata));
-    bool done = false;
-    while (!done) {
+    bool is_confirmed = false;
+    while (!is_confirmed) {
         // Run the keyboard entry loop to get a typed passphrase
         run_keyboard_entry_loop(&kb_entry);
 
@@ -1571,7 +1810,7 @@ static void get_freetext_passphrase(char* passphrase, const size_t passphrase_le
             kb_entry.strdata[0] = '\0';
             break;
         }
-        done = (ev_id == BTN_YES);
+        is_confirmed = (ev_id == BTN_YES);
     }
 
     JADE_ASSERT(kb_entry.len < passphrase_len);
@@ -1599,8 +1838,7 @@ static void enter_passphrase(char* passphrase, const size_t passphrase_len)
 
 void get_passphrase(char* passphrase, const size_t passphrase_len)
 {
-    JADE_ASSERT(passphrase);
-    JADE_ASSERT(passphrase_len);
+    JADE_ASSERT(passphrase && passphrase_len);
     passphrase[0] = '\0';
 
     if (keychain_get_passphrase_freq() == PASSPHRASE_NEVER) {
@@ -1836,8 +2074,7 @@ cleanup:
 void initialise_with_mnemonic(const bool temporary_restore, const bool force_qr_scan, bool* offer_qr_temporary)
 {
     // At this point we should not have any keys in-memory
-    JADE_ASSERT(!keychain_get());
-    JADE_ASSERT(offer_qr_temporary);
+    JADE_ASSERT(!keychain_get() && offer_qr_temporary);
 
     // Initially false, set after wallet creation depending on path/routes/options
     *offer_qr_temporary = false;
@@ -1898,7 +2135,8 @@ void initialise_with_mnemonic(const bool temporary_restore, const bool force_qr_
                 got_mnemonic = true;
                 break;
 #else
-                JADE_ASSERT(false);
+                continue;
+#endif
             // BBB-AIRGAP: KEY3 abandons setup through the screen's own exit
             case BTN_ESCAPE_HOME:
             case BTN_MNEMONIC_EXIT:
@@ -1989,18 +2227,41 @@ void initialise_with_mnemonic(const bool temporary_restore, const bool force_qr_
             }
 
             case BTN_RESTORE_MNEMONIC_12:
-                got_mnemonic = mnemonic_recover(12, advanced_mode, mnemonic, sizeof(mnemonic));
+                if (advanced_mode) {
+                    act = make_restore_mnemonic_method_activity(12);
+                    continue;
+                }
+                got_mnemonic = mnemonic_recover(12, advanced_mode, RECOVERY_WORDS, mnemonic, sizeof(mnemonic));
                 break;
 
             case BTN_RESTORE_MNEMONIC_24:
-                got_mnemonic = mnemonic_recover(24, advanced_mode, mnemonic, sizeof(mnemonic));
+                if (advanced_mode) {
+                    act = make_restore_mnemonic_method_activity(24);
+                    continue;
+                }
+                got_mnemonic = mnemonic_recover(24, advanced_mode, RECOVERY_WORDS, mnemonic, sizeof(mnemonic));
+                break;
+
+            case BTN_RESTORE_MNEMONIC_WORDS_12:
+                got_mnemonic = mnemonic_recover(12, advanced_mode, RECOVERY_WORDS, mnemonic, sizeof(mnemonic));
+                break;
+
+            case BTN_RESTORE_MNEMONIC_WORDS_24:
+                got_mnemonic = mnemonic_recover(24, advanced_mode, RECOVERY_WORDS, mnemonic, sizeof(mnemonic));
+                break;
+
+            case BTN_RESTORE_MNEMONIC_WORD_NUMBERS_12:
+                got_mnemonic = mnemonic_recover(12, advanced_mode, RECOVERY_WORD_NUMBERS, mnemonic, sizeof(mnemonic));
+                break;
+
+            case BTN_RESTORE_MNEMONIC_WORD_NUMBERS_24:
+                got_mnemonic = mnemonic_recover(24, advanced_mode, RECOVERY_WORD_NUMBERS, mnemonic, sizeof(mnemonic));
                 break;
 
             case BTN_RESTORE_MNEMONIC_QR:
                 got_mnemonic = mnemonic_qr(mnemonic, sizeof(mnemonic));
                 qr_scanned = got_mnemonic;
                 break;
-#endif
             default:
                 // Unknown event, ignore
                 continue;
@@ -2010,7 +2271,7 @@ void initialise_with_mnemonic(const bool temporary_restore, const bool force_qr_
 
     // Mnemonic should be populated and *valid* at this point
     // a. newly created mnemonics should always be valid
-    // b. restore by kb-entry includes explicit validation
+    // b. manual restore methods include explicit validation
     // c. qr-scanner includes a validation check before returning the scanned mnemonic
     if (bip39_mnemonic_validate(NULL, mnemonic) != WALLY_OK) {
         JADE_LOGE("Invalid mnemonic unexpected");
@@ -2099,8 +2360,7 @@ cleanup:
 // NOTE: only the English wordlist is supported.
 void get_bip85_mnemonic(const uint32_t nwords, const uint32_t index, char** new_mnemonic)
 {
-    JADE_ASSERT(nwords == 12 || nwords == 24);
-    JADE_ASSERT(index < BIP85_INDEX_MAX);
+    JADE_ASSERT(is_valid_mnemonic_length(nwords) && index < BIP85_INDEX_MAX);
     JADE_INIT_OUT_PPTR(new_mnemonic);
     JADE_ASSERT(keychain_get());
 
@@ -2150,7 +2410,7 @@ void handle_bip85_mnemonic()
             return;
         }
     }
-    JADE_ASSERT(nwords == 12 || nwords == 24);
+    JADE_ASSERT(is_valid_mnemonic_length(nwords));
 
     // Fetch index (uses pin-entry screen)
     digit_entry_t digit_entry = { .entry_type = DIGIT_ENTRY_INDEX, .initial_state = ZERO, .digits_shown = true };
