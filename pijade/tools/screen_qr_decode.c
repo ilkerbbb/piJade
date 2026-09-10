@@ -80,7 +80,7 @@ int main(int argc, char** argv)
     const size_t len = (size_t)data.payload_len < sizeof(decoded) ? (size_t)data.payload_len : 0;
     memcpy(decoded, data.payload, len);
     decoded[len] = '\0';
-    printf("decoded: %zu characters, version %d\n", len, code.size);
+    printf("decoded: %zu characters, QR version %d, %d modules\n", len, data.version, code.size);
     printf("content : %s\n", decoded);
     if (expected) {
         const bool same = strcmp(decoded, expected) == 0;

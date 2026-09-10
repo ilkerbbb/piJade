@@ -455,7 +455,7 @@ docker exec jade-dev sh -lc 'cd /jade && LIBS=$(find /jade/build_linux -name "*.
 docker exec jade-dev /tmp/screenqr /probe/<image>.rgb565 240 240 "<expected digit string>"
 ```
 
-Measured on 2026-08-27 in the 24-word Standard flow: a bounding box of 203x203 px, code version 29,
+Measured on 2026-08-27 in the 24-word Standard flow: a bounding box of 203x203 px, a 29-module code,
 96 digits, IDENTICAL to the expected string.
 
 ## 20. Running the device's own verification branch in the emulator
