@@ -37,6 +37,10 @@ struct buttons {
     unsigned int held_pin;
     button_event_t held_event;
     uint64_t next_repeat_ns;
+    // BBB-AIRGAP: which direction lines are down right now, one bit per LINES[] index.  The thumb
+    // can leave a diagonal in either order, so releasing the pin that owns the repeat is not the
+    // same as letting go of the stick; this is how the release path knows what is still held.
+    uint8_t pressed_dirs;
 };
 
 static const struct {
@@ -55,6 +59,7 @@ static const struct {
 
 #define LINE_COUNT (sizeof(LINES) / sizeof(LINES[0]))
 _Static_assert(LINE_COUNT <= GPIO_V2_LINES_MAX, "HAT button count exceeds one GPIO line request");
+_Static_assert(LINE_COUNT <= 8, "pressed_dirs holds one bit per line");
 
 static bool is_direction(const button_event_t event)
 {
@@ -192,10 +197,27 @@ button_event_t buttons_wait(
     for (size_t i = 0; i < LINE_COUNT; ++i) {
         if (LINES[i].pin == event.offset) {
             if (event.id == GPIO_V2_LINE_EVENT_RISING_EDGE) {
+                if (is_direction(LINES[i].event)) {
+                    buttons->pressed_dirs &= (uint8_t)~(1u << i);
+                }
                 if (buttons->held_event != BUTTON_NONE && buttons->held_pin == event.offset) {
                     buttons->held_pin = 0;
                     buttons->held_event = BUTTON_NONE;
                     buttons->next_repeat_ns = 0;
+                    // BBB-AIRGAP: coming out of a diagonal, the owner can be released while the
+                    // other direction is still under the thumb.  Without this the surviving
+                    // direction never repeats until it is released and pressed again, which is
+                    // the same complaint the guard above was written to fix.  It starts from the
+                    // full delay, so taking over reads like a fresh press rather than a jump.
+                    for (size_t j = 0; j < LINE_COUNT; ++j) {
+                        if (buttons->pressed_dirs & (1u << j)) {
+                            buttons->held_pin = LINES[j].pin;
+                            buttons->held_event = LINES[j].event;
+                            buttons->next_repeat_ns = event.timestamp_ns
+                                + (uint64_t)BUTTONS_REPEAT_DELAY_MS * 1000000ULL;
+                            break;
+                        }
+                    }
                 }
                 return BUTTON_NONE;
             }
@@ -204,10 +226,20 @@ button_event_t buttons_wait(
             }
 
             if (is_direction(LINES[i].event)) {
-                buttons->held_pin = event.offset;
-                buttons->held_event = LINES[i].event;
-                buttons->next_repeat_ns
-                    = event.timestamp_ns + (uint64_t)BUTTONS_REPEAT_DELAY_MS * 1000000ULL;
+                buttons->pressed_dirs |= (uint8_t)(1u << i);
+                // BBB-AIRGAP: a diagonal push drops a second direction pin while the first is
+                // still under the thumb.  Handing the repeat to the newcomer made it follow the
+                // last pin to fall rather than the one being held, so brushing UP while pushing
+                // RIGHT repeated the opposite way (screens with no vertical neighbour map up to
+                // prev; gui.c select_vertical_or_wheel()).  Release only clears a matching pin,
+                // so the brush also stopped the held key repeating.  Keep the repeat with the pin
+                // that already has it; the new press is still delivered once, below.
+                if (buttons->held_event == BUTTON_NONE) {
+                    buttons->held_pin = event.offset;
+                    buttons->held_event = LINES[i].event;
+                    buttons->next_repeat_ns
+                        = event.timestamp_ns + (uint64_t)BUTTONS_REPEAT_DELAY_MS * 1000000ULL;
+                }
             } else if (LINES[i].event == BUTTON_KEY1 || LINES[i].event == BUTTON_KEY2
                 || LINES[i].event == BUTTON_KEY3) {
                 buttons->held_pin = 0;

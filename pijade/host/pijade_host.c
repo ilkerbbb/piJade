@@ -42,6 +42,7 @@
 
 #include "buttons_gpio.h"
 #include "camera_v4l2.h"
+#include "input_gate.h"
 #include "libjade.h"
 #include "panel_st7789.h"
 #include "settings_store.h"
@@ -64,17 +65,18 @@
 #define CAMERA_IDLE_SLEEP_US 100000
 #define CAMERA_RETRY_SLEEP_US 500000
 
-/* BBB-AIRGAP: kart gunlugu, olcum kapali iken bile cihazin kullanim izini tasiyordu: normal
- * akista yazilan uc satir (panel boyutu, kapanma istegi, SIGTERM ile cikis) sifresiz vfat
- * bolumundeki /boot/firmware/pijade.log'a birikiyor ve karti ele geciren biri cihazin kac kez
- * acildigini ve kac kapanma istegi yapildigini okuyabiliyordu. Bu uc satir artik ayni operator
- * isaretine (pijade-t40.enable) bagli. Ariza dallari BAGLI DEGIL: fork, waitpid, systemctl yok,
- * sinyalle olum ve gecersiz panel boyutu tanilari isaret olmadan da yazilir; kaybolan yalnizca
- * basarili akisin izidir. Isaret run_device() icinde ayrica ornekleniyordu; tek kaynak olsun ve
- * main()'in ilk satiri da kapiya girsin diye ornekleme buraya tasindi.
- * Is parcacigi gorunurlugu: main() bunu HERHANGI bir is parcacigi yaratilmadan once bir kez
- * yaziyor ve sonra kimse yazmiyor; okuyanlar (kamera is parcacigi, libjade geri cagrilari)
- * yaratildiktan sonra basliyor, yani g_stop'un aksine ek bir siralama gerekmiyor. */
+/* BBB-AIRGAP: the card log carried a trace of how the device is used even with measurement off.
+ * Three lines written on the normal path (panel size, shutdown request, exit on SIGTERM) piled up
+ * in /boot/firmware/pijade.log on the unencrypted vfat partition, so whoever holds the card could
+ * read how many times the device was opened and how many shutdowns were asked for. Those three
+ * lines now sit behind the same operator marker (pijade-t40.enable). Failure branches are NOT
+ * behind it: no fork, no waitpid, no systemctl, death by signal and an invalid panel size are
+ * still written with no marker present; what is gone is only the trace of a successful run. The
+ * marker used to be sampled again inside run_device(); sampling moved here so there is one source
+ * and so main()'s first line goes through the same gate.
+ * Thread visibility: main() writes this once before ANY thread exists and nobody writes it after,
+ * and the readers (the camera thread, the libjade callbacks) start only after that, so unlike
+ * g_stop this needs no extra ordering. */
 static bool g_flow_trace = false;
 
 static volatile sig_atomic_t g_stop = 0;
@@ -82,9 +84,9 @@ static volatile sig_atomic_t g_stop = 0;
  * thread's write at shutdown is not ordered against the camera thread's reads. This one is. */
 static atomic_bool g_camera_stop = false;
 static pthread_mutex_t g_panel_state_mutex = PTHREAD_MUTEX_INITIALIZER;
-static uint64_t g_active_start_ns = 0;
-static uint64_t g_last_start_ns = 0;
-static uint64_t g_last_end_ns = 0;
+/* BBB-AIRGAP: the input gate's whole state, guarded by g_panel_state_mutex. The rule it applies
+ * and the reasoning behind it are in pijade/host/input_gate.h. */
+static input_gate_t g_input_gate = { 0 };
 static bool g_panel_failed = false;
 
 static void on_signal(int signum)
@@ -177,18 +179,25 @@ static void on_display_flush_panel(const uint16_t* buffer, const size_t len, voi
         return;
     }
 
-    pthread_mutex_lock(&g_panel_state_mutex);
-    g_active_start_ns = start;
-    pthread_mutex_unlock(&g_panel_state_mutex);
+    /* BBB-AIRGAP: which screen this frame carries, and how much of the gui task's queue had been
+     * applied when it was composed. Jade updates both on the same gui task that renders and calls
+     * us, and it drains before it renders, so both readings are exact for this buffer. Read before
+     * the lock is taken: libjade must never be called back into with the panel lock held. */
+    const uint32_t screen_gen = libjade_activity_generation();
+    const uint32_t drained = libjade_jobs_drained();
 
+    pthread_mutex_lock(&g_panel_state_mutex);
+    input_gate_write_begin(&g_input_gate, start, screen_gen, drained);
+
+    /* Keep completion and its publication indivisible to input snapshots. Otherwise SPI can
+     * finish, the GUI can be descheduled before write_end, and input can reject a press on the
+     * new screen using the still-active state. panel_write_frame calls no libjade functions.
+     * Input may wait one transfer here; its original timestamp still decides which screen it saw. */
     const bool frame_written = panel_write_frame(panel, buffer, len);
     uint64_t end;
     const bool have_end = now_ns(&end);
 
-    pthread_mutex_lock(&g_panel_state_mutex);
-    g_active_start_ns = 0;
-    g_last_start_ns = start;
-    g_last_end_ns = have_end ? end : UINT64_MAX;
+    input_gate_write_end(&g_input_gate, have_end ? end : UINT64_MAX);
     if (!frame_written || !have_end) {
         g_panel_failed = true;
     }
@@ -365,8 +374,8 @@ static void on_power_request(const libjade_power_action_t action, void* ctx)
     if (g_flow_trace) {
         fprintf(stderr, "power: systemctl start %s\n", target);
     }
-    /* fflush(NULL) izden bagimsizdir: fork() oncesi tamponlar bosaltilmazsa cocuk ayni ciktiyi
-     * ikinci kez yazar. Kapiya alinmaz. */
+    /* fflush(NULL) is independent of tracing: without flushing buffers before fork(), the child
+     * writes the same output a second time. Keep this outside the guard. */
     fflush(NULL);
 
     const pid_t pid = fork();
@@ -427,7 +436,7 @@ static void on_power_request(const libjade_power_action_t action, void* ctx)
         if (g_flow_trace) {
             fprintf(stderr, "power: systemctl start %s: child terminated by SIGTERM; exiting without abort\n", target);
         }
-        /* _exit() oncesi bosaltma; izden bagimsiz, kapiya alinmaz. */
+        /* Flush before _exit(); done whatever the trace flag says, never inside its guard. */
         fflush(NULL);
         _exit(EXIT_SUCCESS);
     } else if (WIFSIGNALED(status)) {
@@ -486,7 +495,8 @@ static int run_device(const char* panel_path, const char* gpio_path, const char*
      * Without it this instrument writes nothing: even anonymous drop counts and camera activation
      * anchors would preserve activity history. The leading newline separates this run from a
      * previously interrupted log line. This is a process/test boundary, NOT a camera-screen
-     * boundary; see docs/t40-cihaz-olcumu.md. */
+     * boundary: the marker is sampled once per run, so the trace spans the whole process rather
+     * than one screen. */
     const bool measure_input = g_flow_trace;
     if (measure_input) {
         fprintf(stderr, "\npijade: t40 test begin\n");
@@ -531,26 +541,35 @@ static int run_device(const char* panel_path, const char* gpio_path, const char*
             continue;
         }
 
+        /* BBB-AIRGAP: only a press that ACTS is worth discarding. These three are the ones that
+         * commit something: the joystick press and KEY2 both send a click, which dispatches
+         * whatever button is selected, and KEY3 sends the alt press a screen may treat as cancel
+         * (see the switch below). Everything else moves a selection or an index; measured in
+         * main/entropy_sources.c and main/qrmode.c, a wheel event only changes what is highlighted
+         * or shown and the click is what acts on it. Sending navigation through the gate as well
+         * would discard presses for tens of milliseconds after every navigation press, which is
+         * the fault this gate was rewritten to remove. */
+        const bool is_action = (event == BUTTON_SELECT || event == BUTTON_KEY2 || event == BUTTON_KEY3);
+
         pthread_mutex_lock(&g_panel_state_mutex);
         const bool failed = g_panel_failed;
-        const uint64_t active_start = g_active_start_ns;
-        const uint64_t last_start = g_last_start_ns;
-        const uint64_t last_end = g_last_end_ns;
+        const input_gate_t gate = g_input_gate;
         pthread_mutex_unlock(&g_panel_state_mutex);
 
         if (failed) {
             break;
         }
 
-        /* A press is ignored if it occurred during either the active write or the latest completed
-         * write. The gate deliberately tracks only these two intervals: three or more writes before
-         * dequeue can lose the oldest interval. Sampling just before panel_write_frame() also
-         * swallows a press in the tiny safe gap before the call, a conservative false positive.
-         * The separate current_activity race is inherited from Jade: main/input/navbtns.inc:20-35
-         * calls gui_prev()/gui_front_click() directly, while main/gui.c:2597 limits serialization to
-         * drawing. This host layer cannot close that race. */
-        const bool during_active = (active_start != 0 && timestamp_ns >= active_start);
-        if (during_active || (timestamp_ns >= last_start && timestamp_ns <= last_end)) {
+        /* See input_gate.h for the rule and what it cannot see. The screen is read here rather
+         * than taken from the copy on purpose: it is what tells us Jade has made a new screen
+         * current whose frame has not been written yet, which is the window between a swap and
+         * the flush that follows it. Safe from this thread, as the only use is an equality test.
+         * What this still cannot cover is a swap landing after the decision and before
+         * libjade_input; the panel lock cannot be held across a call into Jade. */
+        const uint32_t current_gen = libjade_activity_generation();
+        const input_gate_verdict_t verdict
+            = is_action ? input_gate_judge(&gate, timestamp_ns, current_gen) : INPUT_GATE_ALLOW;
+        if (verdict != INPUT_GATE_ALLOW) {
             /* BBB-AIRGAP: this line establishes only that the host gate dropped an input event.
              * frame_requested samples camera init/deinit state AFTER dequeue and the gate's
              * decision, not at the physical press. It does not identify a screen: boot entropy
@@ -563,31 +582,44 @@ static int run_device(const char* panel_path, const char* gpio_path, const char*
              * (pijade/images/prepare-image.sh, StandardError=append:), so a key sequence written
              * here would hand the PIN and the duress PIN to anyone who reads the card.
              *
-             * last_write_us is the duration of the last COMPLETED panel write, not of the write
-             * that swallowed the press: when during=active that write has not finished yet, so
-             * there is no duration to report and the previous one is the honest stand-in. It is
-             * also the frame cost the timing work needs, which is why no second measurement path
-             * exists for it. UINT64_MAX means the clock read failed after that write
-             * (see the flush handler above), and the difference would be meaningless. That guard
-             * cannot fire today: the sentinel is written under the same mutex hold that sets
-             * g_panel_failed, and the snapshot above reads both and breaks before reaching this
-             * gate. It stays so the arithmetic does not silently depend on where that break
-             * sits in the loop. */
+             * SINCE 2026-09-09 A LINE MEANS SOMETHING NARROWER than it did in the runs already
+             * recorded, in two ways. Only a press that ACTS can be dropped at all now; navigation
+             * never reaches this gate (see is_action above). And what is dropped is a press made
+             * before the panel showed what it would act on, rather than any press that happened to
+             * land inside a panel write (pijade/host/input_gate.h): an ordinary repaint no longer
+             * causes a drop. Counts before and after that date are not comparable, and a run of
+             * this test now measures a different thing.
+             *
+             * why= says which clause of the rule dropped it, which is the field to read when a
+             * count looks wrong: "pending" means an earlier press had not reached the panel,
+             * "screen" means the screen had already been replaced. last_write_us is the duration
+             * of the last COMPLETED panel write, 0 before any write or after an unusable end-clock
+             * reading (input_gate_last_write_us()). */
             if (measure_input) {
                 const bool frame_requested = libjade_camera_active();
-                uint64_t last_write_us = 0;
-                if (last_end != UINT64_MAX && last_end >= last_start) {
-                    last_write_us = (last_end - last_start) / 1000;
-                }
-                fprintf(stderr, "pijade: t40 drop frame_requested=%u during=%s last_write_us=%" PRIu64 "\n",
-                    frame_requested ? 1u : 0u, during_active ? "active" : "last", last_write_us);
+                fprintf(stderr, "pijade: t40 drop frame_requested=%u why=%s last_write_us=%" PRIu64 "\n",
+                    frame_requested ? 1u : 0u, input_gate_verdict_name(verdict),
+                    input_gate_last_write_us(&gate));
             }
             continue;
         }
 
-        /* g_panel_failed may change after the snapshot and before dispatch. That is safe: this
-         * press predates the failed write's start, or the interval checks above would have swallowed
-         * it, so it applies to the previous fully written frame. The next loop iteration stops input. */
+        /* BBB-AIRGAP: arm the gate on EVERY press we hand over that actually posted work,
+         * navigation included. Navigation is not judged by the gate, but it changes the panel, and
+         * an acting press made before that change is drawn has to wait for it.
+         *
+         * Read the job count on both sides of the dispatch. Reading it AFTER is what makes the
+         * mark exact: libjade_input posts the press's repaint or screen swap before it returns, so
+         * the count then names every job the press produced, and a frame composed earlier cannot
+         * meet it. Equal readings mean the press changed nothing - a wheel press at a carousel
+         * limit - so nothing is armed and the device cannot stop answering its buttons.
+         *
+         * libjade_input runs outside the panel lock on purpose: holding it across a call into Jade
+         * would break the no-libjade-under-panel-lock rule and could deadlock when input waits for
+         * GUI work. A panel failure or screen swap landing in that window is picked up by the next
+         * iteration, which re-reads the latched state. */
+        const uint32_t jobs_before = libjade_jobs_posted();
+
         switch (event) {
         case BUTTON_PREV:
             libjade_input(LIBJADE_INPUT_PREV);
@@ -617,6 +649,19 @@ static int run_device(const char* panel_path, const char* gpio_path, const char*
             break;
         case BUTTON_ERROR:
             break;
+        }
+
+        const uint32_t jobs_after = libjade_jobs_posted();
+        if (jobs_after != jobs_before) {
+            /* BBB-AIRGAP: a qualifying flush can finish before we acquire the panel lock below.
+             * The gate retains drain-advancing completions and repairs settlement if this mark
+             * is already met, without requiring another frame or holding this lock in Jade. */
+            uint64_t dispatch_ns;
+            const bool have_dispatch = now_ns(&dispatch_ns);
+            pthread_mutex_lock(&g_panel_state_mutex);
+            input_gate_input_dispatched(
+                &g_input_gate, have_dispatch ? dispatch_ns : timestamp_ns, jobs_after);
+            pthread_mutex_unlock(&g_panel_state_mutex);
         }
     }
 
@@ -720,9 +765,9 @@ static int run_headless(void)
     return EXIT_SUCCESS;
 }
 
-/* BBB-AIRGAP: seviye isimleri libjade_daemon ile birebir ayni tutuluyor (libjade/daemon.c:410-429),
- * boylece emulatorde ogrenilen bayrak cihazda da aynen gecerli. Sayilar libjade.h:52'nin sozlesmesi:
- * 0-4 azalan ayrinti, 5 kapali. */
+/* BBB-AIRGAP: the level names are kept identical to libjade_daemon's (libjade/daemon.c:410-429), so
+ * a flag learned on the emulator means the same thing on the device. The numbers are libjade.h:52's
+ * contract: 0 to 4 is decreasing detail, 5 is off. */
 #define PIJADE_LOG_NONE 5
 
 static int parse_log_level(const char* name)
@@ -798,14 +843,16 @@ int main(int argc, char** argv)
         }
     }
 
-    /* BBB-AIRGAP: daemon bunu libjade_start() sonrasinda ayarliyor; burada oncesinde ayarlaniyor ki
-     * acilis sirasindaki satirlar da yakalansin. Siralama guvenli: seviye libjade.c:111'deki global
-     * degiskende duruyor ve libjade_start() ona dokunmuyor. Tek yerde durmasi da sart, cunku
-     * libjade_start() bu dosyada iki ayri yolda cagriliyor (cihaz ve headless). */
+    /* BBB-AIRGAP: the daemon sets this after libjade_start(); here it is set before, so the lines
+     * written during start-up are captured too. The ordering is safe: the level lives in the global
+     * at libjade.c:111 and libjade_start() does not touch it. Setting it in one place is also
+     * required, because libjade_start() is called from two paths in this file (device and
+     * headless). */
     libjade_set_log_level(log_level);
 
-    /* BBB-AIRGAP: kosum basina bir kez ornekleniyor, ilk satir yazilmadan once. Dosya ya da dizin
-     * olmasi yeterli, icerigi okunmuyor. Cihaz kapaliyken isareti silmek sonraki kosumu kapatir. */
+    /* BBB-AIRGAP: sampled once per run, before the first line is written. A file or a directory
+     * will do; the content is never read. Removing the marker while the device is off turns the
+     * next run's trace back off. */
     g_flow_trace = access("/boot/firmware/pijade-t40.enable", F_OK) == 0;
 
     unsigned int width = 0, height = 0;

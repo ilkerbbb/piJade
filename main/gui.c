@@ -1,5 +1,6 @@
 #ifndef AMALGAMATED_BUILD
 #include <stdarg.h>
+#include <stdatomic.h> // BBB-AIRGAP: see activity_generation below.
 #include <string.h>
 
 #include <freertos/FreeRTOS.h>
@@ -67,6 +68,44 @@ typedef struct {
 static SemaphoreHandle_t gui_mutex = NULL;
 // current activity being drawn on screen
 static gui_activity_t* current_activity = NULL;
+
+// BBB-AIRGAP: which screen is current, as a number that changes every time the gui task swaps the
+// current activity, and at no other time.  A host that dispatches button presses uses it to tell
+// that the screen under the user has changed since the last frame it wrote, including when nothing
+// the user did caused the change: auto-scan leaves the camera loop the moment a QR decodes
+// (main/camera.c:538) and the caller swaps straight to a confirm screen.  A repaint is NOT a
+// change of screen and does not move this, which is what keeps a camera preview frame from looking
+// like a screen the user has not read yet.  Read through gui_get_activity_generation() and,
+// outside the firmware, libjade_activity_generation().
+// Bumped only here on the gui task, which also renders and flushes, so a frame can never carry a
+// number for a screen it does not show. BBB-AIRGAP: publish immediately before replacing the
+// input target, with acquire/release ordering to keep that assignment after the announcement.
+// Readers only compare the atomic number for equality and can use relaxed loads.
+// Starts at zero and is bumped before the first screen is drawn, so a host starting from zero
+// treats the first frame as a change, which is the conservative direction.
+static _Atomic uint32_t activity_generation = 0;
+
+// BBB-AIRGAP: how many jobs have been handed to the gui task, and how many it has taken off its
+// queue.  Together they let a host outside the firmware ask one question it cannot answer on its
+// own: does the frame now being written carry the work my last button press caused?  A press
+// dispatched from another thread posts its repaint or activity swap before libjade_input()
+// returns, so reading 'posted' at that moment names every job that press produced; the queue is
+// FIFO, so any frame flushed after 'drained' has reached that number was composed with all of
+// them applied.  Compare with the wraparound-safe (int32_t)(drained - posted) >= 0, never with a
+// bare >=.
+// BBB-AIRGAP: gui_post_mutex serializes enqueue AND publication across producers. Otherwise a
+// producer paused after enqueue could leave an uncounted job ahead of a later input's work,
+// letting an earlier frame meet that input's undercounted mark. Readers need no lock: each
+// published count names a FIFO prefix, and gui_post() publishes before returning to its caller.
+// The consumer never takes this mutex, so it can free queue space while a producer waits to send.
+// 'posted' is bumped on whichever thread posts, so it is atomic; 'drained' is bumped only on the
+// gui task, but a host reads it from its flush handler, which the gui task calls, and that is the
+// only reader.  Relaxed is enough for both: each is a counter compared against a value read
+// earlier, and the job itself travels through the ring buffer's own synchronisation.
+static _Atomic uint32_t gui_jobs_posted = 0;
+static _Atomic uint32_t gui_jobs_drained = 0;
+static SemaphoreHandle_t gui_post_mutex = NULL;
+
 // stack of activities that currently exist
 static activity_holder_t* existing_activities = NULL;
 
@@ -324,6 +363,22 @@ void gui_next_qrcode_color(void)
 
 bool gui_get_flipped_orientation(void) { return gui_orientation_flipped; }
 
+uint32_t gui_get_activity_generation(void)
+{
+    return atomic_load_explicit(&activity_generation, memory_order_relaxed);
+}
+
+// BBB-AIRGAP: see gui_jobs_posted / gui_jobs_drained.
+uint32_t gui_get_jobs_posted(void)
+{
+    return atomic_load_explicit(&gui_jobs_posted, memory_order_relaxed);
+}
+
+uint32_t gui_get_jobs_drained(void)
+{
+    return atomic_load_explicit(&gui_jobs_drained, memory_order_relaxed);
+}
+
 // BBB-AIRGAP: see gui.h. Nothing to tell the hardware about - the camera frames arrive the same
 // way whatever this is set to, and main/camera.c picks the copy that turns them the right way up.
 static uint8_t gui_camera_rotation = CAMERA_ROTATION_DEFAULT;
@@ -363,6 +418,10 @@ void gui_init(TaskHandle_t* gui_h, const bool create_event_loop)
     // Create mutex semaphore
     gui_mutex = xSemaphoreCreateMutex();
     JADE_ASSERT(gui_mutex);
+
+    // BBB-AIRGAP: separate from gui_mutex so queue draining can progress during a blocked send.
+    gui_post_mutex = xSemaphoreCreateMutex();
+    JADE_ASSERT(gui_post_mutex);
 
     // Which button event are we to use as a click / 'select item'
     // and which menu highlight colour to use
@@ -2464,7 +2523,11 @@ static size_t handle_gui_input_queue(bool* switched_activities)
                 }
             }
 
-            // Set the current_activity to the new one, and render it
+            // BBB-AIRGAP: announce the swap BEFORE changing the input target. A pause between
+            // these operations now rejects conservatively instead of approving the old screen's
+            // generation while a click already targets the new one. Acquire/release keeps the
+            // following assignment after this announcement; rendering and flushing follow both.
+            atomic_fetch_add_explicit(&activity_generation, 1, memory_order_acq_rel);
             current_activity = job->new_activity;
 
             // If passed a 'to_free' list, free these activities now.
@@ -2575,6 +2638,11 @@ static void gui_task(void* args)
         // Note: this can also free all the old/completed activities
         bool switched_activities = false;
         const size_t jobs_handled = handle_gui_input_queue(&switched_activities);
+        if (jobs_handled) {
+            // BBB-AIRGAP: published before the flush below, so the frame that flush produces is
+            // seen by the host as carrying these jobs.  See gui_jobs_drained.
+            atomic_fetch_add_explicit(&gui_jobs_drained, (uint32_t)jobs_handled, memory_order_relaxed);
+        }
         if (jobs_handled > 4) {
             JADE_LOGW("gui task handled %u jobs", jobs_handled);
         }
@@ -2606,6 +2674,12 @@ static void gui_task(void* args)
     if (gui_input_queue) {
         vRingbufferDelete(gui_input_queue);
         gui_input_queue = NULL;
+    }
+
+    // BBB-AIRGAP: release the producer publication mutex with the GUI queue it protects.
+    if (gui_post_mutex) {
+        vSemaphoreDelete(gui_post_mutex);
+        gui_post_mutex = NULL;
     }
 
     // Delete the mutex semaphore
@@ -2915,9 +2989,17 @@ void gui_set_activity_initial_selection(gui_view_node_t* node)
 
 static void gui_post(const gui_task_job_t* task, const char* task_name)
 {
+    // BBB-AIRGAP: no later producer may enqueue until this job's count is published. Keep the
+    // consumer independent of this lock, including while a full queue makes the send retry.
+    JADE_SEMAPHORE_TAKE(gui_post_mutex);
     while (xRingbufferSend(gui_input_queue, task, sizeof(*task), 500 / portTICK_PERIOD_MS) != pdTRUE) {
         JADE_LOGW("Failed to send %s to gui", task_name);
     }
+
+    // BBB-AIRGAP: counted only once the job is really on the queue, so the number never promises
+    // work the gui task cannot find.  See gui_jobs_posted.
+    atomic_fetch_add_explicit(&gui_jobs_posted, 1, memory_order_relaxed);
+    JADE_SEMAPHORE_GIVE(gui_post_mutex);
 }
 
 // Post a node to the gui task to be repainted
@@ -2935,7 +3017,6 @@ void gui_repaint(gui_view_node_t* node)
         return;
     }
 
-    // Post the node to the gui task
     const gui_task_job_t node_repaint_info = { .node_to_repaint = node };
     gui_post(&node_repaint_info, "repaint");
 }

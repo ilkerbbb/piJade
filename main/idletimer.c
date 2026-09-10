@@ -111,7 +111,17 @@ static void set_screen_dimmed(const bool dimmed)
 // eg. to set temporarilty while doing a 'slow' operation where
 // you don't want the hw hitting the idle timeout and shutting down.
 // eg. using the camera to scan large qrs or similar.
-void idletimer_set_min_timeout_secs(const uint16_t min_timeout_secs) { min_timeout_override_secs = min_timeout_secs; }
+// BBB-AIRGAP: the idle task may already be sleeping on a deadline computed with the previous
+// override, so changing the field alone is not enough.  Leaving the camera or a QR display drops
+// the override back to zero, and without a recheck the ordinary screen keeps the extended
+// deadline until that sleep ends: with Screen Timeout at 30s it could stay lit for the whole
+// checking period.  Entering those screens takes the same path, where the recheck only makes the
+// longer timeout apply at once instead of one period later.
+void idletimer_set_min_timeout_secs(const uint16_t min_timeout_secs)
+{
+    min_timeout_override_secs = min_timeout_secs;
+    idletimer_recheck();
+}
 
 // BBB-AIRGAP: ends the idle task's current sleep so that it recomputes from current values; see
 // the flag above for what goes wrong without it. On esp32 the sleep is one uninterruptible
@@ -282,8 +292,20 @@ static void idletimer_task(void* ignore)
         // If we did not idle time-out entirely we may still dim the screen if no physical interaction.
         // BBB-AIRGAP: always fetch the screen timeout too, in case the user has changed it.
         // NOTE: screen timeout set to UINT16_MAX means 'never dim the screen'
-        const uint16_t screen_timeout_secs = storage_get_screen_timeout();
+        uint16_t screen_timeout_secs = storage_get_screen_timeout();
         const bool screen_timeout_disabled = (screen_timeout_secs == UINT16_MAX);
+
+        // BBB-AIRGAP: the camera and the QR-display screens ask to be left alone for longer
+        // (idletimer_set_min_timeout_secs(); camera.c, qrmode.c), but that request only reached
+        // the power-off timeout above - never this one.  So the panel went dark 60s in while the
+        // viewfinder was the thing being looked at, and the press that woke it was discarded
+        // (register_activity() returns true, and gui.c returns on it) - which reads as a joystick
+        // that drops presses.  qrscan.c only registers activity on a DECODED code, so lining a QR
+        // up registers nothing at all: the camera screen is the easiest one of all to dim.
+        // UINT16_MAX ('never dim') survives the comparison untouched.
+        if (screen_timeout_secs < min_timeout_override_secs) {
+            screen_timeout_secs = min_timeout_override_secs;
+        }
         const TickType_t projected_ui_timeout_time
             = get_last_registered_activity(true) + SECS_TO_TICKS(screen_timeout_secs);
         if (!screen_dimmed && !screen_timeout_disabled && projected_ui_timeout_time <= checktime) {

@@ -188,7 +188,7 @@ gui_activity_t* make_display_settings_activity(void);
 gui_activity_t* make_info_activity(const char* fw_version);
 gui_activity_t* make_io_test_activity(void);
 gui_activity_t* make_io_test_screen_activity(gui_view_node_t** colour_fill);
-gui_activity_t* make_io_test_buttons_activity(gui_view_node_t** marks);
+gui_activity_t* make_io_test_buttons_activity(gui_view_node_t** marks, gui_view_node_t** note);
 gui_activity_t* make_device_info_activity(bool show_ble);
 
 #ifdef CONFIG_HAS_CAMERA
@@ -2601,11 +2601,14 @@ static void mark_io_test_button(gui_view_node_t* const mark)
 // BBB-AIRGAP: the buttons check.  Every mark starts grey and turns green when the event naming
 // its input arrives; KEY3 ends the screen instead of marking, so leaving is its test.  The echo
 // is what makes the vertical joystick pair and KEY1 name themselves here (gui_set_input_echo(),
-// main/gui.h), and it is turned off on the way out whichever way the screen ends.
+// main/gui.h), and it is turned off on the way out whichever way the screen ends.  The line under
+// the marks is rewritten on every press with what that button does (IO_TEST_NOTE_*, main/ui.h),
+// because a green mark says a button was seen, not what it is for.
 static void handle_io_test_buttons(void)
 {
     gui_view_node_t* marks[IO_TEST_NUM_MARKS] = {};
-    gui_activity_t* const act = make_io_test_buttons_activity(marks);
+    gui_view_node_t* note = NULL;
+    gui_activity_t* const act = make_io_test_buttons_activity(marks, &note);
 
     wait_event_data_t* const event_data = gui_activity_make_wait_event_data(act);
     JADE_ASSERT(event_data);
@@ -2631,18 +2634,23 @@ static void handle_io_test_buttons(void)
         switch (ev_id) {
         case GUI_WHEEL_UP_EVENT:
             mark_io_test_button(marks[IO_TEST_MARK_UP]);
+            gui_update_text(note, IO_TEST_NOTE_UP);
             break;
         case GUI_WHEEL_DOWN_EVENT:
             mark_io_test_button(marks[IO_TEST_MARK_DOWN]);
+            gui_update_text(note, IO_TEST_NOTE_DOWN);
             break;
         case GUI_WHEEL_LEFT_EVENT:
             mark_io_test_button(marks[IO_TEST_MARK_LEFT]);
+            gui_update_text(note, IO_TEST_NOTE_LEFT);
             break;
         case GUI_WHEEL_RIGHT_EVENT:
             mark_io_test_button(marks[IO_TEST_MARK_RIGHT]);
+            gui_update_text(note, IO_TEST_NOTE_RIGHT);
             break;
         case GUI_SELECT_FIRST_EVENT:
             mark_io_test_button(marks[IO_TEST_MARK_KEY1]);
+            gui_update_text(note, IO_TEST_NOTE_KEY1);
             break;
         // Only the front click: libjade_input() maps LIBJADE_INPUT_CLICK to gui_front_click() and
         // nothing on this board reaches gui_wheel_click(), so the wheel event cannot arrive here.
@@ -2650,6 +2658,7 @@ static void handle_io_test_buttons(void)
             // One input, two keys: both marks light and the screen says which two they are.
             mark_io_test_button(marks[IO_TEST_MARK_CLICK]);
             mark_io_test_button(marks[IO_TEST_MARK_KEY2]);
+            gui_update_text(note, IO_TEST_NOTE_CLICK);
             break;
         case GUI_ALT_EVENT:
             done = true;
@@ -2746,8 +2755,8 @@ static void handle_io_test(void)
 // Options > Device > Settings on every other, and the exit branch had to pick between the two to
 // know where to go back to.  Here a row is laid out only where it can act, so every screen keeps
 // one address whatever the device is doing.  It is a list rather than a menu because
-// make_menu_activity() asserts on a fifth row (main/ui/dialogs.c:265) and this holds up to ten;
-// see pijade/ROADMAP.md for the state-by-state measurements behind each condition.
+// make_menu_activity() asserts on a fifth row (main/ui/dialogs.c:265) and this holds up to ten.
+// Each row below carries the device state it needs as its own condition, measured not assumed.
 static int32_t run_options_list(size_t* selected)
 {
     JADE_ASSERT(selected);
@@ -3234,13 +3243,13 @@ static void handle_settings(const bool startup_menu)
             // BBB-AIRGAP: the address comes first, before the camera.  Every other help screen on
             // the device explains a flow the user could still complete without it; this one is the
             // flow - there is no time QR to scan until the page that draws it is open on a phone,
-            // and the device said only "scan a time QR" without saying where from (Ilker, device
+            // and the device said only "scan a time QR" without saying where from (seen on device
             // round 6).  The page is ours rather than blkstrm.com because Blockstream has no page
-            // that draws a ur:jade-epoch code; source in docs/saat/index.html, served by this
+            // that draws a ur:jade-epoch code; source in docs/clock/index.html, served by this
             // repository's own Pages site.  The device itself never reaches it: the QR is for
             // the phone, which is the only side of this that touches a network.
             //
-            // The screen is the back/continue one rather than the help one (Ilker, 2026-09-08):
+            // The screen is the back/continue one rather than the help one (fork decision, 2026-09-08):
             // the help screen's label reads "Learn more:", which sounds optional, and its only
             // button was a back arrow that opened the camera anyway - the arrow promised the menu
             // and delivered the scanner.  Here 'Continue' opens the camera and the arrow really
@@ -3563,7 +3572,7 @@ static void handle_session(void)
             // darkens the screen without any shutdown at all. Telling the user to cut power at
             // that point would invite a corrupted card. Producing an honest "power can be cut"
             // signal needs a unit that paints the panel after umount.target, which is a
-            // separate piece of work (ROADMAP T3.9).
+            // separate piece of work, recorded but not done.
             //
             // A failed request does not leave this notice standing as a false "it is off":
             // on_power_request() returns, _power_request() aborts (libjade/libjade.c:196), and

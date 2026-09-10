@@ -173,6 +173,21 @@ typedef enum {
     IO_TEST_NUM_MARKS
 } io_test_mark_t;
 
+// BBB-AIRGAP: what the line under the marks says.  It opens on KEY3 and is rewritten on every
+// press, so a user who does not know the board can learn each button by pressing it.  The wording
+// is measured, not guessed: the joystick and the three keys reach Jade through libjade_input()
+// (pijade/host/pijade_host.c), where KEY1 is gui_select_first(), KEY2 is the same input as the
+// centre press (gui_front_click()) and KEY3 is gui_alt_click().  Up and down fall back to prev
+// and next on a screen with no vertical neighbour (gui.c select_vertical_or_wheel()), which is
+// why their lines name both.  Keep these within the width the screen already fits.
+#define IO_TEST_NOTE_KEY3 "K3: leave this screen"
+#define IO_TEST_NOTE_KEY1 "K1: jump to first item"
+#define IO_TEST_NOTE_CLICK "Press or K2: select"
+#define IO_TEST_NOTE_LEFT "Left: previous item"
+#define IO_TEST_NOTE_RIGHT "Right: next item"
+#define IO_TEST_NOTE_UP "Up: up, or previous"
+#define IO_TEST_NOTE_DOWN "Down: down, or next"
+
 // BBB-AIRGAP: scrolling list. Jade's menus stop at four items (make_menu_activity above) and the
 // gui engine has neither vertical scrolling nor clipping, so a longer menu cannot simply be drawn
 // taller. Instead the screen keeps four rows of the usual height and a window moves over the

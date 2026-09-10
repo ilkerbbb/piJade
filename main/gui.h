@@ -445,6 +445,21 @@ color_t gui_get_qrcode_color(void);
 void gui_next_qrcode_color(void);
 
 bool gui_get_flipped_orientation(void);
+
+// BBB-AIRGAP: counts the times the gui task has swapped the current activity.  Equal values at two
+// moments mean the screen did not change between them; it says nothing about repaints within one
+// screen.  Safe to call from any task: the gui task is the only writer and every reader does
+// nothing but compare two readings for equality.
+uint32_t gui_get_activity_generation(void);
+
+// BBB-AIRGAP: how many jobs have been posted to the gui task, and how many it has taken off its
+// queue.  A caller that posts work and then wants to know whether a given frame carries it reads
+// gui_get_jobs_posted() straight after posting and gui_get_jobs_drained() when the frame is
+// flushed; the queue is FIFO, so (int32_t)(drained - posted) >= 0 means every job posted by that
+// first moment is in the frame.  Compare that way and not with a bare >=: both counters wrap.
+// Safe to call from any task.
+uint32_t gui_get_jobs_posted(void);
+uint32_t gui_get_jobs_drained(void);
 bool gui_set_flipped_orientation(bool flipped_orientation);
 
 // BBB-AIRGAP: camera mounting angle, in quarter turns clockwise (0-3). Upstream fixes this per

@@ -616,9 +616,10 @@ gui_activity_t* make_io_test_screen_activity(gui_view_node_t** colour_fill)
 // (main/process/dashboard.c) as the events arrive, and the glyphs come from the symbols font
 // (main/fonts/jade_symbols_16x16.c): K and L are the small up and down triangles, H and I the
 // left and right ones, and M the hollow circle standing for the centre press.
-gui_activity_t* make_io_test_buttons_activity(gui_view_node_t** marks)
+gui_activity_t* make_io_test_buttons_activity(gui_view_node_t** marks, gui_view_node_t** note)
 {
     JADE_ASSERT(marks);
+    JADE_ASSERT(note);
 
     gui_activity_t* const act = gui_make_activity();
 
@@ -682,10 +683,19 @@ gui_activity_t* make_io_test_buttons_activity(gui_view_node_t** marks)
     gui_set_align(key3, GUI_ALIGN_LEFT, GUI_ALIGN_MIDDLE);
     gui_set_parent(key3, keys);
 
-    gui_view_node_t* note;
-    gui_make_text(&note, "K2 is the center press", TFT_WHITE);
-    gui_set_align(note, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
-    gui_set_parent(note, vsplit);
+    // BBB-AIRGAP: the caller rewrites this line on every press, so it says what the button that
+    // was just pressed does rather than carrying one fixed remark (handle_io_test_buttons(),
+    // main/process/dashboard.c).  It opens on KEY3 because leaving the screen is KEY3's own test:
+    // pressing it ends the screen, so its line would never be readable if it waited for a press.
+    // The fill behind it is what wipes the previous string: gui_update_text() repaints the text
+    // node's parent, and a text node drawn straight onto the split leaves the old glyphs in place,
+    // so the two lines pile up on each other (measured on the emulator).  The home screen carries
+    // the same background for the same reason (make_home_screen_panel_item() above).
+    gui_view_node_t* notefill;
+    gui_make_fill(&notefill, TFT_BLACK, FILL_PLAIN, vsplit);
+    gui_make_text(note, IO_TEST_NOTE_KEY3, TFT_WHITE);
+    gui_set_align(*note, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
+    gui_set_parent(*note, notefill);
 
     return act;
 }

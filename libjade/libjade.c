@@ -822,6 +822,12 @@ void libjade_input(const libjade_input_t event)
     }
 }
 
+uint32_t libjade_activity_generation(void) { return gui_get_activity_generation(); }
+
+uint32_t libjade_jobs_posted(void) { return gui_get_jobs_posted(); }
+
+uint32_t libjade_jobs_drained(void) { return gui_get_jobs_drained(); }
+
 static void build_display_size_reply(const void* ctx, CborEncoder* container)
 {
     JADE_ASSERT(ctx && container);

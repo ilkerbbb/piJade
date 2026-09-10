@@ -3,6 +3,7 @@
 
 #include <inttypes.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stddef.h>
 
 #ifndef LIBJADE_API
@@ -229,5 +230,48 @@ LIBJADE_API bool libjade_push_camera_frame(const uint8_t* data, size_t len);
  * Always false in a build without camera support.
  */
 LIBJADE_API bool libjade_camera_active(void);
+
+/*
+ * Which screen is on display, as a number that changes every time Jade replaces the current
+ * screen, and at no other time.
+ *
+ * The number itself carries no meaning; only the comparison of two readings does. Equal readings
+ * mean the same screen was current at both moments, so a frame written between them is a repaint
+ * of that screen, such as a camera preview, and not a screen the user has yet to read. A host that
+ * decides whether a press still applies uses this to tell those apart.
+ *
+ * A screen can be replaced with no press behind it: auto-scan leaves the camera the moment a QR
+ * decodes and the caller then puts up a confirm screen, so a host that only watched its own
+ * dispatches would miss it.
+ *
+ * Safe to call from any thread. Jade changes it on its gui task, which is also the task that
+ * renders and that calls the display flush handler, so a frame handed to that handler always
+ * carries the number of the screen it shows. Read from elsewhere, the value can be one change
+ * ahead of the frame on the panel, which is exactly what tells a host that a new screen has been
+ * made current and its frame has not arrived yet.
+ */
+LIBJADE_API uint32_t libjade_activity_generation(void);
+
+/*
+ * BBB-AIRGAP: how many jobs Jade's gui task has been given, and how many it has taken off its
+ * queue. They answer a question a host cannot answer from the outside: does the frame I am being
+ * handed carry the work my last button press caused?
+ *
+ * Dispatching a press through libjade_input() posts that press's repaint or screen swap before the
+ * call returns, so libjade_jobs_posted() read straight afterwards names every job the press
+ * produced. The queue is FIFO, so once libjade_jobs_drained() has reached that number, the frame
+ * being flushed was composed with all of them applied. Compare the two with
+ * (int32_t)(drained - posted) >= 0, never a bare >=: both counters wrap at 32 bits.
+ *
+ * A press whose consequences are run by another Jade task can post after libjade_input() returns;
+ * those jobs are not named by the reading above. What is guaranteed is the other direction: a
+ * frame that has drained up to the reading carries everything posted before it.
+ *
+ * Both are safe to call from any thread. Read libjade_jobs_drained() from the display flush
+ * handler and it is exact for the frame being handed over, because Jade drains, renders and
+ * flushes in that order on one task.
+ */
+LIBJADE_API uint32_t libjade_jobs_posted(void);
+LIBJADE_API uint32_t libjade_jobs_drained(void);
 
 #endif /* _LIBJADE_H_ */
