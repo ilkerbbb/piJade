@@ -1,0 +1,26 @@
+{
+  "_comment": [
+    "A signature this device really produced, with the addresses it really reports for the same",
+    "key. Used by pijade/tools/sign_verify_test.js and embedded in docs/sign/index.html as that",
+    "page's own self-test, so a broken embedded library shows up as a failure rather than as a",
+    "wrong address.",
+    "",
+    "The wallet is test_jade.py's TEST_MNEMONIC, upstream's public test vector; nothing here is",
+    "secret. Produced 2026-09-10 on the linux build, then checked a second way: the same three",
+    "addresses were derived from the account xpub with libwally, independently of the device's",
+    "own address code, and matched.",
+    "",
+    "sign_message_golden_qr.png is the device's own screen on the 'Scan QR / signature' step,",
+    "captured through libjade_daemon and converted with pijade/tools/rgb2png.py. It carries this",
+    "signature and nothing else, which is what the reader in docs/sign/index.html expects to see."
+  ],
+  "path": "m/44'/0'/0'/0/0",
+  "message": "hello",
+  "signature_base64": "H6QjkjEzIJy4fsDuPToeL7PQlCdeReLWexln+YEA6FT6AG7hKoeeiPXf1vvikPuqkfJFjYvaHKCpUqrxJ6ZyGQc=",
+  "header_byte": 31,
+  "recovery_id": 0,
+  "pubkey_hex": "03adca287e74c961c21aecf8379a9ed8a78ac8706a5a905f4de6b6297922245488",
+  "p2pkh": "1pAYXbNsgSrQc5X71PW5tdSV3A5znsaQt",
+  "p2sh_p2wpkh": "3BrbRzrBqex8P42b2Cqz2AqrMq4daaG3zN",
+  "p2wpkh": "bc1qpr4cgj7q68ejswaq4x0ffx6tgd37ge607cxwnh"
+}
