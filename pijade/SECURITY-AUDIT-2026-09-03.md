@@ -9,6 +9,13 @@
 > so a reference may now sit a few lines off; the surrounding function and the quoted text are the
 > reliable anchors. Re-measuring them against the current tree is outstanding work.
 >
+> **Commit references:** the published history of the fork was later squashed into a single
+> starting commit, so the short hashes of the development commits this document was written
+> against no longer resolve anywhere. Where a citation named one, it now describes what the
+> citation pointed at instead. Upstream Blockstream hashes and the SeedSigner hash still
+> resolve and were kept. The measurements are unaffected; what was lost is their commit-level
+> anchor, so a result recorded here can no longer be traced to the commit that produced it.
+>
 > **Scope:** (A) the security of the fork as a device in use, measured against SeedSigner as the
 > reference and with the aim of going beyond it; (B) the parts of the Jade repository and of the
 > 1.0.41 announcement that have not reached the fork; (C) every seed generation path, and whether
@@ -137,7 +144,7 @@ exactly the same 12-word and 24-word results here. As long as the user can enter
 into SeedSigner and compare, this layer is not a weakness but a gain in auditability.
 **We are at parity with SeedSigner.**
 
-### C2. No mixing on the camera path, and no reason for it either ; **P2 (recommendation)** ; **CLOSED** (`bab66a62`)
+### C2. No mixing on the camera path, and no reason for it either ; **P2 (recommendation)** ; **CLOSED**
 
 **Why this is the most important C finding:** the three paths do not offer equal assurance. The
 device path takes its 128/256 bits from `getrandom` **provably**; the dice path gives 129/255.9
@@ -162,7 +169,7 @@ what is missing is the **floor**: if 32 bytes from `get_random()` enter the chai
 camera contributes nothing the result is as strong as the device RNG. This is the cheapest and
 most concrete step towards the goal of going beyond SeedSigner.
 
-### C2b. The camera path side by side with SeedSigner ; **we are BELOW the reference (measured)**  ; **CLOSED** (`9cee55d1`)
+### C2b. The camera path side by side with SeedSigner ; **we are BELOW the reference (measured)**  ; **CLOSED**
 
 The observation from use ("the camera finishes in one or two seconds, it does not feel safe") was
 confirmed in the code. Put side by side, the two implementations differ as follows:
@@ -411,7 +418,7 @@ measured, rather than adding the flags blind.
 
 The same three fronts were given to an independent reviewer. **None of the findings in this
 document were put in the brief**; only the system description, the threat model and the scope were
-given. The result: 1 P1, 10 P2, 3 P3 (over the snapshot `8edaf695`).
+given. The result: 1 P1, 10 P2, 3 P3 (over the tree as it stood at that point).
 
 ### Overlapping findings (both reviews found these independently)
 
@@ -510,7 +517,7 @@ review and two open counts were measured. Every item was either verified or reje
 | 0.2 | Unbounded `seq_len` allocation | **VERIFIED** | `fountain-encoder.hpp:33` `is_valid()` only looks at `message_len_ && !data_.empty()`; there is no upper bound on `seq_len_`. `choose_fragments()` in `fountain-utils.cpp` does `indexes.reserve(seq_len)` with that value, and `fountain-decoder.cpp:205` calls `insert(i)` `seq_len` times. The value is an attacker-controlled `size_t`. |
 | 0.3 | The seed loading confirmation | **VERIFIED** | `dashboard.c:876-877`, the text is only "Wallet QR identified." / "Load this wallet?"; the fourth argument is `true`, and `dialogs.c:930` makes that YES button the initial selection with `ftrbtns[default_selection ? 1 : 0]`. No fingerprint is shown. |
 | 0.4 | The `esp_camera_deinit` call surface | **MEASURED** | The single production call is `main/camera.c:372`. The implementation is `libjade/esp_camera.c:61`, the QEMU wrapper `main/qemu/qemu_display.c:58`. Wiping can go in one place. |
-| 0.5 | The upstream divergence count | **65, THE CONTRADICTION IS CLOSED** | `git rev-list --count fdb67a3f..upstream/master` = 65; with `--no-merges` also 65, so it is not a merge artefact. The figure of 61 from the second review could not be reproduced. **No missed security fix:** urldecode validation (`dd0d699d` → `240687a9` in the fork), OTP URL validation (`b0552c8e` → `575e80b6`) and the libjade deadlock (`072dd3b1` → `81ecc71d`) are present in the fork. The two commits not in the fork (`69627745` limited digit entry, `b5329010` removing `free_callback`) are a feature and a refactor; not security fixes. |
+| 0.5 | The upstream divergence count | **65, THE CONTRADICTION IS CLOSED** | `git rev-list --count fdb67a3f..upstream/master` = 65; with `--no-merges` also 65, so it is not a merge artefact. The figure of 61 from the second review could not be reproduced. **No missed security fix:** urldecode validation (`dd0d699d`), OTP URL validation (`b0552c8e`) and the libjade deadlock (`072dd3b1`) are present in the fork. The two commits not in the fork (`69627745` limited digit entry, `b5329010` removing `free_callback`) are a feature and a refactor; not security fixes. |
 | 0.6 | Flag support in the cross compiler | **ALL SUPPORTED** | gcc 12.2.0 in the container (Raspbian 12.2.0-14+rpi1+deb12u1). `_FORTIFY_SOURCE=3`, `_FORTIFY_SOURCE=2`, `-fstack-protector-strong`, `-fstack-clash-protection`, `-Wl,-z,relro,-z,now`, `-fPIE -pie`, `_GLIBCXX_ASSERTIONS`: all compile. The `__stack_chk` symbol really is present in the produced binary (2 matches) and `readelf -d` shows `BIND_NOW`. There is no technical obstacle in front of A6's recommendation. |
 | 0.7 | The interface that reads whether a duress PIN exists | **VERIFIED, HEAVIER THAN EXPECTED** | `dashboard.c:1337` does not merely read existence: if `storage_get_wallet_erase_pin()` succeeds it **prints the stored PIN on the screen in the clear** with `format_pin()` and offers Change / Delete. So the duress PIN has to be readable back; a one-way hash makes that screen unworkable. **Phase 3 outcome:** the screen was changed, the display was reduced to "set", and the field became a one-way verifier; the obstacle was the screen itself, not a requirement of the duress mechanism. |
 | 0.8 | Behaviour on a magic number mismatch | **MEASURED** | `pijade_settings.c:359-361`: on a mismatch `pijade_settings_deserialize` returns `false`; the rejection is **per file, not per field**. The single call site is `libjade.c:738`, which passes the return value through unchanged. A card in an older format is not silently misread, but everything in it (the wallet blob, the counter, all preferences) goes together. |
@@ -564,7 +571,7 @@ again.**
 
 **Result.** On the paths reachable over QR, no genuinely secret material was left unwiped. The
 `serverkey` finding of the second review was the real exception; it and `decrypted_padded` were
-fixed (`26525bb0`).
+fixed.
 
 **The 53 excluded candidates, with their grounds** (all of them, so that no scope narrowing is
 silent):
@@ -684,14 +691,14 @@ decoded, the pointer returned by `urresult_ur_decoder` is put through the alloca
 of `bcur_scan_qr`, and then the read from `handle_qr_bytes` (`qrmode.c:1805`,
 `strbytes[bytes_len]`) is applied.
 
-**The positive control is essential:** the same probe was also run against the allocation at
-`62068cc6`. If the old code had not produced the error, the probe would not be triggering the error
-at all and the "clean" result would be worth nothing.
+**The positive control is essential:** the same probe was also run against the old allocation. If
+the old code had not produced the error, the probe would not be triggering the error at all and
+the "clean" result would be worth nothing.
 
 | Allocation | ASAN | Exit code |
 |---|---|---|
-| `result_len + offset` (`62068cc6`, positive control) | `heap-buffer-overflow READ of size 1`, `0 bytes after 34-byte region` | `1` |
-| `result_len + offset + 1` + NUL (`3089909b`) | no finding; `strbytes[32] = 0x00` | `0` |
+| `result_len + offset` (old allocation, positive control) | `heap-buffer-overflow READ of size 1`, `0 bytes after 34-byte region` | `1` |
+| `result_len + offset + 1` + NUL | no finding; `strbytes[32] = 0x00` | `0` |
 
 No camera stream was needed; what was measured was not the scanning interface but the relationship
 between the allocation size and the read index.
@@ -778,7 +785,7 @@ deliberate refusal is logged at error level. Left out of scope, recorded.
 
 ## Phase 2 ; the entropy architecture (2026-09-03)
 
-### 2.1 mixing in the device CSPRNG (commit `bab66a62`)
+### 2.1 mixing in the device CSPRNG
 
 The output of `get_random()` was added as the last input to `gather_camera_entropy`'s hash chain.
 Before the mixing, the floor of the camera path was `macid` + the tick counter + frame content; if
@@ -829,7 +836,7 @@ precondition, so it can never silently return zero again.
 | Is on-screen feedback possible | The label node `label_node` is updated inside the function (`camera.c:547`, "Processing..."), but it is not exposed to the callback; `progress_bar`, on the other hand, is updated through `ctx` |
 | How are synthetic frames fed to the emulator | The daemon RPC `set_camera_bytes` → `libjade_push_camera_frame` (`libjade/libjade.c:889-893`). The frame is 320x240 greyscale, 76800 bytes |
 
-### 2.2 / 2.3 / 2.4 (commit `9cee55d1` and the threshold fix)
+### 2.2 / 2.3 / 2.4 (and the threshold fix)
 
 Three items closed in one commit: the change gate between consecutive frames, raising the pool to
 50 with the user ending the collection, and the on-screen feedback.
@@ -975,7 +982,7 @@ screen, which is why the comparison starts from the second screen.
 
 **Side finding: the camera-less build was already broken.** While trying to compile the
 camera-less branch of `Combined`, it turned out that the `build_linux` (CAMERA=0) build had **not
-been compiling before this round either**. The cause was phase 2.3 itself: `9cee55d1` added the
+been compiling before this round either**. The cause was phase 2.3 itself: it added the
 `label_out` parameter to the `jade_camera_process_images` signature, `main/camera.c` and its
 callers were updated, but the definition in the `#else` (camera-less) half of
 `libjade/esp_camera.c` was left unchanged. Because only the `nci` variants were being compiled, it
@@ -1003,11 +1010,11 @@ right), and the 24-word flow arrives at the same screen as the 12-word flow.
 
 ### Phase 2 closing review
 
-**Gate B (`codex review --base fd941c2a`): CLEAN.** No findings. The reviewer's wording: against the stated merge base no
-actionable correctness defect was found; the updated camera API is applied consistently at its call
-sites, and the entropy collection and cancellation paths are consistent.
+**Gate B (`codex review`): CLEAN.** No findings. The reviewer's wording: against the merge base
+it was given, no actionable correctness defect was found; the updated camera API is applied
+consistently at its call sites, and the entropy collection and cancellation paths are consistent.
 
-**Adversarial review (`codex exec -s read-only`, scope `fd941c2a..HEAD`, limited to seven files): 0 P1, 0 P2, 1 P3.** The
+**Adversarial review (`codex exec -s read-only`, scoped to the phase 2 diff, limited to seven files): 0 P1, 0 P2, 1 P3.** The
 brief widened the threat model explicitly: the attacker can put a scene of their own choosing (a
 screen, a printed page) in front of the camera, can freeze the sensor and replay it, and can read
 the SD card offline afterwards. The focus list was where the combination happens, truncation in the
@@ -1065,9 +1072,9 @@ mechanism claims no more than it delivers. The only place where a legitimate bit
 written remains phase 2.6 (camera characterisation on real hardware), and that measurement too
 measures sensor noise; the attacker scenario here is outside its scope as well.
 
-The closing commit contains only these two comments and the documents. Gate B and the adversarial
-review examined the diff up to `c4ac1bec`; because a comment and document change cannot produce a
-P1 or P2, the review was not rerun.
+The closing commit contains only these two comments and the documents. Gate B and the
+adversarial review examined the diff before those closing changes; because a comment and
+document change cannot produce a P1 or P2, the review was not rerun.
 
 ---
 

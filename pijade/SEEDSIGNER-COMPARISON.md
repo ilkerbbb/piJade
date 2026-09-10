@@ -1,8 +1,11 @@
 # SeedSigner comparison ; seed menu and settings
 
 > Date: 2026-08-31
-> Versions compared: **SeedSigner `d70b322`** and **piJade `bbb-airgap` @ `de2c35a4`** (after
+> Versions compared: **SeedSigner `d70b322`** and **piJade `bbb-airgap`** (after
 > phases 1 / L / 3 / 2)
+> The piJade side was read at a development commit whose hash no longer resolves: the
+> published history was squashed into a single starting commit afterwards. The date and the
+> phase list above are the anchors.
 > Method: reading the code. `views/seed_views.py` (2270 lines), `views/tools_views.py` (775),
 > `models/settings_definition.py` (814), `views/settings_views.py` (387) and `views/view.py` were
 > read in full or against specific questions; the piJade side was verified through
