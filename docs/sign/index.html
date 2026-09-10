@@ -3,75 +3,182 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>piJade: sign a message</title>
+<title>piJade: sign and verify a message</title>
 <style>
-  :root { color-scheme: light dark; }
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f6f4; --ink: #14201c; --dim: #4a5a54; --line: #cfcdc6;
+    --field: #fff; --sunk: #eceae4; --accent: #0a6c52; --bad: #8a2b1c;
+    --btn: #e7e5df; --btn-ink: #14201c;
+  }
+  * { box-sizing: border-box; }
   body {
-    margin: 0 auto; padding: 18px 16px 48px; max-width: 34rem;
+    margin: 0 auto; padding: 20px 16px 40px; max-width: 42rem;
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    background: #f6f6f4; color: #14201c; line-height: 1.55;
+    background: var(--bg); color: var(--ink); line-height: 1.5; font-size: 15px;
   }
-  h1 { font-size: 1.18rem; margin: 0 0 4px; font-weight: 650; }
-  h2 { font-size: 0.98rem; margin: 26px 0 6px; font-weight: 650; }
-  p { margin: 0 0 12px; }
-  p.alt { color: #4a5a54; font-size: 0.87rem; margin-bottom: 18px; }
-  ol { margin: 6px 0 12px; padding-left: 1.25rem; }
-  li { margin: 5px 0; }
-  code { background: #eceae4; padding: 1px 5px; border-radius: 3px; font-size: 0.93em; }
-  label { display: block; font-size: 0.82rem; color: #4a5a54; margin: 10px 0 3px; }
+  h1 { font-size: 1.25rem; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+  header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+           padding-bottom: 12px; margin-bottom: 18px; border-bottom: 1px solid var(--line); }
+  header .sub { font-size: 0.8rem; color: var(--dim); margin: 0; }
+
+  .form { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: 10px 14px; align-items: start; }
+  .form > .lab { text-align: right; font-size: 0.86rem; color: var(--dim); padding-top: 9px; }
+  .form > .lab.tall { padding-top: 9px; }
   input, textarea {
-    width: 100%; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.92rem; padding: 8px 9px; border: 1px solid #cfcdc6; border-radius: 6px;
-    background: #fff; color: #14201c;
+    width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.88rem; padding: 8px 9px; border: 1px solid var(--line); border-radius: 5px;
+    background: var(--field); color: var(--ink);
   }
-  textarea { resize: vertical; min-height: 3.2rem; }
-  #code-box { background: #fff; padding: 12px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.12);
-         margin: 16px auto 0; width: fit-content; }
-  #code-box canvas { display: block; width: min(72vw, 300px); height: auto; image-rendering: pixelated; }
-  .payload { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem;
-           word-break: break-all; background: #eceae4; padding: 8px 9px; border-radius: 6px; margin: 12px 0 0; }
-  .measure { font-size: 0.78rem; color: #4a5a54; margin: 6px 0 0; text-align: center;
-             overflow-wrap: anywhere; }   /* a 66-character key has no break of its own */
-  .error { color: #8a2b1c; font-size: 0.86rem; margin: 12px 0 0; }
-  .warning {
-    margin-top: 24px; font-size: 0.86rem;
-    background: #fffbe8; border: 1px solid #e6d9a6; border-radius: 8px; padding: 11px 13px; color: #4a4326;
+  textarea { resize: vertical; }
+  #message { min-height: 5.5rem; }
+  #signature { min-height: 3.4rem; }
+  .fmt { margin: 0; padding-top: 9px; font-size: 0.88rem; }
+  .fmt .hint { color: var(--dim); font-size: 0.8rem; }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 0;
+             padding-top: 14px; border-top: 1px solid var(--line); }
+  .actions .spacer { flex: 1 1 auto; }
+  /* A grid track and a flex item both default to a minimum of their content, which lets a long
+   * placeholder or an unbreakable button row push the page wider than the screen.  The page must
+   * never scroll sideways, so both are pinned to zero and allowed to wrap instead. */
+  button, .filebtn {
+    font: inherit; font-size: 0.88rem; padding: 7px 14px; border-radius: 5px;
+    border: 1px solid var(--line); background: var(--btn); color: var(--btn-ink);
+    cursor: pointer; white-space: nowrap;
   }
-  input[type="file"] { font-family: inherit; font-size: 0.86rem; padding: 7px 9px; }
+  button:hover, .filebtn:hover { border-color: var(--accent); }
+  button:focus-visible, .filebtn:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #photo { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+  #qr-panel, #scan-panel { margin-top: 16px; padding: 14px; border: 1px solid var(--line);
+                           border-radius: 8px; background: var(--sunk); }
+  #code-box { background: #fff; padding: 10px; border-radius: 6px; margin: 0 auto; width: fit-content; }
+  #code-box canvas { display: block; width: min(66vw, 260px); height: auto; image-rendering: pixelated; }
+  #scan-video { display: block; width: 100%; max-width: 340px; margin: 0 auto; border-radius: 6px;
+                background: #000; }
+  .panel-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px; }
+  .panel-head h2 { font-size: 0.86rem; font-weight: 600; margin: 0; }
+  .panel-head .note { font-size: 0.78rem; color: var(--dim); }
+
+  .payload { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem;
+             word-break: break-all; background: var(--field); border: 1px solid var(--line);
+             padding: 7px 9px; border-radius: 5px; margin: 10px 0 0; }
+  .measure { font-size: 0.78rem; color: var(--dim); margin: 8px 0 0; text-align: center;
+             overflow-wrap: anywhere; }
+  .error { color: var(--bad); font-size: 0.85rem; margin: 12px 0 0; }
+  #verify-out { margin-top: 14px; }
   .addr { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline;
-          padding: 7px 9px; border-radius: 6px; background: #eceae4; margin: 6px 0; }
-  .addr-label { font-size: 0.78rem; color: #4a5a54; flex: 0 0 auto; }
-  .addr-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem;
+          padding: 7px 9px; border-radius: 5px; background: var(--sunk); margin: 6px 0; }
+  .addr-label { font-size: 0.78rem; color: var(--dim); flex: 0 0 auto; }
+  .addr-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem;
                 word-break: break-all; }
-  .addr.match { background: #dff0e6; outline: 1px solid #0a6c52; }
-  .verdict { margin: 14px 0 8px; font-size: 0.9rem; }
-  .verdict.good { color: #0a6c52; font-weight: 600; }
-  .verdict.bad { color: #8a2b1c; font-weight: 600; }
-  a { color: #0a6c52; }
+  .addr.match { background: #dff0e6; outline: 1px solid var(--accent); }
+  .verdict { margin: 12px 0 6px; font-size: 0.9rem; }
+  .verdict.good { color: var(--accent); font-weight: 600; }
+  .verdict.bad { color: var(--bad); font-weight: 600; }
+
+  details.guide { margin-top: 26px; border-top: 1px solid var(--line); padding-top: 12px; }
+  details.guide > summary { cursor: pointer; font-size: 0.86rem; color: var(--dim); }
+  details.guide > summary:hover { color: var(--accent); }
+  details.guide .body { margin-top: 14px; }
+  details.guide h3 { font-size: 0.92rem; margin: 22px 0 6px; font-weight: 600; }
+  details.guide p { margin: 0 0 11px; font-size: 0.9rem; }
+  details.guide ol { margin: 6px 0 12px; padding-left: 1.2rem; font-size: 0.9rem; }
+  details.guide li { margin: 5px 0; }
+  code { background: var(--sunk); padding: 1px 5px; border-radius: 3px; font-size: 0.92em;
+         font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .warning { margin-top: 18px; font-size: 0.86rem; background: #fffbe8; border: 1px solid #e6d9a6;
+             border-radius: 6px; padding: 10px 12px; color: #4a4326; }
+  a { color: var(--accent); }
+
+  @media (max-width: 33rem) {
+    .form { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+    .form > .lab { text-align: left; padding-top: 10px; }
+    .fmt { padding-top: 2px; }
+    /* With one column there is no room to hold a button group apart from the rest; the spacer
+     * would only push the row into a ragged wrap. */
+    .actions .spacer { display: none; }
+  }
   @media (prefers-color-scheme: dark) {
-    body { background: #121614; color: #e8ece9; }
-    p.alt, label, .measure { color: #9aa8a2; }
-    code, .payload { background: #242c28; }
-    input, textarea { background: #1a201d; color: #e8ece9; border-color: #39423d; }
+    :root {
+      --bg: #121614; --ink: #e8ece9; --dim: #9aa8a2; --line: #39423d;
+      --field: #1a201d; --sunk: #1d2320; --accent: #5fd0a8; --bad: #e89484;
+      --btn: #242c28; --btn-ink: #e8ece9;
+    }
+    button.primary { color: #0d1512; }
     #code-box { background: #e8ece9; }
-    .error { color: #e89484; }
+    .addr.match { background: #1c3529; }
     .warning { background: #2a2718; border-color: #4d452a; color: #ded4ad; }
-    .addr { background: #242c28; }
-    .addr-label { color: #9aa8a2; }
-    .addr.match { background: #1c3529; outline-color: #5fd0a8; }
-    .verdict.good { color: #5fd0a8; }
-    .verdict.bad { color: #e89484; }
-    a { color: #5fd0a8; }
   }
 </style>
 </head>
 <body>
-<h1>piJade: sign a message</h1>
-<p class="alt">Signing proves you hold the private key behind an address without ever revealing
-that key. The device signs the text with the key at the derivation path you choose, and anyone can
-check the signature against the address. No coins move and nothing is broadcast.</p>
+<header>
+  <h1>Sign and verify a message</h1>
+  <p class="sub">piJade &middot; runs entirely in this page &middot; nothing is sent anywhere</p>
+</header>
 
-<h2>What the round trip looks like</h2>
+<div class="form">
+  <span class="lab"><label for="path">Path</label></span>
+  <input id="path" value="m/44'/0'/0'/0/0" spellcheck="false" autocapitalize="off" autocorrect="off">
+
+  <span class="lab tall"><label for="message">Message</label></span>
+  <textarea id="message" spellcheck="false">hello</textarea>
+
+  <span class="lab tall"><label for="signature">Signature</label></span>
+  <textarea id="signature" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
+
+  <span class="lab"><label for="expected">Address</label></span>
+  <input id="expected" spellcheck="false" autocapitalize="off" autocorrect="off" placeholder="leave empty to list the three this key controls">
+
+  <span class="lab">Format</span>
+  <p class="fmt">Standard (Electrum) <span class="hint">the only format the device produces</span></p>
+</div>
+
+<p class="error" id="error" hidden></p>
+
+<div class="actions">
+  <button type="button" id="qr-btn">Sign by QR</button>
+  <span class="spacer"></span>
+  <button type="button" id="scan-btn">Scan signature</button>
+  <label class="filebtn">Choose photo<input type="file" id="photo" accept="image/*"></label>
+  <button type="button" id="verify-btn" class="primary">Verify</button>
+</div>
+
+<div id="scan-panel" hidden>
+  <div class="panel-head">
+    <h2>Point the camera at the device screen</h2>
+    <span class="note" id="scan-status"></span>
+  </div>
+  <video id="scan-video" playsinline muted></video>
+  <p class="measure"><button type="button" id="scan-stop">Cancel</button></p>
+</div>
+
+<div id="qr-panel" hidden>
+  <div class="panel-head">
+    <h2>Show this to the device</h2>
+    <span class="note">Session &rsaquo; fingerprint &rsaquo; Sign Message</span>
+  </div>
+  <div id="code-box"><canvas id="canvas"></canvas></div>
+  <p class="measure" id="measure"></p>
+  <p class="payload" id="payload"></p>
+</div>
+
+<p class="measure" id="verify-note" hidden></p>
+<div id="verify-out" hidden></div>
+<p class="error" id="verify-error" hidden></p>
+
+<details class="guide">
+<summary>How this works, and what it does not prove</summary>
+<div class="body">
+
+<p>Signing proves you hold the private key behind an address without ever revealing that key. The
+device signs the text with the key at the derivation path you choose, and anyone can check the
+signature against the address. No coins move and nothing is broadcast.</p>
+
+<h3>What the round trip looks like</h3>
 <p>A wallet that can talk in QR codes drives the whole thing. In Sparrow the screen is
 <code>Tools &gt; Sign/Verify Message</code>, which has an <em>Address</em> field, a
 <em>Message</em> field, a <em>Signature</em> field and a format selector, with
@@ -88,101 +195,79 @@ bottom.</p>
   <li>On piJade open <code>Session</code>, then the wallet fingerprint, then
       <code>Sign Message</code>. The camera opens. Hold it over Sparrow's code.</li>
   <li>piJade shows the message, its digest and the derivation path. <strong>Read them.</strong>
-      Approving signs the message that was scanned, the whole of it. From 192 bytes up the screen
-      shows the first 188 bytes followed by an ellipsis while the entire text is signed, so
-      everything past the ellipsis would be approved unread; the generator below refuses to build a
-      code that long for exactly that reason. A message longer than 96 bytes is shown over two
-      screens, and the summary screen lets you approve without opening the message at all, so open
-      it and step through both screens before approving.</li>
+      Approving signs the message that was scanned, the whole of it. The screen has room for 191
+      bytes, and <code>Sign by QR</code> above draws no code from 192 bytes up, so a message this
+      page produced is always one the screen can show in full. A message longer than 96 bytes is
+      shown over two screens, and the summary screen lets you approve without opening the message
+      at all, so open it and step through both screens before approving.</li>
   <li>piJade then displays the signature as its own QR code, under <code>Scan QR</code>. Sparrow
       reads that code back with its camera and drops the signature into the
       <em>Signature</em> field.</li>
-  <li>Press <code>Verify</code>. The signature landing in the field only means Sparrow read the QR
-      code; it is <code>Verify</code> that checks the signature against the address and the exact
+  <li>Press <code>Verify</code>. The signature landing in the field only means the QR code was
+      read; it is <code>Verify</code> that checks the signature against the address and the exact
       message in the fields above it. If it fails, the message field is the one to check first: it
       has to be the scanned message byte for byte, trailing spaces and line breaks included, which
       for a message short enough to fit is exactly what the device displayed. The device never
       shows the address, only the derivation path, so the address is checked the other way round:
-      it must be the one Sparrow lists at that path.</li>
+      it must be the one your wallet lists at that path.</li>
 </ol>
 <p>The device is never plugged into anything: both directions are cameras reading screens.</p>
 
-<h2>Which signature format</h2>
+<h3>Which signature format</h3>
 <p>When Sparrow verifies, it picks the format itself: it tries the two ECDSA readings and then
 BIP322, and moves the selector to whichever one succeeded. So the selector does not decide whether a
 verification passes. It decides how Sparrow signs, and there it follows the address type. For a
 Taproot address Sparrow disables the ECDSA options and forces <code>BIP322 (Simple)</code>, whose
 request travels as a <code>ur:crypto-psbt</code> that this device's message scanner refuses by
-type. Keep this round trip
-to legacy, nested segwit and native segwit addresses; Taproot is outside it.</p>
+type. Keep this round trip to legacy, nested segwit and native segwit addresses; Taproot is outside
+it.</p>
 <p>For those addresses the device produces a recoverable ECDSA signature over the usual Bitcoin
 signed-message digest, base64 encoded, with the header byte written as
 <code>31 + recovery id</code> for a compressed key, whatever the derivation path. That is what
-<code>Standard (Electrum)</code> describes. A strict BIP137 verifier reads the same header byte as a
-statement about the address type: 31 to 34 means P2PKH, 35 to 38 nested segwit, 39 to 42 native
-segwit. Since the device writes 31 plus the recovery id everywhere, such a verifier accepts the
-legacy case and reports an address-type mismatch under a segwit path. Sparrow is not that verifier,
-but other tools are, so name Standard when something asks which format the signature is in.</p>
+<code>Standard (Electrum)</code> describes, and it is the only thing the device emits, which is why
+the field above states it rather than offering a choice. A strict BIP137 verifier reads the same
+header byte as a statement about the address type: 31 to 34 means P2PKH, 35 to 38 nested segwit, 39
+to 42 native segwit. Since the device writes 31 plus the recovery id everywhere, such a verifier
+accepts the legacy case and reports an address-type mismatch under a segwit path. Sparrow is not
+that verifier, but other tools are, so name Standard when something asks which format the signature
+is in.</p>
 
-<h2>If your wallet cannot make the QR code</h2>
-<p>The generator below builds the one payload the device accepts and draws it, so you can sign
-without a wallet in the loop. Everything happens in your browser.</p>
-
-<label for="path">Derivation path (BIP32)</label>
-<input id="path" value="m/44'/0'/0'/0/0" spellcheck="false" autocapitalize="off" autocorrect="off">
-
-<label for="message">Message to sign</label>
-<textarea id="message" spellcheck="false">hello</textarea>
-
-<div id="code-box"><canvas id="canvas"></canvas></div>
-<p class="measure" id="measure"></p>
-<p class="payload" id="payload"></p>
-<p class="error" id="error" hidden></p>
-
-<h2>Read the signature back</h2>
-<p>The device shows the signature as a QR code and nothing else; on this screen it never shows the
-address the signature belongs to. This reader closes that gap. Photograph the code, and the public
-key is recovered from the signature itself, which is enough to work out the three single-signature
+<h3>Reading the signature back</h3>
+<p>The device shows the signature as a QR code and nothing else; on that screen it never shows the
+address the signature belongs to. <code>Scan signature</code> closes that gap: the public key is
+recovered from the signature itself, which is enough to work out the three single-signature
 addresses that key controls. No wallet, no network, no second device.</p>
-<p>Take the photo with the screen filling the frame. The message above has to be the one that was
-signed, byte for byte, because the signature covers a digest of it and not the text you can see.</p>
+<p>The camera needs the device screen to fill the frame. If the camera is not available, or the
+browser refuses it, <code>Choose photo</code> reads a still image of the same screen instead.
+Either way the message field has to hold the message that was signed, byte for byte, because the
+signature covers a digest of it and not the text you can see.</p>
+<p>A match says the signature was made by the key behind that address. It does not say the address
+is yours: check that the address is the one your wallet shows at the derivation path you signed
+under. And a signature only ever proves the message it covers, so read the message before you trust
+what it says.</p>
 
-<label for="photo">Photograph of the device's <code>Scan QR</code> screen</label>
-<input type="file" id="photo" accept="image/*" capture="environment">
-
-<label for="signature">Signature (the photo fills this in; you can also paste it)</label>
-<textarea id="signature" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
-
-<label for="expected">Address you expect this to prove (optional)</label>
-<input id="expected" spellcheck="false" autocapitalize="off" autocorrect="off" placeholder="leave empty to just list them">
-
-<p class="measure" id="verify-note" hidden></p>
-<div id="verify-out" hidden></div>
-<p class="error" id="verify-error" hidden></p>
-
-<p class="alt">A match says the signature was made by the key behind that address. It does not say
-the address is yours: check that the address is the one your wallet shows at the derivation path
-you signed under. And a signature only ever proves the message it covers, so read the message
-before you trust what it says.</p>
-
-<h2>What is inside the QR code</h2>
+<h3>What is inside the QR code</h3>
 <p>One format is accepted; anything else is refused with <code>Not a message to sign</code>:</p>
 <p><code>signmessage &lt;path&gt; ascii:&lt;text&gt;</code></p>
 <p>The path cannot contain a space, because the space is the separator. The text is everything
 after <code>ascii:</code> and may contain spaces. The device decides whether the path is usable; if
 it is not, it says <code>Invalid bip32 path</code>.</p>
 
-<h2>This page works offline</h2>
-<p>The QR code is drawn in your browser, the photograph you hand it is read in your browser, and
-nothing you type or photograph is sent anywhere. Everything the page needs is inside this one
-file, so saving it and opening the copy works with no network at all. The device itself never reaches this page: only the phone or
-computer showing it does.</p>
+<h3>This page works offline</h3>
+<p>The QR code is drawn in your browser, the camera frames and photographs are read in your
+browser, and nothing you type or photograph is sent anywhere. Everything the page needs is inside
+this one file, so saving it and opening the copy works with no network at all. The device itself
+never reaches this page: only the phone or computer showing it does.</p>
 
 <div class="warning">
   <strong>Do not sign what you have not read.</strong> The signature covers the whole message that
-  was scanned, including any part the screen did not have room to show. Signing something you do not understand can produce a document used against you later. If
-  you are unsure, cancel; cancelling costs nothing.
+  was scanned, including any part the screen did not have room to show. Signing something you do
+  not understand can produce a document used against you later. If you are unsure, cancel;
+  cancelling costs nothing.
 </div>
+
+</div>
+</details>
 <script>
 /*
  * Embedded: QR Code generator library, Project Nayuki, MIT licence.
@@ -1075,17 +1160,18 @@ function refresh() {
   if (!path) { fail("The derivation path cannot be empty."); return; }
   if (path.indexOf(" ") !== -1) { fail("The derivation path cannot contain a space; the space is the separator."); return; }
   if (!message) { fail("The message cannot be empty."); return; }
-  // This page's own limit, and the device's behaviour is the reason for it: confirm_sign_message()
-  // in main/process/sign_message.c prints a message of MAX_DISPLAY_MESSAGE_LEN bytes or more
-  // (main/ui.h:11, 192) as its first 188 bytes plus an ellipsis, and then signs the whole text. A
-  // code this page will not draw is a message the reader cannot be shown in full and so cannot
-  // read before approving. The limit is on the message alone, not on the whole payload, and it
-  // counts bytes rather than characters, so one emoji spends four of them.
+  // This page's own limit, and the device's screen is the reason for it: MAX_DISPLAY_MESSAGE_LEN
+  // (main/ui.h:11) is 192, so the screen has room for 191 bytes of message and no more. A code this
+  // page will not draw is a message the reader cannot be shown in full and so cannot read before
+  // approving. What the firmware does with a longer one is deliberately not asserted here, so this
+  // limit stays correct whether it truncates the display or refuses the request outright. The limit
+  // is on the message alone, not on the whole payload, and it counts bytes rather than characters,
+  // so one emoji spends four of them.
   const messageBytes = new TextEncoder().encode(message).length;
   if (messageBytes >= 192) {
     fail("This message is " + messageBytes + " bytes. No code is drawn from 192 bytes up: the " +
-         "device would show the first 188 bytes followed by an ellipsis and sign the whole text, " +
-         "so the rest would be approved without being read.");
+         "device screen has room for 191 bytes, so a longer message cannot be read in full before " +
+         "it is approved.");
     return;
   }
 
@@ -14629,5 +14715,172 @@ if (!selfTest()) {
 
 })();
 </script>
+<script>
+/* The panels and the live camera.
+ *
+ * Nothing here decodes or verifies anything itself: the reader hands what the camera saw to the
+ * signature field and dispatches the same input event a keystroke would, so a scan, a photograph
+ * and typing by hand all arrive at one verification path rather than three that could disagree. */
+(function () {
+  "use strict";
+
+  const qrBtn = document.getElementById("qr-btn");
+  const qrPanel = document.getElementById("qr-panel");
+  const verifyBtn = document.getElementById("verify-btn");
+  const scanBtn = document.getElementById("scan-btn");
+  const stopBtn = document.getElementById("scan-stop");
+  const panel = document.getElementById("scan-panel");
+  const video = document.getElementById("scan-video");
+  const status = document.getElementById("scan-status");
+  const signature = document.getElementById("signature");
+
+  /* The code is drawn as the message is typed, but it takes the screen only when asked for, the
+   * way Sparrow opens Sign by QR in a window of its own. */
+  qrBtn.addEventListener("click", function () {
+    qrPanel.hidden = !qrPanel.hidden;
+    qrBtn.textContent = qrPanel.hidden ? "Sign by QR" : "Hide the code";
+  });
+
+  /* Verification already runs on every edit. The button exists for the reader who filled the
+   * fields by hand and expects one; it triggers the same path rather than a second one. */
+  verifyBtn.addEventListener("click", function () {
+    signature.dispatchEvent(new Event("input"));
+  });
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof jsQR !== "function") {
+    scanBtn.disabled = true;
+    scanBtn.title = "This browser does not offer this page a camera. Choose photo still works.";
+    return;
+  }
+
+  /* The decoder walks every pixel of every frame it is given. The code on the device screen is a
+   * few dozen modules across, so it survives being scaled down long before the walk costs enough
+   * to drop frames on a phone. */
+  const MAX_SCAN_SIDE = 640;
+  const surface = document.createElement("canvas");
+  const ctx = surface.getContext("2d", { willReadFrequently: true });
+  let stream = null;
+  let ticking = 0;
+  /* A camera grant can arrive after the reader has already cancelled, or after the tab went away:
+   * the browser is still asking while the panel is being closed. Each request remembers the era it
+   * was made in, and everything that stops a scan moves the era on, so a late grant can tell it is
+   * no longer wanted and stops the camera it was handed instead of quietly opening it. */
+  let era = 0;
+
+  function release() {
+    era++;
+    if (ticking) { cancelAnimationFrame(ticking); ticking = 0; }
+    if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+    video.srcObject = null;
+    scanBtn.disabled = false;
+  }
+
+  function close() {
+    release();
+    panel.hidden = true;
+    status.textContent = "";
+  }
+
+  function tick() {
+    ticking = 0;
+    if (!stream) return;
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (vw && vh) {
+      const scale = Math.min(1, MAX_SCAN_SIDE / Math.max(vw, vh));
+      const w = Math.max(1, Math.round(vw * scale));
+      const h = Math.max(1, Math.round(vh * scale));
+      if (surface.width !== w) surface.width = w;
+      if (surface.height !== h) surface.height = h;
+      ctx.drawImage(video, 0, 0, w, h);
+      const found = jsQR(ctx.getImageData(0, 0, w, h).data, w, h);
+      if (found && found.data) {
+        close();
+        signature.value = found.data;
+        signature.dispatchEvent(new Event("input"));
+        return;
+      }
+    }
+    ticking = requestAnimationFrame(tick);
+  }
+
+  scanBtn.addEventListener("click", function () {
+    if (stream) return;
+    /* A photograph still being read is older than this scan, and it finishes by calling the verify
+     * path directly rather than through an input event, so nothing else would stop it landing in
+     * the field later. The page already has one way to say "what came before is superseded": an
+     * input event on this field. The scan announces itself through that same door. It also reaches
+     * the close listener below, which has nothing to close yet. */
+    signature.dispatchEvent(new Event("input"));
+    scanBtn.disabled = true;
+    panel.hidden = false;
+    status.textContent = "asking for the camera";
+    const mine = era;
+    /* The rear camera is the one pointed at another screen. A browser with only one camera hands
+     * that one over rather than refusing, so this is a preference and not a requirement. */
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false })
+      .then(function (granted) {
+        if (mine !== era) {
+          granted.getTracks().forEach(function (t) { t.stop(); });
+          return null;
+        }
+        stream = granted;
+        video.srcObject = stream;
+        /* A camera can also go away on its own: unplugged, taken by another program, or its
+         * permission withdrawn while the scan runs. The promises here have settled by then, so
+         * their catch never sees it; the track ending is the only signal there is. Without this the
+         * panel would go on saying it is looking for a code at a camera that stopped. */
+        stream.getVideoTracks().forEach(function (t) {
+          t.addEventListener("ended", function () {
+            if (mine !== era) return;
+            release();
+            status.textContent = "the camera stopped; start it again, or use Choose photo";
+          });
+        });
+        return video.play();
+      })
+      .then(function () {
+        if (mine !== era || !stream) return;
+        status.textContent = "looking for a code";
+        ticking = requestAnimationFrame(tick);
+      })
+      .catch(function (err) {
+        if (mine !== era) return;
+        release();
+        /* The reader is told what to do about it, not what threw. */
+        const name = err && err.name;
+        if (name === "NotAllowedError" || name === "SecurityError") {
+          status.textContent = "the camera was refused; allow it for this page, or use Choose photo";
+        } else if (name === "NotFoundError" || name === "OverconstrainedError") {
+          status.textContent = "no camera was found; use Choose photo instead";
+        } else {
+          status.textContent = "the camera could not be started; use Choose photo instead";
+        }
+      });
+  });
+
+  stopBtn.addEventListener("click", close);
+
+  /* Whatever puts an answer in the field supersedes a scan that is still looking, so a code
+   * recognised a moment later cannot overwrite it and a grant still pending cannot open a camera
+   * nobody is waiting for. Every route lands on the same input event: typing, pasting, and the
+   * Verify button, which dispatches one of its own. A photograph does not, so it is closed on its
+   * own event. The scan's own fill also arrives here, after close() has already run, and closing
+   * something already closed costs nothing. */
+  signature.addEventListener("input", close);
+  document.getElementById("photo").addEventListener("change", close);
+
+  /* A camera left running behind a hidden tab is a privacy problem of its own, and the tab cannot
+   * be scanning while it is not on screen anyway. */
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) close();
+  });
+  /* close() rather than release() because a page that leaves this way can come back: a browser
+   * may keep it alive and restore it on the back button, and a panel left open around a dead
+   * video would then claim to be looking for a code while nothing is running. */
+  window.addEventListener("pagehide", close);
+})();
+</script>
+
 </body>
 </html>

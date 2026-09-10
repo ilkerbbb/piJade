@@ -82,6 +82,9 @@ const EXPECTED_CHECKS = [
     'an empty message is refused rather than verified',
     '192 bytes is refused, 191 is not',
     'the limit counts bytes, not characters',
+    'the code panel opens and closes on its own button',
+    'the verify button runs the same check an edit does',
+    'a camera that will not start hands the button back',
     'the test module finished',
 ];
 
@@ -455,6 +458,51 @@ async function run() {
   // Bytes, not characters: 48 four-byte emoji are 192 bytes.
   type('message', '\u{1F600}'.repeat(48));
   check('the limit counts bytes, not characters', !el('error').hidden, el('measure').textContent.slice(0, 40));
+
+  // The panels and buttons the camera module adds. That module is a closure, so what can be
+  // checked from here is its contract with the page: which element it shows, and what it leaves
+  // behind when the camera refuses to start.
+  type('message', 'hello');
+  const shutAtStart = el('qr-panel').hidden;
+  el('qr-btn').click();
+  const openAfterClick = !el('qr-panel').hidden;
+  el('qr-btn').click();
+  check('the code panel opens and closes on its own button',
+    shutAtStart && openAfterClick && el('qr-panel').hidden,
+    'button reads ' + el('qr-btn').textContent);
+
+  // Verification runs on every edit already. The button has to reach that same path rather than a
+  // second one of its own, so the fields are filled without dispatching anything and the button is
+  // left to do the work. The previous answer is cleared through the ordinary path first: measured
+  // 2026-09-10, without that clearing a button wired to nothing still passed, because what the
+  // check read was the answer already on the screen. Clearing hides the panel without emptying it,
+  // so the answer has to be on screen as well as correct: measured the same day, reading only the
+  // text let a button wired to nothing pass on the hidden leftovers of the previous check.
+  type('signature', '');
+  const clearedFirst = el('verify-out').hidden;
+  el('expected').value = '';
+  el('message').value = golden.message;
+  el('signature').value = golden.signature_base64;
+  el('verify-btn').click();
+  check('the verify button runs the same check an edit does',
+    clearedFirst && !el('verify-out').hidden
+    && el('verify-out').textContent.includes(golden.p2wpkh) && el('verify-error').hidden,
+    el('verify-out').textContent.slice(0, 40));
+
+  // No camera answers a headless browser. The reader has to be told, and left able to try again or
+  // reach for the photograph instead; a button that stayed disabled would strand them.
+  // The refusal arrives on the browser's own schedule, so this waits for the outcome and not for
+  // a fixed span: a fixed 900 ms was measured failing on a loaded machine with the status still
+  // reading "asking for the camera", which is the request in flight rather than a defect.
+  el('scan-btn').click();
+  const handedBack = () => el('scan-status').textContent.includes('Choose photo')
+    && !el('scan-btn').disabled;
+  const giveUp = Date.now() + 8000;
+  while (!handedBack() && Date.now() < giveUp) {
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  check('a camera that will not start hands the button back', handedBack(),
+    el('scan-status').textContent.slice(0, 56));
 }
 run().catch(e => check('the test itself ran', false, String(e && e.message))).then(report);
 </script>
