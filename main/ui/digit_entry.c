@@ -223,6 +223,14 @@ bool run_digit_entry_loop(digit_entry_t* digit_entry)
         }
 
         switch (ev_id) {
+        // BBB-AIRGAP: KEY3 abandons the entry.  This is the path the user already has for
+        // 'backspace on the first digit', so nothing new happens on the way out, and it can only
+        // ever mean abandoned - a partly entered PIN is never returned as if it were complete.
+        case GUI_ALT_EVENT:
+            // BBB-AIRGAP: every PIN escape, including the second erase-PIN entry, must be logged.
+            JADE_LOGI("User abandoned digit entry via KEY3");
+            return false;
+
         case GUI_WHEEL_LEFT_EVENT:
             digit_entry->current_selected_value
                 = (digit_entry->current_selected_value + get_max_digit_entry_char(digit_entry) - 1)

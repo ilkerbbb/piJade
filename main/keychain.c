@@ -11,6 +11,7 @@
 #include "wallet.h"
 
 #include <sodium/crypto_verify_32.h>
+#include <sodium/utils.h>
 #include <string.h>
 #include <wally_bip39.h>
 #include <wally_elements.h>
@@ -21,12 +22,36 @@
 // Encrypted length plus hmac (input length given)
 #define ENCRYPTED_DATA_LEN(len) (AES_ENCRYPTED_LEN(len) + HMAC_SHA256_LEN)
 
-// Internal variables - the single/global keychain data
+// BBB-AIRGAP: upstream holds one wallet in one static struct, so a second seed can only be
+// loaded by overwriting the first.  The struct becomes a fixed table and 'keychain_data' points
+// at the entry currently in use.  Nothing above this file changes: keychain_get() still returns
+// that pointer, so every call site keeps reading "the wallet in use", and NULL still means "no
+// wallet loaded".  The table stays static for the reason the single struct was static - a
+// malloc'd block of this size is never freed and would fragment DRAM permanently.
+typedef struct {
+    keychain_t keydata;
+    // BBB-AIRGAP: the entropy the wallet was built from, kept so the user can draw its SeedQR
+    // later rather than only during setup.  It lives in the slot, not in a global, for two
+    // measured reasons: the two wipes below already clear a slot in one call
+    // (keychain_slot_forget_active, keychain_clear), so no new wipe path can be forgotten; and
+    // keychain_set() is a no-op when copying from self, so the re-bind calls in auth_user.c and
+    // dashboard.c leave it alone - the global mnemonic_entropy is cleared by finalise_slot() on
+    // exactly those calls.  Zero length means this wallet cannot be exported, which is the case
+    // for a persisted wallet read back from the blob: that holds a serialised xpriv, and a
+    // mnemonic cannot be recovered from it.
+    uint8_t entropy[BIP39_ENTROPY_LEN_256];
+    size_t entropy_len;
+    uint8_t userdata;
+    bool temporary;
+    bool in_use;
+} keychain_slot_t;
+
+// Internal variables - the keychain slots, and the one currently in use
+static keychain_slot_t keychain_slots[MAX_SEED_SLOTS] = { 0 };
+static size_t active_slot = 0; // only meaningful while keychain_data is set
 static keychain_t* keychain_data = NULL;
 static network_type_t network_type_restriction = NETWORK_TYPE_NONE;
 static bool has_encrypted_blob = false;
-static uint8_t keychain_userdata = 0;
-static bool keychain_temporary = false;
 
 // If using a passphrase we may need to cache the mnemonic entropy
 // while the passphrase is entered and the wallet master key derived.
@@ -36,21 +61,28 @@ static size_t mnemonic_entropy_len = 0;
 // Cached key flags
 static uint8_t key_flags = 0;
 
-void keychain_set(const keychain_t* src, const uint8_t userdata, const bool temporary)
+// Places the passed key data in the given free slot, and makes that the slot in use
+static void occupy_slot(const size_t slot, const keychain_t* src)
 {
+    JADE_ASSERT(slot < MAX_SEED_SLOTS);
     JADE_ASSERT(src);
 
-    // We will hold any loaded keychain here - saves malloc'ing a struct which
-    // can fragment DRAM (as will be persistent once allocated).
-    static keychain_t internal_keychain = { 0 };
+    active_slot = slot;
+    keychain_slots[slot].in_use = true;
+    keychain_data = &keychain_slots[slot].keydata;
+    memcpy(keychain_data, src, sizeof(keychain_t));
 
-    // Copy-from-self is no-op for keys (but we may override 'userdata' below)
-    if (src != keychain_data) {
-        keychain_clear();
-        keychain_data = &internal_keychain;
-        memcpy(keychain_data, src, sizeof(keychain_t));
-    }
+    // BBB-AIRGAP: a wallet arriving in this slot has no entropy until the caller says otherwise,
+    // so export starts off and is turned on deliberately by keychain_set_entropy().  The
+    // slot is wiped when it is given up, so this is not clearing anything that should still be
+    // there - it states the invariant rather than relying on every path that frees a slot.
+    JADE_WALLY_VERIFY(wally_bzero(keychain_slots[slot].entropy, sizeof(keychain_slots[slot].entropy)));
+    keychain_slots[slot].entropy_len = 0;
+}
 
+// Drops any cached mnemonic entropy and records what the slot in use is associated with
+static void finalise_slot(const uint8_t userdata, const bool temporary)
+{
     // Clear any mnemonic entropy we may have been holding
     JADE_WALLY_VERIFY(wally_bzero(mnemonic_entropy, sizeof(mnemonic_entropy)));
     mnemonic_entropy_len = 0;
@@ -59,18 +91,220 @@ void keychain_set(const keychain_t* src, const uint8_t userdata, const bool temp
     key_flags = storage_get_key_flags();
 
     // Hold the associated userdata
-    keychain_userdata = userdata;
+    keychain_slots[active_slot].userdata = userdata;
 
     // Store whether this is intended to be a temporary keychain
-    keychain_temporary = temporary;
+    keychain_slots[active_slot].temporary = temporary;
+}
+
+void keychain_set(const keychain_t* src, const uint8_t userdata, const bool temporary)
+{
+    JADE_ASSERT(src);
+
+    // Copy-from-self is no-op for keys (but we may override 'userdata' below)
+    if (src != keychain_data) {
+        // BBB-AIRGAP: this remains the single-wallet entry point and keeps that meaning - every
+        // slot is dropped and the new wallet becomes the only one loaded.
+        keychain_clear();
+        occupy_slot(0, src);
+    }
+
+    finalise_slot(userdata, temporary);
+}
+
+bool keychain_has_free_slot(void)
+{
+    for (size_t i = 0; i < MAX_SEED_SLOTS; ++i) {
+        if (!keychain_slots[i].in_use) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool keychain_load_into_free_slot(const keychain_t* src, const uint8_t userdata, const bool temporary)
+{
+    JADE_ASSERT(src);
+
+    // BBB-AIRGAP: unlike keychain_set() this keeps the wallets already loaded - the new wallet
+    // takes the first free slot and becomes the one in use.  Returning false when the table is
+    // full lets the caller say so, rather than silently dropping a wallet the user still has.
+    for (size_t i = 0; i < MAX_SEED_SLOTS; ++i) {
+        if (!keychain_slots[i].in_use) {
+            occupy_slot(i, src);
+            finalise_slot(userdata, temporary);
+            return true;
+        }
+    }
+    return false;
+}
+
+// BBB-AIRGAP: the wallets held are addressed by their position in the list the user sees, not by
+// their slot in the table, so MAX_SEED_SLOTS stays inside this file and the caller just counts
+// from zero. Positions shift when a wallet is forgotten, which is correct: the list is rebuilt.
+static size_t slot_at_position(const size_t position)
+{
+    size_t seen = 0;
+    size_t slot = 0;
+    for (; slot < MAX_SEED_SLOTS; ++slot) {
+        if (keychain_slots[slot].in_use && seen++ == position) {
+            break;
+        }
+    }
+    JADE_ASSERT(slot < MAX_SEED_SLOTS); // the caller's position must exist
+    return slot;
+}
+
+size_t keychain_slot_count(void)
+{
+    size_t count = 0;
+    for (size_t i = 0; i < MAX_SEED_SLOTS; ++i) {
+        if (keychain_slots[i].in_use) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+void keychain_slot_fingerprint(const size_t position, uint8_t* output, const size_t output_len)
+{
+    JADE_ASSERT(output);
+    JADE_ASSERT(output_len == BIP32_KEY_FINGERPRINT_LEN);
+
+    // The same value wallet_get_fingerprint() reads for the wallet in use: it is already there in
+    // the derived key, so a slot does not have to carry a copy of it.
+    memcpy(output, keychain_slots[slot_at_position(position)].keydata.xpriv.hash160, output_len);
+}
+
+bool keychain_find_slot(const keychain_t* candidate, size_t* position_out)
+{
+    JADE_ASSERT(candidate);
+    JADE_ASSERT(position_out);
+
+    // The master key is the wallet: the private key and the chain code together are what every
+    // other key is derived from, so two wallets agreeing on both are the same wallet and no two
+    // different ones can be made to agree.  Each comparison is constant time, so a candidate that
+    // somebody else prepared cannot be walked towards a held key byte by byte; the loop itself is
+    // not, but what it gives away - whether a wallet matched, and which one - is what the screen
+    // that follows says out loud anyway.
+    const size_t num_slots = keychain_slot_count();
+    for (size_t i = 0; i < num_slots; ++i) {
+        const keychain_t* const held = &keychain_slots[slot_at_position(i)].keydata;
+        if (!sodium_memcmp(held->xpriv.priv_key, candidate->xpriv.priv_key, sizeof(held->xpriv.priv_key))
+            && !sodium_memcmp(held->xpriv.chain_code, candidate->xpriv.chain_code, sizeof(held->xpriv.chain_code))) {
+            *position_out = i;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool keychain_slot_is_temporary(const size_t position) { return keychain_slots[slot_at_position(position)].temporary; }
+
+void keychain_slot_activate(const size_t position)
+{
+    // Only which wallet is in use changes. The key flags are the device's, read from storage, so
+    // they do not follow the wallet and are left alone.
+    active_slot = slot_at_position(position);
+    keychain_data = &keychain_slots[active_slot].keydata;
+}
+
+void keychain_slot_forget_active(void)
+{
+    JADE_ASSERT(keychain_data);
+
+    // Wipe the key material together with the flags that describe it, in a single call, so no flag
+    // can be left behind pointing at a slot that no longer holds a wallet.  keychain_data pointed
+    // into that slot, so it stops meaning anything the moment the slot is wiped.
+    JADE_WALLY_VERIFY(wally_bzero(&keychain_slots[active_slot], sizeof(keychain_slots[active_slot])));
+    keychain_data = NULL;
+
+    // One of the wallets still held takes over.  If none are left the device is in the state a log
+    // out leaves it in, so say that with keychain_clear() rather than writing a second way to empty
+    // the table - that keeps the two paths from drifting apart.
+    if (keychain_slot_count()) {
+        keychain_slot_activate(0);
+    } else {
+        keychain_clear();
+    }
+}
+
+// BBB-AIRGAP: the only way entropy enters a slot.  Called once, by the path that has just built
+// a wallet from a mnemonic the user supplied, so the device never holds entropy for a wallet the
+// user did not present the words for in this session.
+void keychain_set_entropy(const char* mnemonic)
+{
+    JADE_ASSERT(mnemonic);
+    JADE_ASSERT(keychain_data);
+    JADE_ASSERT(!keychain_slots[active_slot].entropy_len);
+
+    size_t written = 0;
+    JADE_WALLY_VERIFY(bip39_mnemonic_to_bytes(
+        NULL, mnemonic, keychain_slots[active_slot].entropy, sizeof(keychain_slots[active_slot].entropy), &written));
+
+    // Only 12 and 24 word mnemonics can be drawn as a SeedQR, and they are the only lengths the
+    // rest of the code supports.  Anything else leaves the slot unexportable rather than half set.
+    if (written != BIP39_ENTROPY_LEN_128 && written != BIP39_ENTROPY_LEN_256) {
+        JADE_LOGW("Mnemonic entropy length %u not exportable", written);
+        JADE_WALLY_VERIFY(
+            wally_bzero(keychain_slots[active_slot].entropy, sizeof(keychain_slots[active_slot].entropy)));
+        return;
+    }
+    keychain_slots[active_slot].entropy_len = written;
+}
+
+// Whether the wallet at the given position can be exported as a SeedQR
+bool keychain_slot_has_entropy(const size_t position)
+{
+    return keychain_slots[slot_at_position(position)].entropy_len != 0;
+}
+
+// BBB-AIRGAP: the only way entropy leaves a slot.  The mnemonic is built on demand and handed to
+// the caller, which must free it with wally_free_string(); it is never held anywhere else.  A
+// false return means this wallet has no entropy, which is the normal state for a persisted wallet
+// read back from the blob - the caller must not offer export for it.
+bool keychain_export_mnemonic(char** mnemonic)
+{
+    JADE_ASSERT(mnemonic);
+    JADE_INIT_OUT_PPTR(mnemonic);
+    JADE_ASSERT(keychain_data);
+
+    const keychain_slot_t* const slot = &keychain_slots[active_slot];
+    if (!slot->entropy_len) {
+        return false;
+    }
+
+    if (bip39_mnemonic_from_bytes(NULL, slot->entropy, slot->entropy_len, mnemonic) != WALLY_OK) {
+        JADE_LOGE("Failed to convert entropy bytes to mnemonic string");
+        return false;
+    }
+    JADE_ASSERT(*mnemonic);
+    return true;
+}
+
+uint8_t keychain_get_persisted_userdata(void)
+{
+    // BBB-AIRGAP: keychain_get_userdata() answers for the wallet in use; this answers for the
+    // persisted wallet whichever wallet is in use.  Returns 0 (SOURCE_NONE) when no persisted
+    // wallet is held, matching what keychain_get_userdata() returns with no wallet loaded.
+    for (size_t i = 0; i < MAX_SEED_SLOTS; ++i) {
+        if (keychain_slots[i].in_use && !keychain_slots[i].temporary) {
+            return keychain_slots[i].userdata;
+        }
+    }
+    return 0;
 }
 
 void keychain_clear(void)
 {
-    if (keychain_data) {
-        JADE_WALLY_VERIFY(wally_bzero(keychain_data, sizeof(keychain_t)));
-        keychain_data = NULL;
-    }
+    // BBB-AIRGAP: wipes the whole table, not just the slot in use.  Every caller of this means
+    // "no wallet may remain in memory" - abort, idle timeout, log out, connection lost - so
+    // leaving the other slots loaded would be the exact leak they exist to prevent.  Wiping the
+    // table in a single call also keeps the wipe independent of any per-slot bookkeeping, so no
+    // flag can ever leave key material behind.
+    JADE_WALLY_VERIFY(wally_bzero(keychain_slots, sizeof(keychain_slots)));
+    keychain_data = NULL;
+    active_slot = 0;
 
     // Clear any mnemonic entropy we may have been holding
     JADE_WALLY_VERIFY(wally_bzero(mnemonic_entropy, sizeof(mnemonic_entropy)));
@@ -78,9 +312,6 @@ void keychain_clear(void)
 
     // Reload key flags
     key_flags = storage_get_key_flags();
-
-    keychain_userdata = 0;
-    keychain_temporary = false;
 }
 
 const keychain_t* keychain_get(void) { return keychain_data; }
@@ -171,24 +402,26 @@ void keychain_set_temporary(void)
     // This combination should only occur when part way through initial setup
     JADE_ASSERT(keychain_data);
     JADE_ASSERT(mnemonic_entropy_len);
-    JADE_ASSERT(!keychain_temporary);
+    JADE_ASSERT(!keychain_slots[active_slot].temporary);
     JADE_ASSERT(!keychain_has_pin());
-    keychain_temporary = true;
+    keychain_slots[active_slot].temporary = true;
 }
 
 bool keychain_has_temporary(void)
 {
-    JADE_ASSERT(!keychain_temporary || keychain_data);
-    return keychain_temporary;
+    // A slot cannot be flagged temporary while no wallet is loaded: keychain_clear() wipes the
+    // flag along with the key data, so the two can only be inconsistent through a bug here.
+    JADE_ASSERT(keychain_data || !keychain_slots[active_slot].temporary);
+    return keychain_data ? keychain_slots[active_slot].temporary : false;
 }
 
-uint8_t keychain_get_userdata(void) { return keychain_userdata; }
+uint8_t keychain_get_userdata(void) { return keychain_data ? keychain_slots[active_slot].userdata : 0; }
 
 // Cache/clear mnemonic entropy (if using passphrase)
 void keychain_cache_mnemonic_entropy(const char* mnemonic)
 {
     JADE_ASSERT(mnemonic);
-    JADE_ASSERT(!keychain_temporary);
+    JADE_ASSERT(!keychain_has_temporary());
     JADE_ASSERT(!mnemonic_entropy_len);
 
     JADE_WALLY_VERIFY(
@@ -500,7 +733,18 @@ static bool keychain_load_and_decrypt_blob(
         return false;
     }
     if (!keychain_has_pin() || !storage_decrement_counter()) {
-        // No valid keychain data in storage to load
+        // No valid keychain data in storage to load.
+        //
+        // BBB-AIRGAP: storage_decrement_counter() erases the blob for every counter it rejects -
+        // the zero of an exhausted device, and the wallet-erase sentinel written by
+        // storage_erase_encrypted_blob() (main/storage.c) - so this early return can be the moment
+        // the wallet actually disappears.  Re-derive the cached flag the way a boot would
+        // (keychain_init_cache() below uses the same expression), or it stays true over a wallet
+        // that is gone and the next unlock trips JADE_ASSERT(pin_attempts_remaining > 0) in
+        // main/process/auth_user.c.  storage_get_counter() maps a read failure to zero, so a
+        // storage layer that has stopped answering makes this say "no wallet" - that is the answer
+        // the next boot would give from the same read, not a new claim made here.
+        has_encrypted_blob = keychain_pin_attempts_remaining() > 0;
         return false;
     }
 
@@ -512,8 +756,9 @@ static bool keychain_load_and_decrypt_blob(
     size_t encrypted_data_len = 0;
     if (!storage_get_encrypted_blob(encrypted, sizeof(encrypted), &encrypted_data_len)) {
         JADE_LOGE("Failed to load encrypted blob from storage - ensuring fully erased");
-        storage_erase_encrypted_blob();
-        has_encrypted_blob = false;
+        // BBB-AIRGAP: same rule as keychain_erase_encrypted() below - the flag follows what the
+        // erase actually did, not what was asked for.
+        has_encrypted_blob = !storage_erase_encrypted_blob();
         return false;
     }
 
@@ -522,7 +767,9 @@ static bool keychain_load_and_decrypt_blob(
         JADE_LOGW("Failed to decrypt key data (bad pin)");
         if (keychain_pin_attempts_remaining() == 0) {
             JADE_LOGW("Multiple failures to decrypt key data - erasing encrypted keys");
-            keychain_erase_encrypted();
+            if (!keychain_erase_encrypted()) {
+                JADE_LOGE("Failed to erase encrypted keys after exhausting pin attempts");
+            }
         }
         return false;
     }
@@ -676,11 +923,18 @@ bool keychain_has_pin(void) { return has_encrypted_blob; }
 
 uint8_t keychain_pin_attempts_remaining(void) { return storage_get_counter(); }
 
-void keychain_erase_encrypted(void)
+// BBB-AIRGAP: say whether the blob really went.  storage_erase_encrypted_blob() can fail at
+// nvs_open(), nvs_erase_key() or nvs_commit() (main/storage.c:74, 138, 149) and callers used to be
+// told nothing; the wallet-erase PIN in particular showed its cover message and shut the device
+// down with the encrypted seed still on the card.  A blob that was never there is not a failure:
+// erase_key() treats ESP_ERR_NVS_NOT_FOUND as success (main/storage.c:138), so !erased means the
+// blob is still on flash and the in-memory flag has to keep saying so.
+bool keychain_erase_encrypted(void)
 {
-    storage_erase_encrypted_blob();
+    const bool erased = storage_erase_encrypted_blob();
     keychain_clear_network_type_restriction();
-    has_encrypted_blob = false;
+    has_encrypted_blob = !erased;
+    return erased;
 }
 
 bool keychain_get_new_privatekey(uint8_t* privatekey, const size_t size)

@@ -9,6 +9,7 @@
 #include "../jade_assert.h"
 #include "../jade_wally_verify.h"
 #include "../process/sign_utils.h"
+#include "../storage.h"
 #include "../ui.h"
 #include "../ui/sign_tx.h"
 #include "../utils/address.h"
@@ -29,6 +30,28 @@ static const char BLINDED_OUTPUT[] = "Cannot unblind output";
 static const char VERIFIED_WALLET_OUTPUT_MSG[] = "Verified wallet output";
 
 static const char TICKER_BTC[] = "BTC";
+static const char TICKER_SATS[] = "sats";
+
+// BBB-AIRGAP: bitcoin amounts are shown in BTC or in satoshis, depending on the device setting
+// (Features).  Only how the number reads changes - the value signed is the same either way.
+// The unit is handed back rather than written into the buffer, because the tx screens pass the
+// amount and its ticker to the screen separately.  Not static: the mining screen shows a block
+// reward and has to read in the same units as everything else on the device (main/qrmode.c).
+const char* format_btc_amount(const uint64_t satoshi, char* buf, const size_t buf_len)
+{
+    JADE_ASSERT(buf);
+    JADE_ASSERT(buf_len);
+
+    if (storage_get_feature_flags() & FEATURE_FLAGS_DENOMINATION_SATS) {
+        const int ret = snprintf(buf, buf_len, "%" PRIu64, satoshi);
+        JADE_ASSERT(ret > 0 && (size_t)ret < buf_len);
+        return TICKER_SATS;
+    }
+
+    const int ret = snprintf(buf, buf_len, "%.08f", 1.0 * satoshi / 1e8);
+    JADE_ASSERT(ret > 0 && (size_t)ret < buf_len);
+    return TICKER_BTC;
+}
 
 static const uint32_t POW_10[9] = { 1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000 };
 
@@ -405,6 +428,8 @@ static bool show_input_output_activity(const char* title, const bool is_wallet_o
             act = act_warning;
             break;
 
+        // BBB-AIRGAP: KEY3 leaves through the screen's own decline, never its accept.
+        case BTN_ESCAPE_HOME:
         case BTN_SIGNTX_REJECT:
             return false;
 
@@ -452,8 +477,7 @@ bool show_btc_transaction_outputs_activity(
         JADE_ASSERT(ret > 0 && ret < sizeof(title));
 
         char amount[32];
-        ret = snprintf(amount, sizeof(amount), "%.08f", 1.0 * out->satoshi / 1e8);
-        JADE_ASSERT(ret > 0 && ret < sizeof(amount));
+        const char* const ticker = format_btc_amount(out->satoshi, amount, sizeof(amount));
 
         char address[MAX_ADDRESS_LEN];
         script_to_address(network_id, out->script, out->script_len, out->satoshi > 0, address, sizeof(address));
@@ -462,7 +486,7 @@ bool show_btc_transaction_outputs_activity(
         // Show output info
         const char* msg = (output_info && strlen(output_info[i].message) > 0) ? output_info[i].message : NULL;
         if (!show_input_output_activity(
-                title, is_wallet_output, is_address, address, amount, TICKER_BTC, NULL, NULL, msg)) {
+                title, is_wallet_output, is_address, address, amount, ticker, NULL, NULL, msg)) {
             // User pressed 'cancel'
             return false;
         }
@@ -742,6 +766,8 @@ static bool show_final_confirmation_activity(
             act = act_warning;
             break;
 
+        // BBB-AIRGAP: KEY3 leaves through the screen's own decline, never its accept.
+        case BTN_ESCAPE_HOME:
         case BTN_SIGNTX_REJECT:
             return false;
 
@@ -756,10 +782,9 @@ bool show_btc_final_confirmation_activity(const network_t network_id, const uint
     JADE_ASSERT(!network_is_liquid(network_id));
 
     char feeamount[32];
-    const int ret = snprintf(feeamount, sizeof(feeamount), "%.08f", 1.0 * fee / 1e8);
-    JADE_ASSERT(ret > 0 && ret < sizeof(feeamount));
+    const char* const ticker = format_btc_amount(fee, feeamount, sizeof(feeamount));
 
-    return show_final_confirmation_activity("Send Transaction", feeamount, TICKER_BTC, warning_msg);
+    return show_final_confirmation_activity("Send Transaction", feeamount, ticker, warning_msg);
 }
 
 bool show_elements_final_confirmation_activity(

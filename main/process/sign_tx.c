@@ -152,8 +152,8 @@ static bool params_signing_outputs(jade_process_t* process, const CborValue* par
                     // 'errmsg' populated by above call
                     goto cleanup;
                 }
-                JADE_LOGI("Change is to %uof%u multisig: '%s'", multisig_data->threshold, multisig_data->num_xpubs,
-                    multisig_name);
+                // BBB-AIRGAP: the registration name is user data; only the quorum is logged.
+                JADE_LOGI("Change is to %uof%u multisig", multisig_data->threshold, multisig_data->num_xpubs);
 
                 // Get the paths (suffixes) and derive pubkeys
                 uint8_t pubkeys[MAX_ALLOWED_SIGNERS * EC_PUBLIC_KEY_LEN]; // Sufficient

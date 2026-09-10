@@ -37,50 +37,66 @@ static gui_view_node_t* make_back_brightness_row(gui_view_node_t* parent, uint32
     return hdrbtns[0].btn;
 }
 
-gui_activity_t* make_show_xpub_qr_activity(
-    const char* label, const char* pathstr, Icon* icons, const size_t num_icons, const size_t frames_per_qr_icon)
+// BBB-AIRGAP: this screen describes what is about to be exported and no longer shows the code
+// itself - the QR gets the whole panel from make_fullscreen_qr_activity() instead, which is what
+// makes it large enough for a webcam-grade scanner to read.
+gui_activity_t* make_show_xpub_qr_activity(const char* label, const char* pathstr)
 {
     JADE_ASSERT(label);
     JADE_ASSERT(pathstr);
-    JADE_ASSERT(icons);
-    JADE_ASSERT(num_icons);
 
     gui_activity_t* const act = gui_make_activity();
     gui_view_node_t* node;
 
-    gui_view_node_t* hsplit;
-    gui_make_hsplit(&hsplit, GUI_SPLIT_RELATIVE, 2, 44, 56);
-    gui_set_parent(hsplit, act->root_node);
-
-    // LHS
     gui_view_node_t* vsplit;
-    gui_make_vsplit(&vsplit, GUI_SPLIT_RELATIVE, 4, 20, 30, 25, 25);
-    gui_set_parent(vsplit, hsplit);
+    gui_make_vsplit(&vsplit, GUI_SPLIT_RELATIVE, 4, 22, 26, 26, 26);
+    gui_set_parent(vsplit, act->root_node);
 
     // back button, space, brightness button
     btn_data_t hdrbtns[]
         = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_XPUB_EXIT, .borders = GUI_BORDER_ALL },
               { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE },
               { .txt = "P", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_QR_BRIGHTNESS, .borders = GUI_BORDER_ALL } };
-    add_buttons(vsplit, UI_ROW, hdrbtns, 3); // 44 (hsplit) / 3 == 14 - almost 15 so ok
+    add_buttons(vsplit, UI_ROW, hdrbtns, 3);
 
     // second row, type label
     gui_make_text(&node, label, TFT_WHITE);
     gui_set_parent(node, vsplit);
-    gui_set_align(node, GUI_ALIGN_LEFT, GUI_ALIGN_MIDDLE);
+    gui_set_align(node, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
 
     // third row, path
     gui_make_text_font(&node, pathstr, TFT_WHITE, DEFAULT_FONT); // fits path
     gui_set_parent(node, vsplit);
-    gui_set_align(node, GUI_ALIGN_LEFT, GUI_ALIGN_TOP);
+    gui_set_align(node, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
 
-    // button
-    btn_data_t ftrbtn
-        = { .txt = "Options", .font = GUI_DEFAULT_FONT, .ev_id = BTN_XPUB_OPTIONS, .borders = GUI_BORDER_TOP };
-    add_buttons(vsplit, UI_COLUMN, &ftrbtn, 1);
+    // buttons
+    btn_data_t ftrbtns[] = { { .txt = "Show QR",
+                                 .font = GUI_DEFAULT_FONT,
+                                 .ev_id = BTN_QR_SHOW_FULLSCREEN,
+                                 .borders = GUI_BORDER_TOP },
+        { .txt = "Options", .font = GUI_DEFAULT_FONT, .ev_id = BTN_XPUB_OPTIONS, .borders = GUI_BORDER_TOP } };
+    add_buttons(vsplit, UI_ROW, ftrbtns, 2);
 
-    // RHS - QR icons
-    make_qrcode(hsplit, icons, num_icons, frames_per_qr_icon);
+    return act;
+}
+
+// BBB-AIRGAP: a code on its own screen, with no split layout to share the panel with. The whole
+// screen is one transparent button, so any click goes back to the screen that opened it.
+// NOTE: 'icons' passed in here must be heap-allocated as the gui element takes ownership
+gui_activity_t* make_fullscreen_qr_activity(Icon* icons, const size_t num_icons, const size_t frames_per_qr_icon)
+{
+    JADE_ASSERT(icons);
+    JADE_ASSERT(num_icons);
+    JADE_ASSERT(frames_per_qr_icon || num_icons == 1);
+
+    gui_activity_t* const act = gui_make_activity();
+
+    // Selected and unselected colours match so the button never paints over the quiet zone
+    gui_view_node_t* btn;
+    gui_make_button(&btn, TFT_BLACK, TFT_BLACK, BTN_QR_FULLSCREEN_EXIT, NULL);
+    gui_set_parent(btn, act->root_node);
+
+    make_qrcode(btn, icons, num_icons, frames_per_qr_icon);
 
     return act;
 }
@@ -105,9 +121,13 @@ gui_activity_t* make_xpub_qr_options_activity(
     btn_data_t menubtns[]
         = { { .content = *script_textbox, .font = GUI_DEFAULT_FONT, .ev_id = BTN_XPUB_OPTIONS_SCRIPTTYPE },
               { .content = *wallet_textbox, .font = GUI_DEFAULT_FONT, .ev_id = BTN_XPUB_OPTIONS_WALLETTYPE },
-              { .content = *account_textbox, .font = GUI_DEFAULT_FONT, .ev_id = BTN_XPUB_OPTIONS_ACCOUNT } };
+              { .content = *account_textbox, .font = GUI_DEFAULT_FONT, .ev_id = BTN_XPUB_OPTIONS_ACCOUNT },
+              // BBB-AIRGAP: xpub export follows the qr density and speed settings, so the screen
+              // that holds them has to be reachable from here - upstream only opens it from the
+              // psbt flow, where those settings were the only ones that had any effect.
+              { .txt = "QR Settings", .font = GUI_DEFAULT_FONT, .ev_id = BTN_XPUB_OPTIONS_QR } };
 
-    return make_menu_activity("Xpub Settings", hdrbtns, 2, menubtns, 3);
+    return make_menu_activity("Xpub Settings", hdrbtns, 2, menubtns, 4);
 }
 
 gui_activity_t* make_search_verify_address_activity(
@@ -177,34 +197,55 @@ gui_activity_t* make_search_verify_address_activity(
     return act;
 }
 
-gui_activity_t* make_search_address_options_activity(
-    const bool show_account, gui_view_node_t** account_textbox, gui_view_node_t** change_textbox)
+// BBB-AIRGAP: the rows are assembled rather than written out per combination.  The verify flow
+// asks for change alone, or change and account; the address explorer adds the script type, which
+// it has to choose because - unlike verify - it has no scanned address to read it off.  Three
+// rows at most, so make_menu_activity()'s four-button ceiling (main/ui/dialogs.c) is not reached.
+gui_activity_t* make_search_address_options_activity(const bool show_script, const bool show_account,
+    const bool show_change, gui_view_node_t** script_textbox, gui_view_node_t** account_textbox,
+    gui_view_node_t** change_textbox)
 {
+    JADE_ASSERT(script_textbox || !show_script);
+    JADE_ASSERT(account_textbox || !show_account);
+    // BBB-AIRGAP: the change row is optional for the same reason the other two are - the screen
+    // that opens this one may already own the choice.  The address explorer's entry menu picks
+    // the branch itself, so offering it again here would be a row that is overwritten the moment
+    // the user leaves this screen.
+    JADE_ASSERT(change_textbox || !show_change);
+
     btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_SCAN_ADDRESS_OPTIONS_EXIT },
         { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
 
     // menu buttons with bespoke content
+    btn_data_t menubtns[3];
+    size_t num_menubtns = 0;
+
+    if (show_script) {
+        gui_make_text(script_textbox, "Script", TFT_WHITE);
+        gui_set_align(*script_textbox, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
+        menubtns[num_menubtns++] = (btn_data_t){
+            .content = *script_textbox, .font = GUI_DEFAULT_FONT, .ev_id = BTN_SCAN_ADDRESS_OPTIONS_SCRIPTTYPE
+        };
+    }
+
     if (show_account) {
         gui_make_text(account_textbox, "Account Index", TFT_WHITE);
         gui_set_align(*account_textbox, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
-
-        gui_make_text(change_textbox, "Change", TFT_WHITE);
-        gui_set_align(*change_textbox, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
-
-        btn_data_t menubtns[]
-            = { { .content = *account_textbox, .font = GUI_DEFAULT_FONT, .ev_id = BTN_SCAN_ADDRESS_OPTIONS_ACCOUNT },
-                  { .content = *change_textbox, .font = GUI_DEFAULT_FONT, .ev_id = BTN_SCAN_ADDRESS_OPTIONS_CHANGE } };
-
-        return make_menu_activity("Search Root", hdrbtns, 2, menubtns, 2);
-    } else {
-        gui_make_text(change_textbox, "Change", TFT_WHITE);
-        gui_set_align(*change_textbox, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
-
-        btn_data_t menubtn
-            = { .content = *change_textbox, .font = GUI_DEFAULT_FONT, .ev_id = BTN_SCAN_ADDRESS_OPTIONS_CHANGE };
-
-        return make_menu_activity("Search Root", hdrbtns, 2, &menubtn, 1);
+        menubtns[num_menubtns++] = (btn_data_t){
+            .content = *account_textbox, .font = GUI_DEFAULT_FONT, .ev_id = BTN_SCAN_ADDRESS_OPTIONS_ACCOUNT
+        };
     }
+
+    if (show_change) {
+        gui_make_text(change_textbox, "Change", TFT_WHITE);
+        gui_set_align(*change_textbox, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
+        menubtns[num_menubtns++] = (btn_data_t){
+            .content = *change_textbox, .font = GUI_DEFAULT_FONT, .ev_id = BTN_SCAN_ADDRESS_OPTIONS_CHANGE
+        };
+    }
+
+    JADE_ASSERT(num_menubtns <= sizeof(menubtns) / sizeof(menubtns[0]));
+    return make_menu_activity("Search Root", hdrbtns, 2, menubtns, num_menubtns);
 }
 
 gui_activity_t* make_qr_options_activity(gui_view_node_t** density_textbox, gui_view_node_t** framerate_textbox)
@@ -224,6 +265,20 @@ gui_activity_t* make_qr_options_activity(gui_view_node_t** density_textbox, gui_
               { .content = *framerate_textbox, .font = GUI_DEFAULT_FONT, .ev_id = BTN_QR_OPTIONS_FRAMERATE } };
 
     return make_menu_activity("QR Settings", hdrbtns, 2, menubtns, 2);
+}
+
+// BBB-AIRGAP: the mining menu, opened from Options (main/qrmode.c handle_mining_settings). Two
+// fixed rows, so it is one of Jade's own menus, built the way the OTP menu is (main/ui/dashboard.c
+// make_otp_activity); the header carries only the back button, as the Display menu's does.
+gui_activity_t* make_mining_menu_activity(void)
+{
+    btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_MINING_EXIT },
+        { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
+
+    btn_data_t menubtns[] = { { .txt = "Start", .font = GUI_DEFAULT_FONT, .ev_id = BTN_MINING_START },
+        { .txt = "Reward Address", .font = GUI_DEFAULT_FONT, .ev_id = BTN_MINING_REWARD } };
+
+    return make_menu_activity("Mining", hdrbtns, 2, menubtns, 2);
 }
 
 // NOTE: 'icons' passed in here must be heap-allocated as the gui element takes ownership
@@ -274,62 +329,49 @@ gui_activity_t* make_show_otp_qr_actvity(const char* otp_name, Icon* qr_icon)
     return act;
 }
 
-// NOTE: 'icons' passed in here must be heap-allocated as the gui element takes ownership
-gui_activity_t* make_show_qr_activity(const char* message[], const size_t message_size, Icon* icons,
-    const size_t num_icons, const size_t frames_per_qr_icon, const bool show_options_button)
+// BBB-AIRGAP: as with the xpub screen above, this now only describes what is being exported;
+// the code itself is shown by make_fullscreen_qr_activity().
+gui_activity_t* make_show_qr_activity(
+    const char* message[], const size_t message_size, const bool show_options_button)
 {
     JADE_ASSERT(message);
     JADE_ASSERT(message_size < 4);
-    JADE_ASSERT(icons);
-    JADE_ASSERT(num_icons);
-    JADE_ASSERT(frames_per_qr_icon || num_icons == 1);
 
     gui_activity_t* const act = gui_make_activity();
-
-    gui_view_node_t* hsplit;
-    gui_make_hsplit(&hsplit, GUI_SPLIT_RELATIVE, 2, 44, 56);
-    gui_set_parent(hsplit, act->root_node);
     gui_view_node_t* node;
 
-    // LHS
-    {
-        gui_view_node_t* vsplit;
-        gui_make_vsplit(&vsplit, GUI_SPLIT_RELATIVE, 3, 20, 56, 24);
-        gui_set_parent(vsplit, hsplit);
+    gui_view_node_t* vsplit;
+    gui_make_vsplit(&vsplit, GUI_SPLIT_RELATIVE, 3, 22, 52, 26);
+    gui_set_parent(vsplit, act->root_node);
 
-        // back button, space, brightness button
-        btn_data_t hdrbtns[] = {
-            { .txt = "S", .font = VARIOUS_SYMBOLS_FONT, .ev_id = BTN_QR_DISPLAY_EXIT, .borders = GUI_BORDER_ALL },
-            { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE },
-            { .txt = "P", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_QR_BRIGHTNESS, .borders = GUI_BORDER_ALL }
-        };
+    // back button, space, brightness button
+    btn_data_t hdrbtns[]
+        = { { .txt = "S", .font = VARIOUS_SYMBOLS_FONT, .ev_id = BTN_QR_DISPLAY_EXIT, .borders = GUI_BORDER_ALL },
+              { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE },
+              { .txt = "P", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_QR_BRIGHTNESS, .borders = GUI_BORDER_ALL } };
+    add_buttons(vsplit, UI_ROW, hdrbtns, 3);
 
-        add_buttons(vsplit, UI_ROW, hdrbtns, 3); // 44 (hsplit) / 3 == 14 - almost 15 so ok
-
-        // text label
-        gui_view_node_t* text_parent = vsplit;
-        if (message_size > 1) {
-            text_parent = make_even_split(UI_COLUMN, message_size);
-            const size_t tbpad = ((3 - message_size) * 12) + 8;
-            gui_set_padding(text_parent, GUI_MARGIN_TWO_VALUES, tbpad, 2);
-            gui_set_parent(text_parent, vsplit);
-        }
-        for (size_t i = 0; i < message_size; ++i) {
-            gui_make_text(&node, message[i], TFT_WHITE);
-            gui_set_parent(node, text_parent);
-            gui_set_align(node, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
-        }
-
-        // Buttons, optionally options
-        if (show_options_button) {
-            btn_data_t ftrbtn
-                = { .txt = "Options", .font = GUI_DEFAULT_FONT, .ev_id = BTN_QR_OPTIONS, .borders = GUI_BORDER_TOP };
-            add_buttons(vsplit, UI_ROW, &ftrbtn, 1);
-        }
+    // text label
+    gui_view_node_t* text_parent = vsplit;
+    if (message_size > 1) {
+        text_parent = make_even_split(UI_COLUMN, message_size);
+        const size_t tbpad = ((3 - message_size) * 12) + 8;
+        gui_set_padding(text_parent, GUI_MARGIN_TWO_VALUES, tbpad, 2);
+        gui_set_parent(text_parent, vsplit);
+    }
+    for (size_t i = 0; i < message_size; ++i) {
+        gui_make_text(&node, message[i], TFT_WHITE);
+        gui_set_parent(node, text_parent);
+        gui_set_align(node, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
     }
 
-    // RHS - QR icons
-    make_qrcode(hsplit, icons, num_icons, frames_per_qr_icon);
+    // Buttons, optionally options
+    btn_data_t ftrbtns[] = { { .txt = "Show QR",
+                                 .font = GUI_DEFAULT_FONT,
+                                 .ev_id = BTN_QR_SHOW_FULLSCREEN,
+                                 .borders = GUI_BORDER_TOP },
+        { .txt = "Options", .font = GUI_DEFAULT_FONT, .ev_id = BTN_QR_OPTIONS, .borders = GUI_BORDER_TOP } };
+    add_buttons(vsplit, UI_ROW, ftrbtns, show_options_button ? 2 : 1);
 
     return act;
 }

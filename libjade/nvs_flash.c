@@ -1,4 +1,5 @@
 #include "nvs_flash.h"
+#include "pijade_settings.h" // BBB-AIRGAP: see nvs_commit() below
 #include <endian.h>
 #include <errno.h>
 #include <stdio.h>
@@ -259,10 +260,35 @@ esp_err_t nvs_flash_erase(void)
     for (size_t i = 0; i < sizeof(nvs_storage) / sizeof(nvs_storage[0]); ++i) {
         wally_map_clear(&nvs_storage[i]);
     }
-    return ESP_OK;
+    // BBB-AIRGAP: a factory reset is the one change that does not go through nvs_commit(), so
+    // without this every card copy outlives the reset and all five namespaces return on the next
+    // boot. The zero-length callback asks the host to overwrite and remove both slots. If it cannot
+    // remove every copy, the wallet survives the reset and that cannot pass for success;
+    // main/process/dashboard.c:708 is what a caller sees this become.
+    return libjade_settings_erased() ? ESP_OK : ESP_FAIL;
 }
 
-esp_err_t nvs_commit(nvs_handle_t handle) { return ESP_OK; }
+// BBB-AIRGAP: indexed access to the five private maps for pijade_settings.c; see pijade_settings.h.
+struct wally_map* pijade_settings_storage(const size_t namespace_index)
+{
+    return namespace_index < sizeof(nvs_storage) / sizeof(nvs_storage[0]) ? &nvs_storage[namespace_index] : NULL;
+}
+
+/*
+ * BBB-AIRGAP: upstream leaves this a no-op, since its NVS never leaves memory. On the Pi the
+ * store has to outlive a power cut, and this is the one point every write passes through:
+ * main/storage.c's store_blob() commits after each set (storage.c:171), so hooking it here means
+ * settings persist without any "save" step in the UI.
+ */
+esp_err_t nvs_commit(nvs_handle_t handle)
+{
+    for (size_t i = 0; i < sizeof(nvs_storage) / sizeof(nvs_storage[0]); ++i) {
+        if (handle == &nvs_storage[i]) {
+            return libjade_settings_changed() ? ESP_OK : ESP_FAIL;
+        }
+    }
+    return ESP_FAIL;
+}
 
 esp_err_t nvs_get_stats(const char* part_name, nvs_stats_t* nvs_stats)
 {

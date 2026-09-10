@@ -3,6 +3,7 @@
 
 #include "../button_events.h"
 #include "../jade_assert.h"
+#include "../qrcode.h"
 #include "../ui.h"
 
 #define NUM_KEYBOARD_ROWS 3
@@ -30,9 +31,15 @@ gui_activity_t* make_mnemonic_setup_method_activity(const bool advanced)
 
     // In advanced mode offer 12/14 word new-mnemonics.
     // Go straight to 12-word new-mnemonic setup in basic case.
+    // BBB-AIRGAP: the advanced arm opens the entropy-source menu rather than the word-count
+    // menu directly. User-supplied entropy (dice, camera) used to be reachable only from the
+    // temporary-wallet arm, so the persistent wallet - the one that actually holds funds - was
+    // the arm with no choice. The word-count screen still follows: await_new_mnemonic_nwords()
+    // shows it once a source is picked, so the advanced arm gains a screen rather than losing one.
+    // The basic arm is untouched and still goes straight to a 12-word device-entropy wallet.
     btn_data_t menubtns[] = { { .txt = "Create New Wallet",
                                   .font = GUI_DEFAULT_FONT,
-                                  .ev_id = advanced ? BTN_NEW_MNEMONIC : BTN_NEW_MNEMONIC_12 },
+                                  .ev_id = advanced ? BTN_NEW_MNEMONIC_SOURCE : BTN_NEW_MNEMONIC_12 },
         { .txt = "Restore Wallet", .font = GUI_DEFAULT_FONT, .ev_id = BTN_RESTORE_MNEMONIC } };
 
     gui_activity_t* const act
@@ -404,69 +411,75 @@ gui_activity_t* make_confirm_passphrase_activity(const char* passphrase, gui_vie
     return act;
 }
 
-gui_activity_t* make_export_qr_overview_activity(const Icon* icon, const bool initial)
+gui_activity_t* make_export_qr_overview_activity(const bool initial)
+{
+    gui_activity_t* const act = gui_make_activity();
+
+    // BBB-AIRGAP: this screen used a bare button row where every other Jade screen puts a title
+    // bar, so the top band was an empty strip with a back button in it.  add_title_bar() gives the
+    // band the screen name in GUI_TITLE_FONT and keeps the two header slots, exactly as the
+    // fragment carousel and ui/qrmode.c do.  The body then carries the instruction rather than
+    // half of a two-line name.
+    btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_QR_EXPORT_PREV },
+        { .txt = NULL, .font = JADE_SYMBOLS_16x16_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
+
+    if (!initial) {
+        hdrbtns[1].txt = ">";
+        hdrbtns[1].ev_id = BTN_QR_EXPORT_NEXT;
+    }
+
+    gui_view_node_t* const parent = add_title_bar(act, "SeedQR", hdrbtns, 2, NULL);
+
+    gui_view_node_t* vsplit;
+    gui_make_vsplit(&vsplit, GUI_SPLIT_RELATIVE, 2, 67, 33);
+    gui_set_parent(vsplit, parent);
+
+    gui_view_node_t* node;
+    gui_make_text(&node, initial ? "Draw the code" : "Draw the template", TFT_WHITE);
+    gui_set_parent(node, vsplit);
+    gui_set_align(node, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
+
+    btn_data_t ftrbtns[] = { { .txt = "Show QR",
+                                  .font = GUI_DEFAULT_FONT,
+                                  .ev_id = BTN_QR_SHOW_FULLSCREEN,
+                                  .borders = GUI_BORDER_TOP },
+        { .txt = "Start", .font = GUI_DEFAULT_FONT, .ev_id = BTN_QR_EXPORT_NEXT, .borders = GUI_BORDER_TOP } };
+    if (!initial) {
+        ftrbtns[1].txt = "Done";
+        ftrbtns[1].ev_id = BTN_QR_EXPORT_DONE;
+    }
+    add_buttons(vsplit, UI_ROW, ftrbtns, 2);
+
+    gui_set_activity_initial_selection(ftrbtns[1].btn);
+
+    return act;
+}
+
+gui_activity_t* make_export_qr_fullscreen_activity(const Icon* const icon)
 {
     JADE_ASSERT(icon);
 
     gui_activity_t* const act = gui_make_activity();
 
-    gui_view_node_t* hsplit;
-    gui_make_hsplit(&hsplit, GUI_SPLIT_RELATIVE, 2, 45, 55);
-    gui_set_parent(hsplit, act->root_node);
+    gui_view_node_t* btn;
+    gui_make_button(&btn, TFT_BLACK, TFT_BLACK, BTN_QR_FULLSCREEN_EXIT, NULL);
+    gui_set_parent(btn, act->root_node);
 
-    // lhs - text
-    gui_view_node_t* vsplit;
-    gui_make_vsplit(&vsplit, GUI_SPLIT_RELATIVE, 4, 20, 30, 25, 25);
-    gui_set_parent(vsplit, hsplit);
-
-    // rhs - icon
-    gui_view_node_t* icon_bg;
-    gui_make_fill(&icon_bg, TFT_DARKGREY, FILL_PLAIN, hsplit);
+    gui_view_node_t* fill;
+    gui_make_fill(&fill, TFT_BLACK, FILL_QR, btn);
 
     gui_view_node_t* node;
-    gui_make_icon(&node, icon, TFT_BLACK, &TFT_LIGHTGREY);
+    gui_make_icon(&node, icon, TFT_BLACK, &TFT_WHITE);
     gui_set_align(node, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
-    gui_set_parent(node, icon_bg);
-
-    // First row, header, just a back button initally, a back and next button if looping round
-    btn_data_t hdrbtns[]
-        = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_QR_EXPORT_PREV, .borders = GUI_BORDER_ALL },
-              { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE }, // spacer
-              { .txt = NULL, .font = JADE_SYMBOLS_16x16_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
-
-    if (!initial) {
-        hdrbtns[2].txt = ">";
-        hdrbtns[2].ev_id = BTN_QR_EXPORT_NEXT;
-        hdrbtns[2].borders = GUI_BORDER_ALL;
-    }
-
-    add_buttons(vsplit, UI_ROW, hdrbtns, 3);
-
-    // Second/third rows, message
-    gui_make_text(&node, initial ? "Draw" : "SeedQR", TFT_WHITE);
-    gui_set_parent(node, vsplit);
-    gui_set_align(node, GUI_ALIGN_CENTER, GUI_ALIGN_BOTTOM);
-    gui_make_text(&node, initial ? "SeedQR" : "template", TFT_WHITE);
-    gui_set_parent(node, vsplit);
-    gui_set_align(node, GUI_ALIGN_CENTER, GUI_ALIGN_TOP);
-
-    btn_data_t ftrbtn
-        = { .txt = "Start", .font = GUI_DEFAULT_FONT, .ev_id = BTN_QR_EXPORT_NEXT, .borders = GUI_BORDER_TOP };
-    if (!initial) {
-        // Just a 'Start' button
-        ftrbtn.txt = "Done";
-        ftrbtn.ev_id = BTN_QR_EXPORT_DONE;
-    }
-    add_buttons(vsplit, UI_ROW, &ftrbtn, 1);
-
-    // Select 'Start'/Done button by default
-    gui_set_activity_initial_selection(ftrbtn.btn);
+    gui_set_parent(node, fill);
+    gui_set_icon_to_qr(node);
+    // BBB-AIRGAP: gui_set_icon_animation() would transfer seed-bearing icon ownership to a plain free() path.
 
     return act;
 }
 
-gui_activity_t* make_export_qr_fragment_activity(
-    const Icon* icon, gui_view_node_t** icon_node, gui_view_node_t** label_node)
+gui_activity_t* make_export_qr_fragment_activity(const Icon* const icon, const bool context_available,
+    gui_view_node_t** const icon_node, gui_view_node_t** const label_node)
 {
     JADE_ASSERT(icon);
     JADE_INIT_OUT_PPTR(icon_node);
@@ -475,49 +488,53 @@ gui_activity_t* make_export_qr_fragment_activity(
     gui_activity_t* const act = gui_make_activity();
     gui_view_node_t* node;
 
-    gui_view_node_t* hsplit;
-    gui_make_hsplit(&hsplit, GUI_SPLIT_RELATIVE, 2, 45, 55);
-    gui_set_parent(hsplit, act->root_node);
-
-    // lhs - text
     gui_view_node_t* vsplit;
-    gui_make_vsplit(&vsplit, GUI_SPLIT_RELATIVE, 5, 20, 20, 18, 16, 26);
-    gui_set_parent(vsplit, hsplit);
+    gui_make_vsplit(&vsplit, GUI_SPLIT_RELATIVE, 2, 22, QRCODE_FRAGMENT_ROW_PERCENT);
+    gui_set_parent(vsplit, act->root_node);
 
-    // rhs - icon
-    gui_make_fill(&node, TFT_DARKGREY, FILL_PLAIN, hsplit);
+    gui_view_node_t* hdr;
+    if (context_available) {
+        gui_make_hsplit(&hdr, GUI_SPLIT_RELATIVE, 4, 20, 44, 18, 18);
+    } else {
+        gui_make_hsplit(&hdr, GUI_SPLIT_RELATIVE, 3, 20, 62, 18);
+    }
+    gui_set_parent(hdr, vsplit);
 
-    gui_make_icon(icon_node, icon, TFT_BLACK, &TFT_LIGHTGREY);
+    btn_data_t backbtn
+        = { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_QR_EXPORT_PREV, .borders = GUI_BORDER_ALL };
+    add_button(hdr, &backbtn);
+
+    // BBB-AIRGAP: the label is updated on every fragment change, and gui_update_text() clears the
+    // old string by repainting the text node's PARENT (main/gui.c).  Parented straight onto the
+    // hsplit there is no background to repaint, so the digits pile up on top of each other
+    // (measured: after five advances "Grid: A1" reads as an unreadable blob, on v1 as well as
+    // v3).  A fill node behind the text gives the repaint something to paint.
+    gui_view_node_t* label_bg;
+    gui_make_fill(&label_bg, TFT_BLACK, FILL_PLAIN, hdr);
+    gui_make_text(label_node, "", TFT_WHITE);
+    gui_set_align(*label_node, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
+    gui_set_parent(*label_node, label_bg);
+
+    if (context_available) {
+        btn_data_t contextbtn
+            = { .txt = "+", .font = GUI_DEFAULT_FONT, .ev_id = BTN_QR_EXPORT_CONTEXT, .borders = GUI_BORDER_ALL };
+        add_button(hdr, &contextbtn);
+    }
+
+    btn_data_t nextbtn
+        = { .txt = ">", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_QR_EXPORT_NEXT, .borders = GUI_BORDER_ALL };
+    add_button(hdr, &nextbtn);
+
+    // BBB-AIRGAP: the code area is white, like every other Jade qr screen (measured: the
+    // full-screen SeedQR is pure white and black, this one had no white at all).  This is the
+    // screen the user copies onto paper from, so it gets the same contrast as the code itself;
+    // the darker fill around it stays, framing the magnified block.
+    gui_make_fill(&node, TFT_DARKGREY, FILL_PLAIN, vsplit);
+    gui_make_icon(icon_node, icon, TFT_BLACK, &TFT_WHITE);
     gui_set_align(*icon_node, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
     gui_set_parent(*icon_node, node);
 
-    // First row, header, just back and forward buttons
-    btn_data_t hdrbtns[]
-        = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_QR_EXPORT_PREV, .borders = GUI_BORDER_ALL },
-              { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE },
-              { .txt = ">", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_QR_EXPORT_NEXT, .borders = GUI_BORDER_ALL } };
-    add_buttons(vsplit, UI_ROW, hdrbtns, 3);
-
-    // Second row, grid ref
-    gui_make_fill(&node, TFT_BLACK, FILL_PLAIN, vsplit);
-
-    gui_make_text(label_node, "", TFT_WHITE);
-    gui_set_align(*label_node, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
-    gui_set_parent(*label_node, node);
-
-    // third/fourth/fifth rows, message
-    gui_make_text(&node, "Draw", TFT_WHITE);
-    gui_set_parent(node, vsplit);
-    gui_set_align(node, GUI_ALIGN_CENTER, GUI_ALIGN_BOTTOM);
-    gui_make_text(&node, "SeedQR", TFT_WHITE);
-    gui_set_parent(node, vsplit);
-    gui_set_align(node, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
-    gui_make_text(&node, "template", TFT_WHITE);
-    gui_set_parent(node, vsplit);
-    gui_set_align(node, GUI_ALIGN_CENTER, GUI_ALIGN_TOP);
-
-    // Select 'Next' button by default
-    gui_set_activity_initial_selection(hdrbtns[2].btn);
+    gui_set_activity_initial_selection(nextbtn.btn);
 
     return act;
 }

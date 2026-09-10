@@ -87,13 +87,22 @@ static volatile bool gui_task_running = false;
 static gui_event_t gui_click_event = GUI_FRONT_CLICK_EVENT;
 static color_t gui_highlight_color = 0;
 static const color_t gui_qrcode_colors[5] = { 0xa210, 0x494a, 0xef7b, 0x18c6, 0xffff };
-#ifdef CONFIG_IDF_TARGET_ESP32S3
-// V2 QR codes scan better with a higher contrast background
+// BBB-AIRGAP: upstream picks the high-contrast background on the S3 for exactly the reason that
+// applies here - index 1 is 0x494a, about RGB(74,40,82), which against black modules is roughly a
+// 2:1 contrast ratio and a poor thing to ship as the default. Index 4 is white. The button that
+// cycles these is still there, so anyone whose scanner prefers a dimmer code can still get one.
 static uint8_t gui_qrcode_color_idx = 4;
-#else
-static uint8_t gui_qrcode_color_idx = 1;
-#endif
 static bool gui_orientation_flipped = false;
+
+// BBB-AIRGAP: the KEY3 escape; see gui_escape_request() in main/gui.h for what it is and why it
+// is a flag rather than an event id.  Written from the thread that delivers input and read from
+// the task that runs the screens, so a single aligned bool with no other state hanging off it.
+static volatile bool gui_escape_flag = false;
+
+// BBB-AIRGAP: see gui_set_input_echo(), at the bottom of this file, for what this is for.  It sits
+// up here with the other screen-wide state because gui_stop() clears it, and gui_stop() is defined
+// well above the input handling that reads it.
+static bool gui_input_echo = false;
 
 // status bar
 struct {
@@ -137,6 +146,10 @@ static void make_status_bar(void)
 {
     gui_view_node_t* status_parent = NULL;
     enum gui_horizontal_align name_alignment = GUI_ALIGN_CENTER;
+    // BBB-AIRGAP: set alongside the alignment below; the two status-bar shapes give the serial
+    // different room, so they do not use the same font.  No "unset" sentinel here the way
+    // name_alignment has one: DEFAULT_FONT is 0 (main/display.h:69), so 0 is a real value.
+    uint8_t name_font;
 
     // Black fill background as the root node
     gui_make_fill(&status_bar.root, TFT_BLACK, FILL_PLAIN, NULL);
@@ -150,8 +163,17 @@ static void make_status_bar(void)
 
 #if HOME_SCREEN_DEEP_STATUS_BAR
     // Make an hsplit for the logo on the left, and info on the right
+    // BBB-AIRGAP: the right-hand column carries the unit's serial ('Jade ABCDEF', 11 characters).
+    // At 65/35 that column is 81px on our 240x240 panel while the serial needs up to 96px, so the
+    // serial was silently clipped - no ellipsis - and, because the font is proportional, a different
+    // number of characters survived for different serials, which read as the id changing on every
+    // boot (measured 2026-09-07: 'Jade 7A9FB1' rendered as 'Jade 7A9').  The logo picture is
+    // 134x42 (logo/statusbar_large.bin.gz), so the left column only needs 134 of the 153px it had;
+    // 58/42 gives the logo 136px and the serial 100px.  Widths here are the renderer's own advance
+    // sums (display_get_string_width), taken over the widest hex digit in each font, so the fit
+    // holds for every possible serial, not just this unit's.
     gui_view_node_t* hsplit;
-    gui_make_hsplit(&hsplit, GUI_SPLIT_RELATIVE, 2, 65, 35);
+    gui_make_hsplit(&hsplit, GUI_SPLIT_RELATIVE, 2, 58, 42);
     gui_set_padding(hsplit, GUI_MARGIN_ALL_DIFFERENT, 0, 2, 0, 2);
     gui_set_parent(hsplit, status_bar.root);
 
@@ -167,13 +189,24 @@ static void make_status_bar(void)
     gui_set_parent(vsplit, hsplit);
 
     // Status icons - hsplit above the name
+#ifdef CONFIG_HAS_BATTERY
     gui_make_hsplit(&status_parent, GUI_SPLIT_RELATIVE, 3, 28, 28, 44);
+#else
+    // BBB-AIRGAP: this board has no battery, so the battery icon is painted in the
+    // background colour and is never seen (see the CONFIG_HAS_BATTERY branch in
+    // gui_set_battery()).  Its column is nonetheless the widest of the three and it sits
+    // on the right, which is what pushed the two icons that ARE visible away from the
+    // right edge.  Here the empty column takes the left instead and the visible pair ends
+    // up against the edge; the widths themselves are unchanged, only their order.
+    gui_make_hsplit(&status_parent, GUI_SPLIT_RELATIVE, 3, 44, 28, 28);
+#endif
     gui_set_padding(status_parent, GUI_MARGIN_ALL_DIFFERENT, 0, 4, 0, 2);
     gui_set_parent(status_parent, vsplit);
 
     // The name beneath, aligned to the right
     gui_set_parent(name_parent, vsplit);
     name_alignment = GUI_ALIGN_RIGHT;
+    name_font = DEFAULT_FONT;
 #else
     // Make an hsplit for the icon, name, and status icons
     gui_make_hsplit(&status_parent, GUI_SPLIT_RELATIVE, 5, 10, 57, 8, 8, 17);
@@ -189,6 +222,9 @@ static void make_status_bar(void)
     // The first part is for the name, aligned left
     gui_set_parent(name_parent, status_parent);
     name_alignment = GUI_ALIGN_LEFT;
+    // The shallow bar gives the name 57% of the panel (136px at 240 wide) and the widest
+    // possible serial measures 115px in UBUNTU16, so this shape never clipped and is left alone.
+    name_font = GUI_TITLE_FONT;
 #endif // HOME_SCREEN_DEEP_STATUS_BAR
 
     // Status icons onto the status parent (hsplit)
@@ -196,20 +232,46 @@ static void make_status_bar(void)
     JADE_ASSERT(status_parent->kind == HSPLIT);
     gui_make_text_font(&status_bar.usb_text, "D", TFT_WHITE, JADE_SYMBOLS_16x16_FONT);
     gui_set_align(status_bar.usb_text, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
-    gui_set_parent(status_bar.usb_text, status_parent);
 
     gui_make_text_font(&status_bar.ble_text, "F", TFT_WHITE, JADE_SYMBOLS_16x16_FONT);
+#if HOME_SCREEN_DEEP_STATUS_BAR && !defined(CONFIG_HAS_BATTERY)
+    // BBB-AIRGAP: with the battery column moved out of the way this is the last icon in
+    // the row, and centring it in its own column would leave a gap at the panel edge that
+    // the battery icon never left: upstream draws that one GUI_ALIGN_RIGHT.  Aligning it
+    // the same way puts the visible pair exactly where the old rightmost element sat.
+    gui_set_align(status_bar.ble_text, GUI_ALIGN_RIGHT, GUI_ALIGN_MIDDLE);
+#else
     gui_set_align(status_bar.ble_text, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
-    gui_set_parent(status_bar.ble_text, status_parent);
+#endif
 
     gui_make_text_font(&status_bar.battery_text, "0", TFT_WHITE, JADE_SYMBOLS_16x32_FONT);
     gui_set_align(status_bar.battery_text, GUI_ALIGN_RIGHT, GUI_ALIGN_MIDDLE);
+
+    // A child takes the split column that matches the order it is added in, so the order
+    // below is the layout.  Upstream's order is usb, ble, battery; the deep bar on a
+    // board without a battery puts the empty battery column first instead, to match the
+    // widths chosen above.  The shallow bar keeps upstream's order in every build: this
+    // firmware never draws it (CONFIG_DISPLAY_HEIGHT is 240, see main/gui.h) so its
+    // layout cannot be measured here, and an unmeasured change is not made.
+#if HOME_SCREEN_DEEP_STATUS_BAR && !defined(CONFIG_HAS_BATTERY)
     gui_set_parent(status_bar.battery_text, status_parent);
+    gui_set_parent(status_bar.usb_text, status_parent);
+    gui_set_parent(status_bar.ble_text, status_parent);
+#else
+    gui_set_parent(status_bar.usb_text, status_parent);
+    gui_set_parent(status_bar.ble_text, status_parent);
+    gui_set_parent(status_bar.battery_text, status_parent);
+#endif
 
     JADE_ASSERT(name_parent);
     JADE_ASSERT(name_parent->kind == FILL);
     JADE_ASSERT(name_alignment != GUI_ALIGN_CENTER);
-    gui_make_text_font(&status_bar.title, "Jade", TFT_WHITE, GUI_TITLE_FONT);
+    // BBB-AIRGAP: the deep bar asks for DEFAULT_FONT rather than GUI_TITLE_FONT (UBUNTU16); the
+    // widest possible serial measures 96px there against 115px in UBUNTU16, which is what makes it
+    // fit the column above.  Only the home screen carries a status bar (main/ui/dashboard.c:65 is
+    // the sole gui_make_activity_ex() call with one outside smoketest), so no other screen's title
+    // changes size.
+    gui_make_text_font(&status_bar.title, "Jade", TFT_WHITE, name_font);
     gui_set_align(status_bar.title, name_alignment, GUI_ALIGN_MIDDLE);
     gui_set_parent(status_bar.title, name_parent);
 
@@ -262,6 +324,34 @@ void gui_next_qrcode_color(void)
 
 bool gui_get_flipped_orientation(void) { return gui_orientation_flipped; }
 
+// BBB-AIRGAP: see gui.h. Nothing to tell the hardware about - the camera frames arrive the same
+// way whatever this is set to, and main/camera.c picks the copy that turns them the right way up.
+static uint8_t gui_camera_rotation = CAMERA_ROTATION_DEFAULT;
+
+uint8_t gui_get_camera_rotation(void) { return gui_camera_rotation; }
+
+uint8_t gui_set_camera_rotation(const uint8_t quarter_turns)
+{
+    JADE_ASSERT(quarter_turns < CAMERA_ROTATION_NUM_VALUES);
+    gui_camera_rotation = quarter_turns;
+    return gui_camera_rotation;
+}
+
+uint8_t gui_camera_rotation_from_flags(const uint8_t gui_flags)
+{
+    const uint8_t stored = (gui_flags & GUI_FLAGS_CAMERA_ROTATION_MASK) >> GUI_FLAGS_CAMERA_ROTATION_SHIFT;
+    return (stored + CAMERA_ROTATION_DEFAULT) % CAMERA_ROTATION_NUM_VALUES;
+}
+
+uint8_t gui_camera_rotation_to_flags(const uint8_t gui_flags, const uint8_t quarter_turns)
+{
+    JADE_ASSERT(quarter_turns < CAMERA_ROTATION_NUM_VALUES);
+    const uint8_t stored = (quarter_turns + CAMERA_ROTATION_NUM_VALUES - CAMERA_ROTATION_DEFAULT)
+        % CAMERA_ROTATION_NUM_VALUES;
+    return (gui_flags & ~GUI_FLAGS_CAMERA_ROTATION_MASK)
+        | (uint8_t)(stored << GUI_FLAGS_CAMERA_ROTATION_SHIFT);
+}
+
 bool gui_set_flipped_orientation(const bool flipped_orientation)
 {
     gui_orientation_flipped = display_flip_orientation(flipped_orientation);
@@ -280,6 +370,7 @@ void gui_init(TaskHandle_t* gui_h, const bool create_event_loop)
     gui_set_click_event(gui_flags & GUI_FLAGS_USE_WHEEL_CLICK);
     gui_set_highlight_color(gui_flags & GUI_FLAGS_THEMES_MASK);
     gui_set_flipped_orientation(gui_flags & GUI_FLAGS_FLIP_ORIENTATION);
+    gui_set_camera_rotation(gui_camera_rotation_from_flags(gui_flags));
 
     // create a blank activity
     current_activity = gui_make_activity();
@@ -305,6 +396,12 @@ void gui_init(TaskHandle_t* gui_h, const bool create_event_loop)
 
 void gui_stop(void)
 {
+    // BBB-AIRGAP: the screen that owns the echo turns it off before it returns, but it can be
+    // killed where it stands: libjade_stop() unblocks sync_wait_event(), which leaves through
+    // pthread_exit() and runs no more of the caller.  Clearing it here means the flag cannot
+    // outlive the session and disable navigation in the next one.  See gui_set_input_echo().
+    gui_input_echo = false;
+
 #ifdef CONFIG_LIBJADE
     // Only used by libjade
     JADE_ASSERT(gui_task_handle);
@@ -421,7 +518,7 @@ static bool select_prev(gui_activity_t* activity)
     }
 
     selectable_t* prev_active = current->prev;
-    while (!prev_active->node->is_active) {
+    while (!prev_active->node->is_active || prev_active->node->nav_skip) {
         // end condition, we couldn't find any other active node
         if (prev_active == current) {
             return false;
@@ -529,7 +626,7 @@ static bool select_next(gui_activity_t* activity)
     }
 
     selectable_t* next_active = current->next;
-    while (!next_active->node->is_active) {
+    while (!next_active->node->is_active || next_active->node->nav_skip) {
         // end condition, we couldn't find any other active node
         if (next_active == current) {
             return false;
@@ -1006,7 +1103,10 @@ static void free_view_node_icon_data(void* vdata)
         // NOTE: we owned the animation frames
         for (int i = 0; i < data->animation->num_icons; ++i) {
             // Free the icon data
-            free(data->animation->icons[i].data);
+            // BBB-AIRGAP: animation icons only ever come from the qrcode.c allocator (the sole
+            // gui_set_icon_animation() caller is make_qrcode() in ui/qrmode.c), and their pixels
+            // are a reversible encoding of exported wallet data, so wipe before freeing.
+            qrcode_freeIconData(&data->animation->icons[i]);
         }
         free(data->animation->icons);
         free(data->animation);
@@ -2524,6 +2624,7 @@ static void gui_task(void* args)
 // TODO: different functions for different types of click
 void gui_wheel_click(void)
 {
+    gui_escape_clear(); // BBB-AIRGAP: any other press means the user changed their mind
     if (!idletimer_register_activity(true)) {
         if (gui_click_event == GUI_WHEEL_CLICK_EVENT) {
             select_action(current_activity);
@@ -2534,6 +2635,7 @@ void gui_wheel_click(void)
 
 void gui_front_click(void)
 {
+    gui_escape_clear(); // BBB-AIRGAP: any other press means the user changed their mind
     if (!idletimer_register_activity(true)) {
         if (gui_click_event == GUI_FRONT_CLICK_EVENT) {
             select_action(current_activity);
@@ -2558,8 +2660,130 @@ void select_prev_left(void)
     }
 }
 
+// BBB-AIRGAP: Select the closest active item on the next row along the requested vertical axis.
+static bool select_vertical(gui_activity_t* const activity, const bool down)
+{
+    if (!activity || !activity->selectables) {
+        return false;
+    }
+
+    selectable_t* const begin = activity->selectables;
+    selectable_t* current = begin;
+    selectable_t* selected = NULL;
+    do {
+        if (current->node->is_selected) {
+            selected = current;
+            break;
+        }
+        current = current->next;
+    } while (current != begin);
+    if (!selected) {
+        return false;
+    }
+
+    bool target_row_found = false;
+    uint16_t target_y = 0;
+    current = begin;
+    do {
+        if (current->node->is_active && !current->node->nav_skip
+            && ((down && current->y > selected->y) || (!down && current->y < selected->y))
+            && (!target_row_found || (down ? current->y < target_y : current->y > target_y))) {
+            target_y = current->y;
+            target_row_found = true;
+        }
+        current = current->next;
+    } while (current != begin);
+    if (!target_row_found) {
+        return false;
+    }
+
+    selectable_t* list_begin = begin;
+    current = begin;
+    do {
+        if (current->is_first) {
+            list_begin = current;
+            break;
+        }
+        current = current->next;
+    } while (current != begin);
+
+    selectable_t* target = NULL;
+    uint16_t target_distance = 0;
+    current = list_begin;
+    do {
+        if (current->node->is_active && !current->node->nav_skip && current->y == target_y) {
+            const uint16_t distance
+                = current->x > selected->x ? current->x - selected->x : selected->x - current->x;
+            if (!target || distance < target_distance) {
+                target = current;
+                target_distance = distance;
+            }
+        }
+        current = current->next;
+    } while (current != list_begin);
+    JADE_ASSERT(target);
+
+    set_tree_selection(selected->node, false);
+    gui_repaint(selected->node);
+    set_tree_selection(target->node, true);
+    gui_repaint(target->node);
+    activity->selectables = target;
+    return true;
+}
+
+// BBB-AIRGAP: post the event naming the input and tell the caller to do nothing else.  The idle
+// timer is registered first, exactly as the navigation paths do, so that the buttons check keeps
+// the device awake while it is being used and so that the first press on a screen that has gone
+// dark still only wakes it.
+static bool input_echo(const int32_t event_id)
+{
+    if (!gui_input_echo) {
+        return false;
+    }
+    if (!idletimer_register_activity(true)) {
+        esp_event_post(GUI_EVENT, event_id, NULL, 0, 50 / portTICK_PERIOD_MS);
+    }
+    return true;
+}
+
+static void select_vertical_or_wheel(const bool down)
+{
+    if (idletimer_register_activity(true)) {
+        return;
+    }
+    if (select_vertical(current_activity, down)) {
+        esp_event_post(
+            GUI_EVENT, down ? GUI_WHEEL_DOWN_EVENT : GUI_WHEEL_UP_EVENT, NULL, 0, 50 / portTICK_PERIOD_MS);
+        return;
+    }
+
+    // Dice and QR option screens use the existing wheel events to change values.  Falling back
+    // preserves that behavior, while posting exactly one event avoids overwriting single-slot waits.
+    down ? select_next_right() : select_prev_left();
+}
+
+// BBB-AIRGAP: measure a string against a width from outside the gui task.  The display driver
+// keeps the font to draw with in shared state (display.c), and the gui task holds gui_mutex for
+// the whole of its awake period, rendering included (gui_task(), above) - so a caller that has to
+// select a font in order to measure with it must hold the same mutex, or it can change the font
+// under a frame that is being drawn.  The font is left selected afterwards, which harms nothing:
+// every text node sets its own font before it draws (render_text(), above).
+bool gui_text_fits_width(const char* text, const uint32_t font, const uint16_t width)
+{
+    JADE_ASSERT(text);
+    JADE_ASSERT(gui_mutex);
+
+    JADE_SEMAPHORE_TAKE(gui_mutex);
+    display_set_font(font);
+    const int text_width = display_get_string_width(text);
+    JADE_SEMAPHORE_GIVE(gui_mutex);
+
+    return text_width <= width;
+}
+
 void gui_next(void)
 {
+    gui_escape_clear(); // BBB-AIRGAP: any other press means the user changed their mind
     if (gui_orientation_flipped) {
         select_prev_left();
     } else {
@@ -2569,12 +2793,116 @@ void gui_next(void)
 
 void gui_prev(void)
 {
+    gui_escape_clear(); // BBB-AIRGAP: any other press means the user changed their mind
     if (gui_orientation_flipped) {
         select_next_right();
     } else {
         select_prev_left();
     }
 }
+
+// BBB-AIRGAP: the echo follows the display orientation, exactly as the navigation call below it
+// does.  The buttons check draws its marks as ordinary view nodes, so they turn over with the rest
+// of the picture: on a flipped screen the mark laid out at the bottom is displayed at the top.
+// Naming the raw switch instead would light the mark at the far end from where the user pushed.
+// Posting what the navigation would have posted keeps the lit mark under the thumb that lit it,
+// and a dead switch still shows up as the one mark that never lights.  The horizontal pair needs
+// nothing here: gui_prev() and gui_next() already choose the call by the flag, and the two calls
+// post the event for the direction the selection moves in.
+void gui_up(void)
+{
+    gui_escape_clear(); // BBB-AIRGAP: any other press means the user changed their mind
+    if (input_echo(gui_orientation_flipped ? GUI_WHEEL_DOWN_EVENT : GUI_WHEEL_UP_EVENT)) {
+        return;
+    }
+    select_vertical_or_wheel(gui_orientation_flipped);
+}
+
+void gui_down(void)
+{
+    gui_escape_clear(); // BBB-AIRGAP: any other press means the user changed their mind
+    if (input_echo(gui_orientation_flipped ? GUI_WHEEL_UP_EVENT : GUI_WHEEL_DOWN_EVENT)) {
+        return;
+    }
+    select_vertical_or_wheel(!gui_orientation_flipped);
+}
+
+void gui_select_first(void)
+{
+    gui_escape_clear(); // BBB-AIRGAP: any other press means the user changed their mind
+    if (input_echo(GUI_SELECT_FIRST_EVENT)) {
+        return;
+    }
+    if (idletimer_register_activity(true) || !current_activity || !current_activity->selectables) {
+        return;
+    }
+
+    selectable_t* const begin = current_activity->selectables;
+    selectable_t* first = begin;
+    selectable_t* current = begin;
+    do {
+        if (current->is_first) {
+            first = current;
+            break;
+        }
+        current = current->next;
+    } while (current != begin);
+
+    current = first;
+    do {
+        if (current->node->is_active) {
+            select_node(current->node);
+            esp_event_post(GUI_EVENT, GUI_SELECT_FIRST_EVENT, NULL, 0, 50 / portTICK_PERIOD_MS);
+            return;
+        }
+        current = current->next;
+    } while (current != first);
+}
+
+// BBB-AIRGAP: the scrolling list (main/ui/dialogs.c run_list_activity) turns the engine's wrap
+// off so that a press at the edge of the window can scroll it, and wraps the selection itself
+// once the window is at the end.  Called from the task that runs the list, as the input handlers
+// above call select_node() from theirs.
+void gui_select_node(gui_view_node_t* node)
+{
+    JADE_ASSERT(node);
+    select_node(node);
+}
+
+void gui_escape_request(void)
+{
+    gui_escape_flag = true;
+}
+
+bool gui_escape_pending(void) { return gui_escape_flag; }
+
+void gui_escape_clear(void) { gui_escape_flag = false; }
+
+void gui_activity_set_escape(gui_activity_t* const activity, const bool enabled)
+{
+    JADE_ASSERT(activity);
+    activity->escape_disabled = !enabled;
+}
+
+void gui_alt_click(void)
+{
+    if (!idletimer_register_activity(true)) {
+        // BBB-AIRGAP: raise the escape before posting, so a screen woken by the event already sees
+        // it.  Not raised at all on a screen that opted out - the keyboard, where KEY3 is shift:
+        // otherwise shifting a letter would arm a cancel that fired the moment the keyboard
+        // returned to whatever opened it.  Reading current_activity from this thread is the same
+        // inherited race as the navigation handlers above, and has the same shape: the worst case
+        // is that the flag follows the screen the user was looking at a moment earlier.
+        if (!current_activity || !current_activity->escape_disabled) {
+            gui_escape_request();
+        }
+        esp_event_post(GUI_EVENT, GUI_ALT_EVENT, NULL, 0, 50 / portTICK_PERIOD_MS);
+    }
+}
+
+// BBB-AIRGAP: see the declaration in main/gui.h for what this is for.  One screen owns the echo
+// at a time and turns it off before it returns, so no state is left behind for the next screen.
+void gui_set_input_echo(const bool value) { gui_input_echo = value; }
 
 // Set the item to be initally selected when the activity is activated/switched-to
 // 'node' can be NULL to unset any specific initial selection
@@ -2661,6 +2989,27 @@ void gui_set_current_activity_impl(
 void gui_set_current_activity_ex(gui_activity_t* new_current, const bool free_managed_activities)
 {
     gui_set_current_activity_impl(new_current, NULL, free_managed_activities, NULL);
+}
+
+// BBB-AIRGAP: synchronous variant of gui_set_current_activity_ex(). gui_set_current_activity_ex()
+// only enqueues the switch (main/gui.c handle_gui_input_queue(), which unregisters the outgoing
+// activity's handlers and registers this one's only when it drains that job later, on the gui
+// task); a caller that needs the new activity's handlers to already be live when this returns -
+// see main/ui/dialogs.c run_list_activity(), which drains stale input right after switching -
+// cannot rely on that. Same pattern as gui_destroy_current_activity() below: pass a semaphore
+// through and block until the gui task gives it back once the switch job has fully run. Calling
+// this from the gui task itself would deadlock, since that task would be blocked waiting on the
+// very job it needs to process to give the semaphore; the current caller runs on the firmware
+// task, not the gui task, so this is safe.
+void gui_set_current_activity_sync(gui_activity_t* new_current, const bool free_managed_activities)
+{
+    SemaphoreHandle_t done = xSemaphoreCreateBinary();
+    JADE_ASSERT(done);
+
+    gui_set_current_activity_impl(new_current, NULL, free_managed_activities, done);
+
+    xSemaphoreTake(done, portMAX_DELAY);
+    vSemaphoreDelete(done);
 }
 
 // Initiate change of 'current' activity
@@ -2754,11 +3103,43 @@ bool gui_activity_wait_event(gui_activity_t* activity, const char* event_base, u
     // register it so that it gets removed when the activity is swapped out
     gui_activity_register_event(activity, event_base, event_id, sync_wait_event_handler, wait_event_data);
 
-    // immediately start waiting
-    const esp_err_t ret
-        = sync_wait_event(wait_event_data, trigger_event_base, trigger_event_id, trigger_event_data, max_wait);
+    // BBB-AIRGAP: wake this wait on KEY3 as well, so the escape reaches every screen that waits
+    // through here without each of them registering for it.  Only when the caller's own base
+    // would miss it: a GUI_EVENT waiter already receives GUI_ALT_EVENT, and registering a second
+    // time would give the semaphore twice for one press, leaving the next wait to return
+    // immediately with the previous event's data.  Costs one more activity_event_t per call on
+    // the screens that need it, which is the same per-call registration this function has always
+    // made; it is freed with the activity.
+    const bool alt_already_covered
+        = event_base == GUI_EVENT && (event_id == ESP_EVENT_ANY_ID || event_id == (uint32_t)GUI_ALT_EVENT);
+    if (!alt_already_covered && !activity->escape_disabled) {
+        gui_activity_register_event(activity, GUI_EVENT, GUI_ALT_EVENT, sync_wait_event_handler, wait_event_data);
+    }
 
-    return ret == ESP_OK;
+    // immediately start waiting
+    esp_event_base_t triggered_base = NULL;
+    int32_t triggered_id = 0;
+    const esp_err_t ret = sync_wait_event(wait_event_data, &triggered_base, &triggered_id, trigger_event_data, max_wait);
+    if (ret != ESP_OK) {
+        return false;
+    }
+
+    // BBB-AIRGAP: report the escape in the caller's own numbering.  gui_event_t and
+    // button_event_id both start at zero and overlap (GUI_ALT_EVENT is 6, which is
+    // BTN_QR_BRIGHTNESS; GUI_FRONT_CLICK_EVENT is 3, which is BTN_YES), so handing a button loop
+    // the raw event id would fire whichever button shares the number.
+    if (triggered_base == GUI_EVENT && triggered_id == GUI_ALT_EVENT && !alt_already_covered) {
+        triggered_base = event_base;
+        triggered_id = BTN_ESCAPE_HOME;
+    }
+
+    if (trigger_event_base) {
+        *trigger_event_base = triggered_base;
+    }
+    if (trigger_event_id) {
+        *trigger_event_id = triggered_id;
+    }
+    return true;
 }
 
 int32_t gui_activity_wait_button(gui_activity_t* activity, const int32_t default_event_id)

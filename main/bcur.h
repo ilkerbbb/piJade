@@ -22,7 +22,10 @@ extern const char BCUR_TYPE_JADE_EPOCH[];
 extern const char BCUR_TYPE_JADE_UPDPS[];
 extern const char BCUR_TYPE_JADE_BIP8539_REQUEST[];
 extern const char BCUR_TYPE_JADE_BIP8539_REPLY[];
+extern const char BCUR_TYPE_JADE_MINE[];
+extern const char BCUR_TYPE_JADE_MINE_REPLY[];
 extern const char BCUR_TYPE_BYTES[];
+extern const char BCUR_TYPE_CRYPTO_OUTPUT[];
 
 // Parse BC-UR messages - decodes BC-UR and parses nested CBOR
 WARN_UNUSED_RESULT bool bcur_parse_bip39_wrapper(
@@ -32,6 +35,13 @@ WARN_UNUSED_RESULT bool bcur_parse_bip39(
 WARN_UNUSED_RESULT bool bcur_parse_bytes(
     const uint8_t* cbor, size_t cbor_len, const uint8_t** bytes, size_t* bytes_len);
 WARN_UNUSED_RESULT bool bcur_parse_psbt(const uint8_t* cbor, size_t cbor_len, struct wally_psbt** psbt_out);
+
+// BBB-AIRGAP: parse a crypto-output (output descriptor) into descriptor text such as
+// 'wsh(sortedmulti(2,[fp/48h/0h/0h/2h]xpub.../<0;1>/*,...))'.  The text then takes the same path
+// as a scanned text descriptor (main/descriptor_text.c).  On failure errmsg is one of the
+// user-facing strings of main/descriptor_text.h.
+WARN_UNUSED_RESULT bool bcur_parse_crypto_output(
+    const uint8_t* cbor, size_t cbor_len, char* text, size_t text_len, const char** errmsg);
 WARN_UNUSED_RESULT bool bcur_parse_jade_message(const uint8_t* cbor, size_t cbor_len, CborParser* parser,
     CborValue* root, const char* expected_method, CborValue* params);
 
@@ -56,6 +66,11 @@ WARN_UNUSED_RESULT bool bcur_build_cbor_crypto_psbt(
 // Returns false if scanning fails or is abandoned - in which case there is nothing to free.
 WARN_UNUSED_RESULT bool bcur_scan_qr(const char* prompt_text, char** output_type, uint8_t** output, size_t* output_len,
     size_t offset, const char* help_url);
+
+// BBB-AIRGAP: the scale factor that renders a version-N QR code as large as the panel allows,
+// keeping two modules of quiet zone per side where the split-layout floor still permits it.
+// Used for any code shown full screen.
+uint32_t qr_fullscreen_scale_factor(uint8_t qr_version);
 
 // Encodes the passed payload into a set of one or more BC-UR fragments with the given 'type'.
 // These are then rendered as a set of QR codes of the passed version/size.

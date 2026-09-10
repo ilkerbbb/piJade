@@ -1,0 +1,6 @@
+# Spec review outputs are derived files: the review gate looks for them on disk, not in the
+# repository. Committing them would add a hundred kilobytes of machine output per round and
+# would widen the working tree that the next review has to read.
+# The pattern is deliberately directory-independent: a spec may sit beside the tool it describes
+# rather than under specs/, and a directory-anchored pattern silently missed those.
+*.md.review

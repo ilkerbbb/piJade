@@ -35,8 +35,10 @@ void __wrap_abort(void);
 #include "./camera.c"
 #endif
 #include "./descriptor.c"
+#include "./descriptor_text.c"
 #include "./display.c"
 #include "./display_hw.c"
+#include "./entropy_sources.c"
 #include "./fonts/BigFont.c"
 #include "./fonts/DefaultFont.c"
 #include "./fonts/DejaVuSans18.c"
@@ -58,9 +60,10 @@ void __wrap_abort(void);
 #include "./fonts/various_symbols.c"
 #include "./gui.c"
 #include "./identity.c"
-#ifndef CONFIG_LIBJADE
+// BBB-AIRGAP: upstream stubs the idle timer out of libjade builds, where an emulator has no screen
+// to dim and no machine to power down. piJade is a real device: this is what clears the wallet from
+// memory when it is left alone, and what the Idle Timeout setting in the menu drives.
 #include "./idletimer.c"
-#endif // CONFIG_LIBJADE
 #ifdef ESP_PLATFORM
 #include "./input.c"
 #endif // ESP_PLATFORM
@@ -121,7 +124,9 @@ void __wrap_abort(void);
 #include "./qrcode.c"
 #include "./qrmode.c"
 #include "./qrscan.c"
+#include "./registration_seal.c"
 #include "./rsa.c"
+#include "./seedqr.c"
 #ifndef CONFIG_LIBJADE
 #include "./random.c"
 #include "./selfcheck.c"
@@ -142,9 +147,9 @@ void __wrap_abort(void);
 #include "./ui/descriptor.c"
 #include "./ui/dialogs.c"
 #include "./ui/digit_entry.c"
-#ifndef CONFIG_LIBJADE
+// BBB-AIRGAP: upstream keeps the keyboard out of libjade builds - its emulator has no use for text
+// entry - but piJade is a real device, so the screen is built in and the stubs in libjade.c went.
 #include "./ui/keyboard.c"
-#endif // CONFIG_LIBJADE
 #include "./ui/mnemonic.c"
 #include "./ui/multisig.c"
 #include "./ui/ota.c"

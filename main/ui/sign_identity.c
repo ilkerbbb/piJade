@@ -38,6 +38,8 @@ bool show_sign_identity_activity(const char* identity, const size_t identity_len
     while (true) {
         const int32_t ev_id = gui_activity_wait_button(act, BTN_SIGNIDENTITY_ACCEPT);
         switch (ev_id) {
+        // BBB-AIRGAP: KEY3 leaves through the screen's own decline, never its accept.
+        case BTN_ESCAPE_HOME:
         case BTN_SIGNIDENTITY_REJECT:
             return false;
 

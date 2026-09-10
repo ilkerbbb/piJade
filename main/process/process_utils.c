@@ -77,6 +77,21 @@ bool check_extended_data_fields(CborValue* params, const char* expected_origid, 
     return true;
 }
 
+// BBB-AIRGAP: whether the clock has been set since this boot.  The Pi has no RTC, so the port
+// starts every boot at the image's build time (pijade/images/prepare-image.sh loads
+// /etc/fake-hwclock.data and the save step is deliberately empty on the read-only root).  That
+// value is far past otpauth.c's MIN_ALLOWED_CURRENT_TIMESTAMP sanity floor, so on upstream Jade
+// the floor catches an unset clock (it starts at 1970) but here it never fires and TOTP would
+// silently emit codes for the wrong time.  Recording the event itself, rather than inferring it
+// from the clock's value, is what makes the check honest.  Deliberately in RAM only: a stored flag
+// would outlive its own truth across a power cycle.  One accepted cost: if the service restarts
+// without the board rebooting, the system clock survives but the flag does not, so the user is
+// asked for a time QR they already scanned.  That is the fail-closed direction and is preferred to
+// trusting a clock we cannot vouch for.
+static bool clock_set_this_boot = false;
+
+bool clock_has_been_set(void) { return clock_set_this_boot; }
+
 // Extract 'epoch' field from message and use to set internal clock
 int params_set_epoch_time(CborValue* params, const char** errmsg)
 {
@@ -97,6 +112,11 @@ int params_set_epoch_time(CborValue* params, const char** errmsg)
         *errmsg = "Failed to set time";
         return CBOR_RPC_INTERNAL_ERROR;
     }
+
+    // BBB-AIRGAP: only once settimeofday() reports success, and here rather than at the three call
+    // sites (qrmode.c epoch QR, dashboard.c set_epoch RPC, auth_user.c unlock) so every path that
+    // can move the clock is covered by construction.
+    clock_set_this_boot = true;
 
     // Return no-error
     return 0;

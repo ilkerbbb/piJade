@@ -9,6 +9,10 @@
 #include "utils/util.h"
 #ifdef CONFIG_LIBJADE
 typedef void* esp_lcd_panel_handle_t;
+// BBB-AIRGAP: defined in libjade/libjade.c; hands the finished frame to the embedding host.
+void libjade_display_flushed(const uint16_t* buffer);
+// BBB-AIRGAP: likewise; tells the host which way up the panel should be.
+void libjade_display_orientation_changed(bool flipped);
 #else
 #include <driver/gpio.h>
 
@@ -230,6 +234,11 @@ bool display_hw_flip_orientation(const bool flipped_orientation)
 {
 #ifndef CONFIG_LIBJADE
     ESP_ERROR_CHECK(esp_lcd_panel_mirror(ph, flipped_orientation ^ X_FLIPPED, flipped_orientation ^ Y_FLIPPED));
+#else
+    // BBB-AIRGAP: the panel is the host's, so the mirroring request has to travel to it. Without
+    // this the call returned the flag unchanged, which told gui.c the screen had been turned over
+    // when nothing had happened to it: the buttons swapped direction and the picture did not.
+    libjade_display_orientation_changed(flipped_orientation);
 #endif // CONFIG_LIBJADE
     return flipped_orientation;
 }
@@ -403,6 +412,10 @@ void display_hw_flush(void)
 {
 #ifndef CONFIG_LIBJADE
     ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(ph, 0, 0, CONFIG_DISPLAY_WIDTH, CONFIG_DISPLAY_HEIGHT, disp_buf));
+#else
+    // BBB-AIRGAP: same point in the frame's life, but the panel belongs to the host program.
+    // Must run before switch_buffer() below, while disp_buf still holds the finished frame.
+    libjade_display_flushed(disp_buf);
 #endif // CONFIG_LIBJADE
 #ifdef CONFIG_DISPLAY_FULL_FRAME_BUFFER_DOUBLE
     /* we only need to switch buffer if we have more than one and we don't bother waiting for writes */

@@ -2,10 +2,13 @@
 #include "storage.h"
 #include "jade_assert.h"
 #include "keychain.h"
+#include "random.h"
+#include "sensitive.h"
 
 #include <ctype.h>
 #include <esp_system.h>
 #include <nvs_flash.h>
+#include <sodium/utils.h>
 #include <string.h>
 #include <wally_crypto.h>
 
@@ -34,10 +37,13 @@ static const char* USER_PINSERVER_CERT = "pinsvrcert";
 
 static const char* NETWORK_TYPE_FIELD = "networktype";
 static const char* IDLE_TIMEOUT_FIELD = "idletimeout";
+// BBB-AIRGAP: dimming threshold, user-configurable (Preferences > Screen Timeout)
+static const char* SCREEN_TIMEOUT_FIELD = "screentimeout";
 static const char* BRIGHTNESS_FIELD = "brightness";
 static const char* GUI_FLAGS_FIELD = "guiflags";
 static const char* BLE_FLAGS_FIELD = "bleflags";
 static const char* QR_FLAGS_FIELD = "qrflags";
+static const char* FEATURE_FLAGS_FIELD = "featflags";
 
 // Deprecated/removed keys
 static const char* CLICK_EVENT_FIELD = "clickevent";
@@ -480,11 +486,30 @@ bool storage_get_encrypted_blob(uint8_t* encrypted, const size_t encrypted_len, 
 
 bool storage_erase_encrypted_blob(void)
 {
-    // Try to erase the counter
-    erase_key(DEFAULT_NAMESPACE, PIN_COUNTER_FIELD);
+    // BBB-AIRGAP: the blob goes first.  After a restart it is the pin counter that says this device
+    // has a wallet - keychain_init_cache() derives has_encrypted_blob from it (main/keychain.c) -
+    // so erasing the counter before the blob could leave a device that boots claiming to be
+    // uninitialised while the encrypted seed is still on flash.  That is exactly what the
+    // wallet-erase pin must never do, and it powers off immediately, so no later call can repair it.
+    if (!erase_key(DEFAULT_NAMESPACE, BLOB_FIELD)) {
+        // BBB-AIRGAP: preserve a nonzero wallet marker, but do not grant more pin attempts.  Four
+        // is rejected by storage_decrement_counter() before decryption and makes it retry the erase.
+        // This best-effort write uses the same storage path that just failed, so it can fail too;
+        // it only fails closed while the storage layer still answers and is not an atomic guarantee.
+        // Power loss before this write can also leave a blob with a zero marker; this storage layer
+        // has no transaction that can close that window.
+        const uint8_t counter = 4;
+        if (!store_blob(DEFAULT_NAMESPACE, PIN_COUNTER_FIELD, &counter, sizeof(counter))) {
+            JADE_LOGE("Failed to preserve wallet marker after encrypted blob erase failed");
+        }
+        return false;
+    }
 
-    // Return whether or not we successfully erase the encrypted key
-    return erase_key(DEFAULT_NAMESPACE, BLOB_FIELD);
+    // Then the counter.  A failure here only leaves the marker for a wallet that is already gone:
+    // the next load finds no blob and erases again (keychain_load_and_decrypt_blob()), so the device
+    // asks for a pin once more rather than hiding a seed it still holds.
+    erase_key(DEFAULT_NAMESPACE, PIN_COUNTER_FIELD);
+    return true;
 }
 
 bool storage_decrement_counter(void)
@@ -633,6 +658,17 @@ uint16_t storage_get_idle_timeout(void)
     return read_blob_fixed(DEFAULT_NAMESPACE, IDLE_TIMEOUT_FIELD, (uint8_t*)&timeout, sizeof(timeout)) ? timeout : 0;
 }
 
+bool storage_set_screen_timeout(uint16_t timeout)
+{
+    return store_blob(DEFAULT_NAMESPACE, SCREEN_TIMEOUT_FIELD, (const uint8_t*)&timeout, sizeof(timeout));
+}
+
+uint16_t storage_get_screen_timeout(void)
+{
+    uint16_t timeout = 0;
+    return read_blob_fixed(DEFAULT_NAMESPACE, SCREEN_TIMEOUT_FIELD, (uint8_t*)&timeout, sizeof(timeout)) ? timeout : 0;
+}
+
 bool storage_set_brightness(uint8_t brightness)
 {
     return store_blob(DEFAULT_NAMESPACE, BRIGHTNESS_FIELD, &brightness, sizeof(brightness));
@@ -653,6 +689,22 @@ uint8_t storage_get_gui_flags(void)
 {
     uint8_t gui_flags = 0;
     return read_blob_fixed(DEFAULT_NAMESPACE, GUI_FLAGS_FIELD, &gui_flags, sizeof(gui_flags)) ? gui_flags : 0;
+}
+
+bool storage_set_feature_flags(const uint8_t flags)
+{
+    return store_blob(DEFAULT_NAMESPACE, FEATURE_FLAGS_FIELD, &flags, sizeof(flags));
+}
+
+uint8_t storage_get_feature_flags(void)
+{
+    // BBB-AIRGAP: unlike the flag fields above, an absent field here is not the same as a zero one.
+    // No field means the settings screen has never been used, so the defaults apply; a stored 0 is
+    // the user having turned every feature off, which read_blob_fixed() reports as a successful
+    // read and is returned as it stands.
+    uint8_t flags = 0;
+    return read_blob_fixed(DEFAULT_NAMESPACE, FEATURE_FLAGS_FIELD, &flags, sizeof(flags)) ? flags
+                                                                                          : FEATURE_FLAGS_DEFAULT;
 }
 
 bool storage_set_ble_flags(uint8_t flags)
@@ -696,14 +748,72 @@ uint8_t storage_get_key_flags(void)
     return read_blob_fixed(DEFAULT_NAMESPACE, KEY_FLAGS_FIELD, &flags, sizeof(flags)) ? flags : 0;
 }
 
-bool storage_set_wallet_erase_pin(const uint8_t* pin, const size_t pin_len)
+// BBB-AIRGAP: duress PIN storage.  The record is salt || PBKDF2-HMAC-SHA256(pin, salt),
+// so the digits are never written down and never read back; see storage.h for what this
+// does and does not buy.  The cost is deliberately low: the device only ever grants three
+// PIN attempts, and against someone holding the card no cost is high enough to matter, so
+// a large one would only make the legitimate user's PIN entry slower.
+#define WALLET_ERASE_PIN_PBKDF2_COST 2048
+
+_Static_assert(WALLET_ERASE_PIN_VERIFIER_LEN == PBKDF2_HMAC_SHA256_LEN,
+    "wallet-erase verifier length must match the PBKDF2-HMAC-SHA256 output");
+
+static bool wallet_erase_pin_derive(
+    const uint8_t* pin, const size_t pin_len, const uint8_t* salt, uint8_t* verifier_out)
 {
-    return store_blob(DEFAULT_NAMESPACE, WALLET_ERASE_PIN, pin, pin_len);
+    JADE_ASSERT(pin);
+    JADE_ASSERT(pin_len);
+    JADE_ASSERT(salt);
+    JADE_ASSERT(verifier_out);
+
+    return wally_pbkdf2_hmac_sha256(pin, pin_len, salt, WALLET_ERASE_PIN_SALT_LEN, 0, WALLET_ERASE_PIN_PBKDF2_COST,
+               verifier_out, WALLET_ERASE_PIN_VERIFIER_LEN)
+        == WALLY_OK;
 }
 
-bool storage_get_wallet_erase_pin(uint8_t* pin, const size_t pin_len)
+bool storage_set_wallet_erase_pin(const uint8_t* pin, const size_t pin_len)
 {
-    return read_blob_fixed(DEFAULT_NAMESPACE, WALLET_ERASE_PIN, pin, pin_len);
+    JADE_ASSERT(pin);
+    JADE_ASSERT(pin_len);
+
+    uint8_t record[WALLET_ERASE_PIN_RECORD_LEN];
+    SENSITIVE_PUSH(record, sizeof(record));
+
+    get_random(record, WALLET_ERASE_PIN_SALT_LEN);
+    const bool ret = wallet_erase_pin_derive(pin, pin_len, record, record + WALLET_ERASE_PIN_SALT_LEN)
+        && store_blob(DEFAULT_NAMESPACE, WALLET_ERASE_PIN, record, sizeof(record));
+
+    SENSITIVE_POP(record);
+    return ret;
+}
+
+bool storage_verify_wallet_erase_pin(const uint8_t* pin, const size_t pin_len)
+{
+    JADE_ASSERT(pin);
+    JADE_ASSERT(pin_len);
+
+    uint8_t record[WALLET_ERASE_PIN_RECORD_LEN];
+    SENSITIVE_PUSH(record, sizeof(record));
+    uint8_t candidate[WALLET_ERASE_PIN_VERIFIER_LEN];
+    SENSITIVE_PUSH(candidate, sizeof(candidate));
+
+    // No duress PIN set, or a record written by an older format
+    const bool ret = read_blob_fixed(DEFAULT_NAMESPACE, WALLET_ERASE_PIN, record, sizeof(record))
+        && wallet_erase_pin_derive(pin, pin_len, record, candidate)
+        && !sodium_memcmp(candidate, record + WALLET_ERASE_PIN_SALT_LEN, sizeof(candidate));
+
+    SENSITIVE_POP(candidate);
+    SENSITIVE_POP(record);
+    return ret;
+}
+
+bool storage_wallet_erase_pin_exists(void)
+{
+    uint8_t record[WALLET_ERASE_PIN_RECORD_LEN];
+    SENSITIVE_PUSH(record, sizeof(record));
+    const bool ret = read_blob_fixed(DEFAULT_NAMESPACE, WALLET_ERASE_PIN, record, sizeof(record));
+    SENSITIVE_POP(record);
+    return ret;
 }
 
 bool storage_erase_wallet_erase_pin(void) { return erase_key(DEFAULT_NAMESPACE, WALLET_ERASE_PIN); }

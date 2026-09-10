@@ -2,17 +2,22 @@
 #
 # Build the Jade firmware into a shared library for in-process debugging
 #
-# ./libjade/make_libjade.sh [Debug|Release|RelWithDebInfo|MinSizeRel|Sanitize] [--log] [--camera] [--no-ci] [--coverage]
+# ./libjade/make_libjade.sh [Debug|Release|RelWithDebInfo|MinSizeRel|Sanitize] [--log] [--camera] [--no-ci] [--no-debug] [--display=WxH] [--coverage]
 #
 set -e
 
 BUILD_TYPE="Debug"
 LOG="0"
 CI="CI"
+# BBB-AIRGAP: defaults ON to match upstream; --no-debug drops the debug handlers and RPC surface
+DEBUG_MODE="DEBUG_MODE"
+# BBB-AIRGAP: 320x200 is libjade's placeholder; the Waveshare 1.3" HAT is 240x240
+DISPLAY_WIDTH="320"
+DISPLAY_HEIGHT="200"
 CAMERA="0"
 
 usage() {
-    echo "Usage: $0 [Debug|Release|RelWithDebInfo|MinSizeRel|Sanitize] [--log] [--camera] [--no-ci] [--coverage]"
+    echo "Usage: $0 [Debug|Release|RelWithDebInfo|MinSizeRel|Sanitize] [--log] [--camera] [--no-ci] [--no-debug] [--display=WxH] [--coverage]"
     exit 1
 }
 
@@ -42,6 +47,22 @@ for arg in "$@"; do
             CAMERA="CAMERA"
             shift
             ;;
+        --no-debug)
+            DEBUG_MODE="0"
+            shift
+            ;;
+        # BBB-AIRGAP: panel size, e.g. --display=240x240. Written as a single argument because
+        # this loop is 'for arg in "$@"', where shift does not consume a following argument.
+        --display=*)
+            DISPLAY_WIDTH="${arg#*=}"
+            if [[ "${DISPLAY_WIDTH}" != *x* ]]; then
+                echo "Invalid display size: ${DISPLAY_WIDTH} (expected WxH)"
+                usage
+            fi
+            DISPLAY_HEIGHT="${DISPLAY_WIDTH#*x}"
+            DISPLAY_WIDTH="${DISPLAY_WIDTH%%x*}"
+            shift
+            ;;
         *)
             echo "Unknown argument: $arg"
             usage
@@ -55,7 +76,7 @@ EXTRA_ARGS=''
 if [ "${BUILD_TYPE}" == "Sanitize" ]; then
     EXTRA_ARGS='-DCMAKE_C_FLAGS"-fsanitize=undefined" -DCMAKE_CXX_FLAGS"-fsanitize=undefined"'
 fi
-cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE} ${EXTRA_ARGS} -DLOG=${LOG} -DCOVERAGE=${COVERAGE} -DCAMERA=${CAMERA} -DCI=${CI} ..
+cmake -DCMAKE_BUILD_TYPE=${BUILD_TYPE} ${EXTRA_ARGS} -DLOG=${LOG} -DCOVERAGE=${COVERAGE} -DCAMERA=${CAMERA} -DCI=${CI} -DDEBUG_MODE=${DEBUG_MODE} -DDISPLAY_WIDTH=${DISPLAY_WIDTH} -DDISPLAY_HEIGHT=${DISPLAY_HEIGHT} ..
 make -j8
 cd ..
 

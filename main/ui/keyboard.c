@@ -17,6 +17,14 @@ static void make_keyboard_screen(link_activity_t* kb_screen_activity, const char
     JADE_INIT_OUT_PPTR(textbox);
 
     gui_activity_t* const act = gui_make_activity();
+
+    // BBB-AIRGAP: keyboard screens opt out of the KEY3 escape (main/gui.h gui_escape_request()).
+    // On a multi-page keyboard KEY3 is the shift key, and letting it also arm an escape would mean
+    // reaching for a capital armed a cancel that fired the moment the keyboard returned.  The
+    // single-page keyboard has no shift button, but it holds half-typed text just the same, so it
+    // opts out for the second reason on its own: a word or passphrase in progress is not something
+    // to throw away on one press.  The way out of a keyboard stays its own 'back'.
+    gui_activity_set_escape(act, false);
     gui_view_node_t* const parent = add_title_bar(act, title, NULL, 0, NULL);
 
     gui_view_node_t* vsplit;
@@ -135,6 +143,23 @@ static void make_keyboard_screen(link_activity_t* kb_screen_activity, const char
     kb_screen_activity->next_button = btnShift; // If we have one
 }
 
+// BBB-AIRGAP: Route the HAT's secondary action through the existing Shift button event, so the
+// linked activity switch and the entry loop's keyboard-page counter both follow the normal button
+// path. Registered on each keyboard activity rather than globally: an activity's handlers are only
+// live while that activity is current (`gui_activity_register_event()`), and the idle-timeout
+// warning screen (`idletimer.c:129`) takes the screen over for a few seconds. A global handler
+// would still fire under that screen and post the page switch while the keyboard activity's own
+// switch callback is unregistered, leaving the visible page one behind the counter.
+static void keyboard_alt_event_handler(
+    void* handler_arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
+{
+    (void)handler_arg;
+    (void)event_base;
+    (void)event_id;
+    (void)event_data;
+    esp_event_post(GUI_BUTTON_EVENT, BTN_KEYBOARD_SHIFT, NULL, 0, 50 / portTICK_PERIOD_MS);
+}
+
 // NOTE: the kbs and textboxes arrays must be the same length, as given by arrays_len
 void make_keyboard_entry_activity(keyboard_entry_t* kb_entry, const char* title)
 {
@@ -158,6 +183,8 @@ void make_keyboard_entry_activity(keyboard_entry_t* kb_entry, const char* title)
         for (size_t i = 0; i < kb_entry->num_kbs; ++i) {
             make_keyboard_screen(&kb_screen_act, title, kb_entry->keyboards[i], has_next_kb_btn,
                 &kb_entry->textbox_nodes[i], kb_entry->blocked_chars);
+            gui_activity_register_event(
+                kb_screen_act.activity, GUI_EVENT, GUI_ALT_EVENT, keyboard_alt_event_handler, NULL);
             gui_chain_activities(&kb_screen_act, &act_info);
         }
 

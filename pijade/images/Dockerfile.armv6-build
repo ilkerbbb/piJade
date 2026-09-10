@@ -1,0 +1,25 @@
+# piJade ARMv6 build environment: compilers on top of Raspberry Pi OS's own root filesystem.
+#
+# It has a single purpose: to produce the pijade-host and libjade.so binaries against the target's
+# OWN glibc, dynamic loader and C++ runtime, so that the libraries present on the device and the
+# ones used at build time are the same. Raspbian's gcc 12.2.0 already targets ARMv6 + VFPv2 + hard
+# float by default (measured on this container); on top of that build-armv6.sh scans every
+# object with readelf and closes the gate if it sees v7, NEON, Thumb-2 or VFPv3.
+#
+# WHY THE BASE IMAGE IS REFERENCED BY TAG: pijade/raspios-bookworm-armv6 does not live in a
+# registry; bootstrap-builder.sh produces it LOCALLY from the Raspberry Pi OS image with docker
+# import. An image that is not in a registry has no digest, so the root of the chain to pin is not
+# this line but the 2026-06-18-raspios-bookworm-armhf-lite.img.xz file whose fingerprint is
+# verified in bootstrap-builder.sh step 1. This Dockerfile is not run on its own;
+# bootstrap-builder.sh calls it on top of the base it has just produced.
+FROM pijade/raspios-bookworm-armv6:2026-06-18
+
+# Version pinning is deliberately absent: the base Raspberry Pi OS apt sources are already fixed to
+# that release, and these packages are used at build time only, they do not enter the product.
+# Pinning would break the build the day the base image's own archive is updated, and what it would
+# buy touches only the intermediate, never the product. The versions installed land in the build
+# log, not in bootstrap-record.txt.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      build-essential cmake zlib1g-dev python3 time \
+ && apt-get clean

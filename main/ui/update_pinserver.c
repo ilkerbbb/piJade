@@ -141,6 +141,8 @@ bool show_pinserver_details_activity(
             act = act_pubkey;
             break;
 
+        // BBB-AIRGAP: KEY3 leaves through the screen's own decline, never its accept.
+        case BTN_ESCAPE_HOME:
         case BTN_PINSERVER_DETAILS_DISCARD_DELETE:
             return false;
 
@@ -213,6 +215,8 @@ bool show_pinserver_certificate_activity(const char* cert_hash_hex, const bool i
     while (true) {
         const int32_t ev_id = gui_activity_wait_button(act, BTN_PINSERVER_DETAILS_RETAIN_CONFIRM);
         switch (ev_id) {
+        // BBB-AIRGAP: KEY3 leaves through the screen's own decline, never its accept.
+        case BTN_ESCAPE_HOME:
         case BTN_PINSERVER_DETAILS_DISCARD_DELETE:
             return false;
 

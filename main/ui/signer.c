@@ -202,6 +202,9 @@ bool show_signer_activity(
             act = (act == act_xpub1) ? act_xpub2 : act_summary;
             break;
 
+        // BBB-AIRGAP: KEY3 steps back out of the signer, and the screen that opened it sees
+        // the escape is still pending and carries it on outwards.
+        case BTN_ESCAPE_HOME:
         case BTN_SIGNER_PREV:
             return false;
 

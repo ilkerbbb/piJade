@@ -211,6 +211,13 @@ static bool select_file_from_filtered_list(const char* title, const char* const 
     const size_t limit = num_files + 1;
     bool done = false;
     while (!done) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            selected = num_files;
+            done = true;
+            continue;
+        }
+
         JADE_ASSERT(selected <= num_files);
         if (selected < num_files) {
             // File item
@@ -302,6 +309,11 @@ static bool handle_usbstorage_action(const char* title, usbstorage_action_fn_t u
     EventBits_t usbstorage_events;
 
     while (true) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            break;
+        }
+
         // Fetch the current state set by handle_usbstorage_event()
         usbstorage_events = xEventGroupWaitBits(
             usbstorage_handle, USBSTORAGE_AVAILABLE | USBSTORAGE_ERROR, pdFALSE, pdFALSE, 100 / portTICK_PERIOD_MS);
@@ -840,7 +852,13 @@ static bool sign_usb_psbt(const usbstorage_action_context_t* ctx)
     // Create a new file if name not too long.  If new name would be too long, overwrite existing file.
     char output_filename[MAX_FILENAME_SIZE];
     if (filename_len - strlen(PSBT_SUFFIX) + strlen(SIGNED_PSBT_SUFFIX) + 1 > MAX_FILENAME_SIZE) {
-        await_error_3("Warning: Long filename", "Overwriting existing", "psbt file");
+        // BBB-AIRGAP: KEY3 dismisses the warning but must not overwrite the original file, and
+        // the answer is taken at the press: reading gui_escape_pending() afterwards would let a
+        // direction arriving in between clear the flag, and the overwrite cannot be undone.
+        const char* warning[] = { "Warning: Long filename", "Overwriting existing", "psbt file" };
+        if (await_message_escaped(warning, 3)) {
+            goto cleanup;
+        }
         strcpy(output_filename, filename);
     } else {
         const int ret = snprintf(output_filename, sizeof(output_filename), "%.*s%s", filename_len - strlen(PSBT_SUFFIX),
@@ -920,6 +938,11 @@ static bool export_usb_xpub_fn(const usbstorage_action_context_t* ctx)
     gui_set_current_activity(act);
 
     while (true) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            return true;
+        }
+
         const int32_t ev_id = gui_activity_wait_button(act, BTN_EVENT_TIMEOUT);
 
         if (ev_id == BTN_SETTINGS_USBSTORAGE_EXPORT_XPUB_OPTIONS) {

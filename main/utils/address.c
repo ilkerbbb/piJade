@@ -256,7 +256,8 @@ static bool try_parse_address(const network_t network_id, address_data_t* addr_d
 
     if (wret == WALLY_OK) {
         const char* const network = network_to_name(network_id);
-        JADE_LOGI("Address %s, %ssegwit-native for %s", addr_data->address, is_segwit ? "" : "non-", network);
+        // BBB-AIRGAP: the address itself is user data; only its shape is logged.
+        JADE_LOGI("Address %ssegwit-native for %s", is_segwit ? "" : "non-", network);
         JADE_ASSERT(addr_data->script_len <= sizeof(addr_data->script));
         addr_data->network_id = network_id;
         return true;

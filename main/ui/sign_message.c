@@ -170,6 +170,8 @@ bool show_sign_message_activity(const char* message, const char* hashhex, const 
             act = (act == act_message1) ? act_message2 : act_summary;
             break;
 
+        // BBB-AIRGAP: KEY3 leaves through the screen's own decline, never its accept.
+        case BTN_ESCAPE_HOME:
         case BTN_SIGNMSG_REJECT:
             return false;
 

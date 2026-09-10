@@ -7,6 +7,8 @@
 #include "jade_wally_verify.h"
 #include "util.h"
 
+#include <string.h>
+
 #include <wally_map.h>
 #include <wally_psbt.h>
 
@@ -112,6 +114,32 @@ static bool key_iter_get_green_2of3_recovery_key(const key_iter* iter, const str
         return ret == WALLY_OK;
     }
 
+    return false;
+}
+
+bool psbt_inputs_name_fingerprint(
+    const struct wally_psbt* psbt, const uint8_t* fingerprint, const size_t fingerprint_len)
+{
+    JADE_ASSERT(psbt);
+    JADE_ASSERT(fingerprint);
+    JADE_ASSERT(fingerprint_len == BIP32_KEY_FINGERPRINT_LEN);
+
+    for (size_t index = 0; index < psbt->num_inputs; ++index) {
+        const struct wally_psbt_input* input = &psbt->inputs[index];
+        // Taproot inputs carry their keypaths in a separate map, so both are searched
+        const struct wally_map* maps[] = { &input->keypaths, &input->taproot_leaf_paths };
+        for (size_t imap = 0; imap < sizeof(maps) / sizeof(maps[0]); ++imap) {
+            for (size_t ikey = 0; ikey < maps[imap]->num_items; ++ikey) {
+                uint8_t item[BIP32_KEY_FINGERPRINT_LEN];
+                if (wally_map_keypath_get_item_fingerprint(maps[imap], ikey, item, sizeof(item)) != WALLY_OK) {
+                    continue; // No fingerprint on this entry
+                }
+                if (!memcmp(item, fingerprint, fingerprint_len)) {
+                    return true;
+                }
+            }
+        }
+    }
     return false;
 }
 

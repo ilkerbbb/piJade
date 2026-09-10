@@ -13,8 +13,26 @@ esp_err_t power_shutdown(void)
 
 esp_err_t power_screen_on(void) { return ESP_OK; }
 
+#ifdef CONFIG_LIBJADE
+// BBB-AIRGAP: defined in libjade/libjade.c; hands the backlight level to the embedding host, which
+// drives the panel's backlight line. Same shape as the display and power handlers in libjade.h.
+// Without this the brightness menu ran, stored the level and changed nothing on screen.
+void libjade_backlight_request(uint8_t level);
+
+esp_err_t power_backlight_on(const uint8_t brightness)
+{
+    libjade_backlight_request(brightness);
+    return ESP_OK;
+}
+esp_err_t power_backlight_off(void)
+{
+    libjade_backlight_request(0);
+    return ESP_OK;
+}
+#else
 esp_err_t power_backlight_on(const uint8_t brightness) { return ESP_OK; }
 esp_err_t power_backlight_off(void) { return ESP_OK; }
+#endif
 
 esp_err_t power_camera_on(void) { return ESP_OK; }
 esp_err_t power_camera_off(void) { return ESP_OK; }

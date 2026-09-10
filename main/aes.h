@@ -10,7 +10,8 @@
 
 // Round 'len' up to next multiple of AES_BLOCK_LEN
 // NOTE: exact multiples are rounded up to the next multiple
-#define AES_PADDED_LEN(len) (((len / AES_BLOCK_LEN) + 1) * AES_BLOCK_LEN)
+// BBB-AIRGAP: argument parenthesised - registration_seal.h passes a sum in.
+#define AES_PADDED_LEN(len) ((((len) / AES_BLOCK_LEN) + 1) * AES_BLOCK_LEN)
 
 // iv, padded payload (un-padded length provided)
 #define AES_ENCRYPTED_LEN(len) (AES_BLOCK_LEN + AES_PADDED_LEN(len))

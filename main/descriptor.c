@@ -17,11 +17,15 @@ struct ext_key;
 #include <sodium/utils.h>
 
 // 0 - 1.0.22 - version, type, length, script, map-values, hmac
-static const uint8_t CURRENT_DESCRIPTOR_RECORD_VERSION = 0;
+// BBB-AIRGAP: v1 seals the v0 body (main/registration_seal.c); see multisig.c for the layout note.
+static const uint8_t CURRENT_DESCRIPTOR_RECORD_VERSION = 1;
 
-// The smallest valid descriptor record, for sanity checking
-// v0, no map values, assuming min script len 4(?)
-#define MIN_DESCRIPTOR_BYTES_LEN (2 + 2 + 4 + 1 + 0 + 0)
+_Static_assert(MAX_DESCRIPTOR_BODY_LEN == 3216, "descriptor body size drifted; update spec B4 and pijade_settings.c");
+_Static_assert(MAX_DESCRIPTOR_BYTES_LEN == 3281, "descriptor record size drifted; update pijade_settings.c max_len");
+
+// The smallest valid descriptor record body, for sanity checking
+// type, script_len, one script byte, num_values
+#define MIN_DESCRIPTOR_BODY_LEN (1 + 2 + 1 + 1)
 
 // Stack size required for miniscript parsing.
 // Allow 2k, plus 1k per 'depth' level, plus 4k for handling the
@@ -584,21 +588,17 @@ size_t string_values_len(const string_value_t* datavalues, const size_t num_valu
 }
 
 // Storage related functions
-bool descriptor_to_bytes(descriptor_data_t* descriptor, uint8_t* output_bytes, const size_t output_len)
+bool descriptor_body_to_bytes(const descriptor_data_t* descriptor, uint8_t* body, const size_t body_len)
 {
     JADE_ASSERT(descriptor);
-    JADE_ASSERT(output_bytes);
-    JADE_ASSERT(output_len == DESCRIPTOR_BYTES_LEN(descriptor));
+    JADE_ASSERT(body);
+    JADE_ASSERT(body_len == DESCRIPTOR_BODY_LEN(descriptor));
 
     JADE_ASSERT(descriptor->script_len);
     JADE_ASSERT(descriptor->num_values <= sizeof(descriptor->values) / sizeof(descriptor->values[0]));
 
-    // Version byte
-    uint8_t* write_ptr = output_bytes;
-    memcpy(write_ptr, &CURRENT_DESCRIPTOR_RECORD_VERSION, sizeof(CURRENT_DESCRIPTOR_RECORD_VERSION));
-    write_ptr += sizeof(CURRENT_DESCRIPTOR_RECORD_VERSION);
-
     // Descriptor type
+    uint8_t* write_ptr = body;
     const uint8_t type_byte = (uint8_t)descriptor->type;
     memcpy(write_ptr, &type_byte, sizeof(type_byte));
     write_ptr += sizeof(type_byte);
@@ -627,33 +627,33 @@ bool descriptor_to_bytes(descriptor_data_t* descriptor, uint8_t* output_bytes, c
         write_ptr += map_entry->value_len;
     }
 
-    // Append hmac
-    JADE_ASSERT(write_ptr + HMAC_SHA256_LEN == output_bytes + output_len);
-    return wallet_hmac_with_master_key(output_bytes, output_len - HMAC_SHA256_LEN, write_ptr, HMAC_SHA256_LEN);
+    JADE_ASSERT(write_ptr == body + body_len);
+    return true;
 }
 
-bool descriptor_from_bytes(const uint8_t* bytes, const size_t bytes_len, descriptor_data_t* descriptor)
+bool descriptor_seal_body(const uint8_t* body, const size_t body_len, uint8_t* output, const size_t output_len)
 {
-    JADE_ASSERT(bytes);
-    JADE_ASSERT(bytes_len >= MIN_DESCRIPTOR_BYTES_LEN);
+    return registration_seal(CURRENT_DESCRIPTOR_RECORD_VERSION, body, body_len, output, output_len);
+}
+
+bool descriptor_open_registration(
+    const uint8_t* bytes, const size_t bytes_len, uint8_t* body, const size_t body_len, size_t* written)
+{
+    return registration_open(CURRENT_DESCRIPTOR_RECORD_VERSION, bytes, bytes_len, body, body_len, written);
+}
+
+static bool descriptor_body_from_bytes(const uint8_t* body, const size_t body_len, descriptor_data_t* descriptor)
+{
+    JADE_ASSERT(body);
     JADE_ASSERT(descriptor);
 
-    // Check hmac first
-    uint8_t hmac_calculated[HMAC_SHA256_LEN];
-    if (!wallet_hmac_with_master_key(bytes, bytes_len - HMAC_SHA256_LEN, hmac_calculated, sizeof(hmac_calculated))
-        || sodium_memcmp(bytes + bytes_len - HMAC_SHA256_LEN, hmac_calculated, sizeof(hmac_calculated)) != 0) {
-        JADE_LOGW("Descriptor data HMAC error/mismatch");
+    if (body_len < MIN_DESCRIPTOR_BODY_LEN) {
+        JADE_LOGE("Descriptor record body too short: %u", body_len);
         return false;
     }
 
-    // Version byte
-    const uint8_t* read_ptr = bytes;
-    const uint8_t version = *read_ptr;
-    if (version > CURRENT_DESCRIPTOR_RECORD_VERSION) {
-        JADE_LOGE("Bad version byte in stored registered descriptor data");
-        return false;
-    }
-    read_ptr += sizeof(version);
+    const uint8_t* read_ptr = body;
+    const uint8_t* const end = body + body_len;
 
     // Descriptor type
     uint8_t type_byte;
@@ -663,16 +663,20 @@ bool descriptor_from_bytes(const uint8_t* bytes, const size_t bytes_len, descrip
 
     // Descriptor script
     memcpy(&descriptor->script_len, read_ptr, sizeof(descriptor->script_len));
-    if (descriptor->script_len >= sizeof(descriptor->script)) {
+    read_ptr += sizeof(descriptor->script_len);
+    if (descriptor->script_len >= sizeof(descriptor->script) || read_ptr + descriptor->script_len > end) {
         JADE_LOGE("Bad script_len stored registered descriptor data");
         return false;
     }
-    read_ptr += sizeof(descriptor->script_len);
     memcpy(descriptor->script, read_ptr, descriptor->script_len);
     descriptor->script[descriptor->script_len] = '\0'; // Add null terminator
     read_ptr += descriptor->script_len;
 
     // Any data values
+    if (read_ptr + sizeof(descriptor->num_values) > end) {
+        JADE_LOGE("Truncated registered descriptor data");
+        return false;
+    }
     memcpy(&descriptor->num_values, read_ptr, sizeof(descriptor->num_values));
     if (descriptor->num_values > MAX_ALLOWED_SIGNERS) {
         JADE_LOGE("Bad num_values in stored registered descriptor data");
@@ -683,31 +687,56 @@ bool descriptor_from_bytes(const uint8_t* bytes, const size_t bytes_len, descrip
     for (uint8_t i = 0; i < descriptor->num_values; ++i) {
         string_value_t* const map_entry = descriptor->values + i;
 
+        if (read_ptr + sizeof(map_entry->key_len) > end) {
+            JADE_LOGE("Truncated registered descriptor data");
+            return false;
+        }
         memcpy(&map_entry->key_len, read_ptr, sizeof(map_entry->key_len));
-        if (map_entry->key_len >= sizeof(map_entry->key)) {
+        read_ptr += sizeof(map_entry->key_len);
+        if (map_entry->key_len >= sizeof(map_entry->key) || read_ptr + map_entry->key_len > end) {
             JADE_LOGE("Bad key_len stored registered descriptor data");
             return false;
         }
-        read_ptr += sizeof(map_entry->key_len);
         memcpy(map_entry->key, read_ptr, map_entry->key_len);
         map_entry->key[map_entry->key_len] = '\0'; // Add null terminator
         read_ptr += map_entry->key_len;
 
+        if (read_ptr + sizeof(map_entry->value_len) > end) {
+            JADE_LOGE("Truncated registered descriptor data");
+            return false;
+        }
         memcpy(&map_entry->value_len, read_ptr, sizeof(map_entry->value_len));
-        if (map_entry->value_len >= sizeof(map_entry->value)) {
+        read_ptr += sizeof(map_entry->value_len);
+        if (map_entry->value_len >= sizeof(map_entry->value) || read_ptr + map_entry->value_len > end) {
             JADE_LOGE("Bad value_len stored registered descriptor data");
             return false;
         }
-        read_ptr += sizeof(map_entry->value_len);
         memcpy(map_entry->value, read_ptr, map_entry->value_len);
         map_entry->value[map_entry->value_len] = '\0'; // Add null terminator
         read_ptr += map_entry->value_len;
     }
 
-    // Check just got the hmac (checked first, above) left in the buffer
-    JADE_ASSERT(read_ptr + HMAC_SHA256_LEN == bytes + bytes_len);
-
+    if (read_ptr != end) {
+        JADE_LOGE("Unexpected descriptor record body length");
+        return false;
+    }
     return true;
+}
+
+bool descriptor_from_bytes(const uint8_t* bytes, const size_t bytes_len, descriptor_data_t* descriptor)
+{
+    JADE_ASSERT(bytes);
+    JADE_ASSERT(descriptor);
+
+    // BBB-AIRGAP: open the sealed record onto the heap (up to 3216 bytes) and parse the plaintext
+    // body; the body is wiped before the buffer is released.
+    size_t body_len = 0;
+    uint8_t* const body = JADE_MALLOC(MAX_DESCRIPTOR_BODY_LEN);
+    const bool ret = descriptor_open_registration(bytes, bytes_len, body, MAX_DESCRIPTOR_BODY_LEN, &body_len)
+        && descriptor_body_from_bytes(body, body_len, descriptor);
+    JADE_WALLY_VERIFY(wally_bzero(body, MAX_DESCRIPTOR_BODY_LEN));
+    free(body);
+    return ret;
 }
 
 bool descriptor_load_from_storage(const char* descriptor_name, descriptor_data_t* output, const char** errmsg)

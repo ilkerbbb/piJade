@@ -193,6 +193,8 @@ bool show_view_descriptor_activity(const char* descriptor_name, const descriptor
             act = script_screen_index == num_script_screens - 1 ? act_summary : act_scripts[++script_screen_index];
             break;
 
+        // BBB-AIRGAP: KEY3 leaves through the screen's own decline, never its accept.
+        case BTN_ESCAPE_HOME:
         case BTN_DESCRIPTOR_DISCARD_DELETE:
             return false;
 
@@ -275,6 +277,8 @@ static bool show_final_descriptor_summary_activity(
             act = act_name;
             break;
 
+        // BBB-AIRGAP: KEY3 leaves through the screen's own decline, never its accept.
+        case BTN_ESCAPE_HOME:
         case BTN_DESCRIPTOR_DISCARD_DELETE:
             return false;
 
@@ -307,6 +311,14 @@ bool show_descriptor_activity(const char* descriptor_name, const descriptor_data
     bool confirmed = false;
     uint8_t screen = 0; // 0 = initial summary, 1 = blinding key (if present), 2..n = signers, n+1 = final summary
     while (true) {
+        // BBB-AIRGAP: this loop walks between screens rather than waiting itself, so the escape
+        // reaches it as a flag rather than as an event: the screen the user pressed KEY3 on has
+        // already returned by the time control gets back here.
+        if (gui_escape_pending()) {
+            confirmed = false;
+            break;
+        }
+
         JADE_ASSERT(screen <= num_signer_details + blinding_key_screen_offset + 1);
         if (screen == 0) {
             confirmed = show_view_descriptor_activity(descriptor_name, descriptor, initial_confirmation, is_valid);
@@ -345,6 +357,9 @@ bool show_descriptor_activity(const char* descriptor_name, const descriptor_data
                     break;
                 } else if (ev_id == BTN_SIGNER_PREV) {
                     --screen;
+                    break;
+                } else if (ev_id == BTN_ESCAPE_HOME) {
+                    // Leave the walk; the loop outside checks the flag and abandons the record
                     break;
                 }
             }

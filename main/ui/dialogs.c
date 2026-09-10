@@ -168,7 +168,8 @@ void populate_title_bar(
     } else {
         // Split the bar into three sections, [lbtn | title | rbtn]
         gui_view_node_t* hsplit;
-        gui_make_hsplit(&hsplit, GUI_SPLIT_RELATIVE, 3, 15, 70, 15);
+        gui_make_hsplit(&hsplit, GUI_SPLIT_RELATIVE, 3, (100 - TITLE_CELL_PCNT) / 2, TITLE_CELL_PCNT,
+            (100 - TITLE_CELL_PCNT) / 2);
         gui_set_parent(hsplit, bar);
 
         // If not otherwise specified, put a border around the buttons
@@ -294,6 +295,464 @@ gui_activity_t* make_menu_activity(
     add_buttons(parent, UI_COLUMN, menubtns, num_menubtns);
 
     return act;
+}
+
+// BBB-AIRGAP: builds the scrolling list screen - see ui.h for why it exists.
+// BBB-AIRGAP: width of the list scroll indicator, given as the percentage of the screen left to
+// the rows beside it. The indicator itself takes what remains, so nothing is lost to rounding:
+// a percentage on both sides of the split would floor each one separately (get_step(),
+// main/gui.c:1780) and leave a dead column at the screen edge. Three percent is 8px at 240px
+// wide - enough to read at arm's length without taking width the row labels need.
+#define LIST_SCROLLBAR_PERCENT 3
+
+// BBB-AIRGAP: width of the optional symbol column, as the percentage of the row left to the label
+// beside it; the symbol takes what remains, for the same rounding reason as the scrollbar above.
+// Eight percent is 18px of the 232px the rows have, enough for the 16x16 symbols font.
+#define LIST_SYMBOL_PERCENT 8
+
+// BBB-AIRGAP: light the cells covering the visible window and clear the rest. The lit run is sized
+// by how much of the list is on screen and positioned by how far down the window has moved, so it
+// reads like an ordinary scrollbar even though it moves in whole cells.
+static void update_list_scrollbar(
+    gui_view_node_t** cells, const size_t offset, const size_t num_visible, const size_t num_items)
+{
+    JADE_ASSERT(cells);
+    JADE_ASSERT(num_visible);
+    JADE_ASSERT(num_items > num_visible);
+
+    // At least one cell, however long the list gets
+    size_t lit = (num_visible * LIST_VISIBLE_ROWS) / num_items;
+    if (!lit) {
+        lit = 1;
+    }
+
+    // BBB-AIRGAP: the two ends of the bar are claims about the list, so only the two end offsets
+    // may make them: the run touches the top exactly at offset 0 and the bottom exactly at the
+    // last offset.  Rounding a single ratio to nearest cannot hold that - it collapses the
+    // offsets adjacent to an end onto the end itself (measured 2026-09-08 on an eight-item list:
+    // lit 2, travel 2, max_offset 4, so offsets 3 and 4 both lit the bottom pair and the bar said
+    // 'last row' one row early).  Rounding down fixes the bottom and breaks the top; rounding up
+    // does the reverse.  So the ends are assigned outright and only the offsets between them share
+    // the positions between them.  travel is at least 2 whenever an interior offset exists: an
+    // interior offset needs max_offset >= 2, ie. num_items >= num_visible + 2, and with
+    // num_visible == LIST_VISIBLE_ROWS (the only shape that gets a scrollbar, asserted at
+    // make_list_activity()) that puts lit at most 2.
+    const size_t max_offset = num_items - num_visible;
+    const size_t travel = LIST_VISIBLE_ROWS - lit;
+    size_t first;
+    if (offset == 0) {
+        first = 0;
+    } else if (offset >= max_offset) {
+        first = travel;
+    } else {
+        JADE_ASSERT(travel >= 2);
+        first = 1 + (offset * (travel - 1)) / max_offset;
+    }
+
+    for (size_t i = 0; i < LIST_VISIBLE_ROWS; ++i) {
+        gui_set_color(cells[i], i >= first && i < first + lit ? TFT_WHITE : TFT_BLACK);
+        gui_repaint(cells[i]);
+    }
+}
+
+// BBB-AIRGAP: the symbols follow the window the same way the labels do. An item without one
+// leaves its cell empty rather than the column disappearing, so the labels stay aligned.
+static void update_list_symbols(
+    gui_view_node_t** symbol_nodes, const list_item_t* items, const size_t offset, const size_t num_visible)
+{
+    JADE_ASSERT(symbol_nodes);
+    JADE_ASSERT(items);
+
+    for (size_t i = 0; i < num_visible; ++i) {
+        const char* const symbol = items[offset + i].symbol;
+        gui_update_text(symbol_nodes[i], symbol ? symbol : "");
+    }
+}
+
+// BBB-AIRGAP: a list can be longer than the four rows on screen, and the engine has neither
+// clipping nor vertical scrolling, so nothing on screen says there is more below.  A thin bar down
+// the right edge carries that.  It is built from LIST_VISIBLE_ROWS cells whose colour changes
+// rather than one block that moves, because a split's proportions are fixed once the node tree is
+// built - gui_set_colors() (main/gui.c:1470) is the only thing that can be changed afterwards.
+// This mirrors make_menu_activity() for the rows themselves, rather than calling it, because the
+// rows have to become one side of a horizontal split and that function owns its own layout.
+static gui_activity_t* make_list_activity_with_scrollbar(const char* title, btn_data_t* hdrbtns,
+    const size_t num_hdrbtns, btn_data_t* rowbtns, const size_t num_rows, gui_view_node_t** scrollbar_cells)
+{
+    JADE_ASSERT(num_rows == LIST_VISIBLE_ROWS);
+    JADE_ASSERT(scrollbar_cells);
+
+    // Borders as the four-item menu sets them: the rows' top line covers the header's bottom edge
+    for (size_t i = 0; i < num_hdrbtns; ++i) {
+        add_default_border(&hdrbtns[i], GUI_BORDER_SIDES | GUI_BORDER_TOP);
+    }
+    for (size_t i = 0; i < num_rows; ++i) {
+        add_default_border(&rowbtns[i], i == 0 ? GUI_BORDER_TOPBOTTOM : GUI_BORDER_BOTTOM);
+    }
+
+    gui_activity_t* const act = gui_make_activity();
+    gui_view_node_t* const parent = add_title_bar(act, title, hdrbtns, num_hdrbtns, NULL);
+
+    gui_view_node_t* hsplit;
+    gui_make_hsplit(&hsplit, GUI_SPLIT_RELATIVE, 2, 100 - LIST_SCROLLBAR_PERCENT, GUI_SPLIT_FILL_REMAINING);
+    gui_set_parent(hsplit, parent);
+
+    add_buttons(hsplit, UI_COLUMN, rowbtns, num_rows);
+
+    gui_view_node_t* bar;
+    // Last cell takes what is left over, for the same reason the split above does
+    gui_make_vsplit(&bar, GUI_SPLIT_RELATIVE, LIST_VISIBLE_ROWS, 25, 25, 25, GUI_SPLIT_FILL_REMAINING);
+    gui_set_parent(bar, hsplit);
+    for (size_t i = 0; i < LIST_VISIBLE_ROWS; ++i) {
+        gui_make_fill(&scrollbar_cells[i], TFT_BLACK, FILL_PLAIN, bar);
+    }
+
+    return act;
+}
+
+gui_activity_t* make_list_activity(const char* title, btn_data_t* hdrbtns, const size_t num_hdrbtns,
+    btn_data_t* rowbtns, const size_t num_rows, gui_view_node_t** scrollbar_cells, gui_view_node_t** symbol_nodes)
+{
+    JADE_ASSERT(title);
+    JADE_ASSERT(rowbtns);
+    JADE_ASSERT(num_rows);
+    JADE_ASSERT(num_rows <= LIST_VISIBLE_ROWS);
+    // A scroll indicator only means anything when the window is full and there is more beyond it
+    JADE_ASSERT(!scrollbar_cells || num_rows == LIST_VISIBLE_ROWS);
+
+    // Each row carries its own text node instead of a plain label, because the labels are
+    // rewritten as the window moves. add_button() only hands the node back when it is passed as
+    // 'content' (see above); given 'txt' it builds the node locally and the caller cannot reach it.
+    // With a symbol column each row is a split holding the label and the symbol, so the split is
+    // what the button gets. The labels are kept here and put back into 'content' afterwards,
+    // because that is where the caller reads them from to rewrite as the window moves.
+    gui_view_node_t* labels[LIST_VISIBLE_ROWS] = { 0 };
+
+    for (size_t i = 0; i < num_rows; ++i) {
+        JADE_ASSERT(rowbtns[i].txt);
+        JADE_ASSERT(!rowbtns[i].content);
+        gui_make_text_font(&labels[i], rowbtns[i].txt, TFT_WHITE, rowbtns[i].font);
+        gui_set_align(labels[i], GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
+        rowbtns[i].txt = NULL;
+
+        if (!symbol_nodes) {
+            rowbtns[i].content = labels[i];
+            continue;
+        }
+
+        gui_view_node_t* row_split;
+        gui_make_hsplit(&row_split, GUI_SPLIT_RELATIVE, 2, 100 - LIST_SYMBOL_PERCENT, GUI_SPLIT_FILL_REMAINING);
+        gui_set_parent(labels[i], row_split);
+        gui_make_text_font(&symbol_nodes[i], "", TFT_WHITE, JADE_SYMBOLS_16x16_FONT);
+        gui_set_align(symbol_nodes[i], GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
+        gui_set_parent(symbol_nodes[i], row_split);
+        rowbtns[i].content = row_split;
+    }
+
+    gui_activity_t* const act = scrollbar_cells
+        ? make_list_activity_with_scrollbar(title, hdrbtns, num_hdrbtns, rowbtns, num_rows, scrollbar_cells)
+        : make_menu_activity(title, hdrbtns, num_hdrbtns, rowbtns, num_rows);
+
+    // Restore the contract the caller relies on: 'content' is the label node, whatever the row
+    // was built from
+    if (symbol_nodes) {
+        for (size_t i = 0; i < num_rows; ++i) {
+            rowbtns[i].content = labels[i];
+        }
+    }
+
+    // Selection must not wrap: on the last row 'down' has to leave the selection where it is, so
+    // that run_list_activity() can read that press as "move the window" instead. Measured on the
+    // emulator: the press still reaches the activity, as select_next_right() posts an event
+    // whether or not it moved the selection (main/gui.c:2576-2590).
+    act->selectables_wrap = false;
+
+    return act;
+}
+
+// BBB-AIRGAP: runs a list of any length over LIST_VISIBLE_ROWS physical rows.
+// The window and the engine stay in step because they follow the same rule: while the selection
+// has somewhere to go the engine moves it and we count along, and when it does not, we scroll.
+// BBB-AIRGAP: which row the engine is highlighting right now. The list cannot keep its own
+// selection counter: gui_select_first() (KEY1 on this hardware) moves the highlight without
+// posting any event (main/gui.c, select_node() is silent), so a counter would drift away from
+// what is on screen and the next press would act on the wrong item. Reading the engine back on
+// every event makes that drift impossible.
+static bool list_selected_row(const btn_data_t* rowbtns, const size_t num_visible, size_t* row)
+{
+    JADE_ASSERT(rowbtns);
+    JADE_ASSERT(row);
+
+    for (size_t i = 0; i < num_visible; ++i) {
+        if (rowbtns[i].btn->is_selected) {
+            *row = i;
+            return true;
+        }
+    }
+    return false; // the selection is on the title bar above the rows
+}
+
+int32_t run_list_activity(
+    const char* title, const int32_t exit_ev_id, const list_item_t* items, const size_t num_items, size_t* io_selected)
+{
+    JADE_ASSERT(title);
+    JADE_ASSERT(items);
+    JADE_ASSERT(num_items);
+    JADE_ASSERT(io_selected);
+    JADE_ASSERT(*io_selected < num_items);
+    // The row ids and the caller's exit id share one GUI_BUTTON_EVENT space, and the loop below
+    // tests the row range first, so an exit id inside that range would be activated as a row.
+    JADE_ASSERT(exit_ev_id < BTN_LIST_ROW_0 || exit_ev_id >= BTN_LIST_ROW_0 + LIST_VISIBLE_ROWS);
+
+    const size_t num_visible = num_items < LIST_VISIBLE_ROWS ? num_items : LIST_VISIBLE_ROWS;
+
+    // Open with the remembered selection on screen
+    size_t offset = *io_selected < num_visible ? 0 : *io_selected - num_visible + 1;
+
+    btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = exit_ev_id },
+        { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
+
+    btn_data_t rowbtns[LIST_VISIBLE_ROWS] = { 0 };
+    for (size_t i = 0; i < num_visible; ++i) {
+        rowbtns[i].txt = items[offset + i].txt;
+        rowbtns[i].font = GUI_DEFAULT_FONT;
+        rowbtns[i].ev_id = BTN_LIST_ROW_0 + i;
+    }
+
+    // The indicator is only built when there is something off screen to indicate, and the symbol
+    // column only when some item actually carries one
+    const bool has_scrollbar = num_items > num_visible;
+    bool has_symbols = false;
+    for (size_t i = 0; i < num_items; ++i) {
+        if (items[i].symbol) {
+            has_symbols = true;
+            break;
+        }
+    }
+
+    gui_view_node_t* scrollbar_cells[LIST_VISIBLE_ROWS] = { 0 };
+    gui_view_node_t* symbol_nodes[LIST_VISIBLE_ROWS] = { 0 };
+
+    gui_activity_t* const act = make_list_activity(title, hdrbtns, 2, rowbtns, num_visible,
+        has_scrollbar ? scrollbar_cells : NULL, has_symbols ? symbol_nodes : NULL);
+
+    // While the window is shifted the title bar stops being a directional target, so 'up' from
+    // row 0 scrolls the list instead of leaving it. KEY1 ignores the flag and still reaches the
+    // exit from anywhere. Kept in step with 'offset' wherever the window moves, below.
+    hdrbtns[0].btn->nav_skip = offset > 0;
+
+    if (has_scrollbar) {
+        update_list_scrollbar(scrollbar_cells, offset, num_visible, num_items);
+    }
+    if (has_symbols) {
+        update_list_symbols(symbol_nodes, items, offset, num_visible);
+    }
+
+    // Register the handlers up-front and await them in the loop below, as camera.c and qrmode.c
+    // do for their tight loops. gui_activity_wait_event() would register a fresh handler (and a
+    // fresh semaphore) on every iteration, so a press arriving while the four row labels are
+    // being rewritten would be signalled to the previous semaphore and lost - exactly the moment
+    // this list redraws, when the window scrolls.
+    wait_event_data_t* const event_data = gui_activity_make_wait_event_data(act);
+    JADE_ASSERT(event_data);
+
+    // Navigate: only the four wheel/dpad ids and KEY1's jump, not ESP_EVENT_ANY_ID. On a single press,
+    // gui_wheel_click()/gui_front_click() (main/gui.c:2556-2573) post GUI_BUTTON_EVENT via
+    // select_action() and then, unconditionally, their own GUI_EVENT (GUI_WHEEL_CLICK_EVENT/
+    // GUI_FRONT_CLICK_EVENT) for the same press. If that click event also matched this
+    // registration, both dispatches would give the same event_data: sync_wait_event_handler()
+    // (main/utils/event.c) overwrites a single trigger_event_base/id slot, so the second
+    // dispatch would erase the first's payload before the loop wakes to read it - dropping the
+    // click. The semaphore does not save us either way: libjade backs it with a counting POSIX
+    // sem (libjade/include/freertos/semphr.h:38-43), so the loop just wakes twice on the same
+    // overwritten slot. Registering only the navigation ids avoids this: the dispatch loop
+    // (libjade/esp_event.c:78-79) matches a registration's event_id only when it is
+    // ESP_EVENT_ANY_ID or an exact equal, so a click's GUI_EVENT id never matches these
+    // registrations and each physical input still produces exactly one dispatch into event_data.
+    gui_activity_register_event(act, GUI_EVENT, GUI_WHEEL_UP_EVENT, sync_wait_event_handler, event_data);
+    gui_activity_register_event(act, GUI_EVENT, GUI_WHEEL_DOWN_EVENT, sync_wait_event_handler, event_data);
+    gui_activity_register_event(act, GUI_EVENT, GUI_WHEEL_LEFT_EVENT, sync_wait_event_handler, event_data);
+    gui_activity_register_event(act, GUI_EVENT, GUI_WHEEL_RIGHT_EVENT, sync_wait_event_handler, event_data);
+    // KEY1 (gui_select_first, main/gui.c) jumps the selection to the title without a wheel
+    // event. The loop below judges each press against where the selection was before it, so
+    // it has to see the jump: otherwise 'left' straight after KEY1 finds the title already
+    // selected, blames the press for that, and the wrap round to the last item needs a second
+    // press. The event is handled by the switch's default case, which is just the state refresh.
+    gui_activity_register_event(act, GUI_EVENT, GUI_SELECT_FIRST_EVENT, sync_wait_event_handler, event_data);
+
+    // BBB-AIRGAP: KEY3 leaves the list the same way its title bar does.  Registered by id rather
+    // than through ESP_EVENT_ANY_ID for the reason spelled out above: gui_alt_click() (main/gui.c)
+    // posts this one event and nothing else for the press, so it still produces exactly one
+    // dispatch into event_data.
+    gui_activity_register_event(act, GUI_EVENT, GUI_ALT_EVENT, sync_wait_event_handler, event_data);
+
+    // Activate: select_action() (main/gui.c:591-596) only posts GUI_BUTTON_EVENT for the click
+    // control configured via gui_click_event, and only when the selected node's click_event_id
+    // is not GUI_BUTTON_EVENT_NONE, so ESP_EVENT_ANY_ID here cannot pick up a press on the
+    // unconfigured control or the header's blank second button (ev_id GUI_BUTTON_EVENT_NONE
+    // above).
+    gui_activity_register_event(act, GUI_BUTTON_EVENT, ESP_EVENT_ANY_ID, sync_wait_event_handler, event_data);
+
+    gui_set_activity_initial_selection(rowbtns[*io_selected - offset].btn);
+    gui_set_current_activity_sync(act, true);
+
+    // Drain input still in flight from the screen this list replaced. gui_set_current_activity_sync()
+    // above blocks until the gui task has fully run the switch (main/gui.c:2389-2424): the
+    // outgoing activity's handlers are unregistered and this activity's are registered before it
+    // returns, so by this point this list's handlers are live and nothing here has had time to be
+    // a real reaction to this screen. libjade still dispatches events on its own pthread
+    // (libjade/esp_event.c, _default_event_loop), independently of when they were posted, and
+    // every list reuses the same BTN_LIST_ROW_0..3 ids - so a row click posted against the
+    // previous list before the switch (e.g. the second click of a fast double-click on the
+    // Session fingerprint entry) can still be sitting undispatched and land on this activity's
+    // handlers once they go live, silently activating a row nobody pressed here (row 0 = Export
+    // Xpub on the Wallet list that opens next). Everything in event_data at this point is that
+    // kind of leftover, so it is safe to discard - until the queue is quiet for 10ms, the same
+    // idle timeout camera.c:543 and qrmode.c:907 use.
+    while (sync_wait_event(event_data, NULL, NULL, NULL, 10 / portTICK_PERIOD_MS) == ESP_OK) {
+        // discard - see comment above
+    }
+
+    // Read the starting selection from the engine rather than assuming *io_selected is still
+    // where it landed: the drain above can discard a navigation event that already moved the
+    // engine's selection, which would leave *io_selected pointing at a row that is no longer
+    // highlighted. This is safe to read here because it is already set: render_activity()
+    // selects the initial node while gui_set_current_activity_sync() is still switching
+    // (main/gui.c:2417, first_time path), and that call does not return until the gui task has
+    // gone on to save 'done' (main/gui.c:2429) and give it back (main/gui.c:2439).
+    size_t row = 0;
+    bool on_row = list_selected_row(rowbtns, num_visible, &row);
+    bool on_title = hdrbtns[0].btn->is_selected;
+
+    // The title-bar exit must report the absolute item that was last highlighted on a row.
+    size_t last_item = on_row ? offset + row : *io_selected;
+
+    while (true) {
+        // BBB-AIRGAP: the entry drain can consume KEY3 along with the opening click's tail.
+        // Its flag must still leave through the list's own exit before an indefinite wait.
+        if (gui_escape_pending()) {
+            *io_selected = last_item;
+            return exit_ev_id;
+        }
+        int32_t ev_id;
+        esp_event_base_t ev_base;
+        if (sync_wait_event(event_data, &ev_base, &ev_id, NULL, 0) != ESP_OK) {
+            continue;
+        }
+
+        // Activation always comes from GUI_BUTTON_EVENT - the row/exit button's own ev_id,
+        // captured at the moment of the click by select_action() (main/gui.c:591-596) - never
+        // from the engine's live selection: select_next_right()/select_prev_left() (main/gui.c)
+        // can move the highlight and post their own GUI_EVENT before this loop drains a queued
+        // click, so reading is_selected here would race with the very next keypress - the bug
+        // this fixes. GUI_EVENT is only ever one of the five ids registered above.
+        if (ev_base == GUI_BUTTON_EVENT) {
+            const int32_t clicked_row = ev_id - BTN_LIST_ROW_0;
+            if (clicked_row >= 0 && (size_t)clicked_row < num_visible) {
+                *io_selected = offset + (size_t)clicked_row;
+                return items[*io_selected].ev_id;
+            }
+            if (ev_id == exit_ev_id) {
+                // last_item is the last row that was highlighted, so leaving through the title
+                // bar still reports where the user was; the caller reopens the list there.
+                *io_selected = last_item;
+                return exit_ev_id;
+            }
+            continue; // not a button this list owns - ignore and wait for the next event
+        }
+
+        // BBB-AIRGAP: the escape leaves through the list's own exit, so the caller sees exactly
+        // what it would have seen had the user clicked the title bar, and its own check of
+        // gui_escape_pending() carries the cancel on outwards.
+        if (ev_id == GUI_ALT_EVENT) {
+            *io_selected = last_item;
+            return exit_ev_id;
+        }
+
+        size_t new_row = 0;
+        bool new_on_row = list_selected_row(rowbtns, num_visible, &new_row);
+
+        bool window_moved = false;
+        gui_view_node_t* wrap_to = NULL;
+        switch (ev_id) {
+        // Forward: 'down', plus the 'right' the engine sends when 'down' has nowhere to go
+        case GUI_WHEEL_DOWN_EVENT:
+        case GUI_WHEEL_RIGHT_EVENT:
+            // Selection still on the last row after the press means the engine could not move it,
+            // so the window moves under the selection instead.
+            if (on_row && new_on_row && new_row == row && new_row == num_visible - 1) {
+                if (offset + num_visible < num_items) {
+                    ++offset;
+                    window_moved = true;
+                } else {
+                    // BBB-AIRGAP: Jade's menus wrap - past the last item the selection goes round
+                    // to the title bar (main/gui.c, selectables_wrap). The engine's wrap is off
+                    // here (make_list_activity above), so the list wraps itself once the window
+                    // is at the end, and takes the window back to the top so that the next
+                    // 'right' lands on item 0, as it does in a menu.
+                    if (offset) {
+                        offset = 0;
+                        window_moved = true;
+                    }
+                    wrap_to = hdrbtns[0].btn;
+                }
+            }
+            break;
+
+        // Backward mirrors forward while the window is shifted. The skipped title makes gui_up()
+        // fall back through select_prev_left() and post GUI_WHEEL_LEFT_EVENT when row 0 cannot move.
+        // At offset zero the title becomes a directional target again, keeping the exit reachable.
+        case GUI_WHEEL_UP_EVENT:
+        case GUI_WHEEL_LEFT_EVENT:
+            if (on_row && new_on_row && new_row == row && !new_row && offset) {
+                --offset;
+                window_moved = true;
+            } else if (on_title && hdrbtns[0].btn->is_selected) {
+                // BBB-AIRGAP: the mirror image - 'left' on the title bar goes round to the last
+                // item, with the window at the end so that it is the item on screen.
+                if (offset + num_visible < num_items) {
+                    offset = num_items - num_visible;
+                    window_moved = true;
+                }
+                wrap_to = rowbtns[num_visible - 1].btn;
+            }
+            break;
+
+        default:
+            // GUI_SELECT_FIRST_EVENT: nothing to do but the state refresh below
+            break;
+        }
+
+        if (window_moved) {
+            hdrbtns[0].btn->nav_skip = offset > 0;
+            for (size_t i = 0; i < num_visible; ++i) {
+                gui_update_text(rowbtns[i].content, items[offset + i].txt);
+            }
+            // The window only ever moves when there is something off screen, so the indicator
+            // exists whenever this runs
+            update_list_scrollbar(scrollbar_cells, offset, num_visible, num_items);
+            if (has_symbols) {
+                update_list_symbols(symbol_nodes, items, offset, num_visible);
+            }
+        }
+
+        if (wrap_to) {
+            gui_select_node(wrap_to);
+            new_on_row = list_selected_row(rowbtns, num_visible, &new_row);
+        }
+
+        // Keep the last row seen: while the title bar is selected there is no row to record.
+        if (new_on_row) {
+            row = new_row;
+        }
+        on_row = new_on_row;
+        on_title = hdrbtns[0].btn->is_selected;
+
+        // Refresh every event because scrolling changes the absolute item under a selected row.
+        if (on_row) {
+            last_item = offset + row;
+        }
+    }
 }
 
 // Helper to create an activity to show a message on a single central label
@@ -437,10 +896,30 @@ gui_activity_t* display_processing_message_activity()
 // Show passed dialog and handle events until a 'yes' or 'no', which is translated into a boolean return
 // Destroys the passed activity before returning.
 // NOTE: only expect BTN_YES, BTN_NO and BTN_HELP events.
-static bool await_yesno_activity_loop(gui_activity_t* const act, const char* help_url)
+//
+// BBB-AIRGAP: escape_result is what KEY3 means on this screen, and it has to be the caller's
+// decision because the two families of caller mean opposite things by it.  A question returns
+// false: an escape can never be read as 'Yes'.  A message screen returns true: its only button is
+// 'Continue', so dismissing it is the only way out, and its caller asserts on the result.
+//
+// BBB-AIRGAP: 'escaped' is optional, and is how a caller learns that KEY3 - rather than the
+// screen's own button - is what closed the screen.  It matters because gui_escape_pending()
+// cannot answer that question after the fact: every other press clears the flag
+// (gui_escape_clear(), main/gui.c:2627 and its six siblings), so a direction arriving between
+// the screen closing and the caller's check would read as consent.  Here the answer is taken
+// at the event that closed the screen and no later press can revise it.  Callers whose next
+// step is destructive or outward-facing use this; the rest can keep polling the flag, where a
+// lost escape costs at most one extra screen.
+static bool await_yesno_activity_loop(
+    gui_activity_t* const act, const char* help_url, const bool escape_result, bool* const escaped)
 {
     JADE_ASSERT(act);
     // help_url is optional (but should be present if a BTN_HELP btn is present)
+    // escaped is optional
+
+    if (escaped) {
+        *escaped = false;
+    }
 
     gui_activity_t* const prev_act = gui_current_activity(); // Save current activity
 
@@ -458,7 +937,22 @@ static bool await_yesno_activity_loop(gui_activity_t* const act, const char* hel
 
         case BTN_HELP:
             await_qr_help_activity(help_url);
+            // BBB-AIRGAP: the escape may have been pressed on the help screen, and that screen
+            // consumed the event; there is none left to wake this wait again, so the flag is
+            // what carries it.  Without this the question would just be redrawn.
+            if (gui_escape_pending()) {
+                if (escaped) {
+                    *escaped = true;
+                }
+                return escape_result;
+            }
             break;
+
+        case BTN_ESCAPE_HOME:
+            if (escaped) {
+                *escaped = true;
+            }
+            return escape_result;
 
         case BTN_EVENT_TIMEOUT:
             break;
@@ -471,21 +965,58 @@ static bool await_yesno_activity_loop(gui_activity_t* const act, const char* hel
     gui_destroy_current_activity(act, prev_act); // restore previous activity
 }
 
-// Run activity that displays a message and awaits an 'ack' button click
-static void await_message_activity(const char* message[], const size_t message_size)
+// Run activity that displays a message and awaits an 'ack' button click.
+// BBB-AIRGAP: returns true when KEY3 is what dismissed the screen.  Every void wrapper below
+// discards that, which is right for a notice that is only a notice; await_message_escaped() is
+// for the callers that must not treat an escape as permission to carry on.
+static bool await_message_activity(const char* message[], const size_t message_size)
 {
     btn_data_t ftrbtn = { .txt = "Continue", .font = GUI_DEFAULT_FONT, .ev_id = BTN_YES, .borders = GUI_BORDER_TOP };
 
     gui_activity_t* const act = make_show_message_activity(message, message_size, NULL, NULL, 0, &ftrbtn, 1);
 
-    const bool rslt = await_yesno_activity_loop(act, NULL);
+    bool escaped = false;
+    const bool rslt = await_yesno_activity_loop(act, NULL, true, &escaped);
     JADE_ASSERT(rslt);
+    return escaped;
+}
+
+// BBB-AIRGAP: the same screen as await_message(), but it reports how the user left it.  Use it
+// wherever what follows the notice is destructive, irreversible or outward-facing - a wipe, a
+// file overwrite, a reply to the host - because there the difference between 'the user pressed
+// Continue' and 'the user asked to leave' is the difference between consent and its opposite.
+bool await_message_escaped(const char* message[], const size_t message_size)
+{
+    JADE_ASSERT(message);
+    JADE_ASSERT(message_size);
+    return await_message_activity(message, message_size);
 }
 
 void await_message(const char* msg)
 {
     const char* m[] = { msg };
     await_message_activity(m, 1);
+}
+
+// BBB-AIRGAP: a notice whose second line is data the device did not choose - a record name, say.
+// await_message_2() cannot carry that safely: the two-line layout gives each line exactly
+// MESSAGE_LINE_ROW_HEIGHT, so display_print_in_area() has no second row to wrap into and a wide
+// value is cut with nothing to show it was cut (measured 2026-09-08: fifteen 'W' in the default
+// font is 299px against 236px of usable width, and a multisig name may be fifteen characters,
+// main/multisig.h:11).  Here the caller's fixed words become the title and the value gets the whole
+// message area, which is the same shape make_show_single_value_activity() uses for a wallet name.
+void await_titled_message(const char* title, const char* msg)
+{
+    JADE_ASSERT(title);
+    JADE_ASSERT(msg);
+
+    btn_data_t ftrbtn = { .txt = "Continue", .font = GUI_DEFAULT_FONT, .ev_id = BTN_YES, .borders = GUI_BORDER_TOP };
+    const char* m[] = { msg };
+
+    gui_activity_t* const act = make_show_message_activity(m, 1, title, NULL, 0, &ftrbtn, 1);
+
+    const bool rslt = await_yesno_activity_loop(act, NULL, true, NULL);
+    JADE_ASSERT(rslt);
 }
 void await_message_2(const char* msg1, const char* msg2)
 {
@@ -541,7 +1072,7 @@ static bool await_yesno_activity_impl(const char* title, const char* message[], 
         = make_show_message_activity(message, message_size, title, hdrbtns, help_url ? 2 : 0, ftrbtns, 2);
     gui_set_activity_initial_selection(ftrbtns[default_selection ? 1 : 0].btn);
 
-    return await_yesno_activity_loop(act, help_url);
+    return await_yesno_activity_loop(act, help_url, false, NULL);
 }
 
 // Generic Yes/No activity
@@ -556,6 +1087,15 @@ bool await_skipyes_activity(const char* title, const char* message[], const size
     const bool default_selection, const char* help_url)
 {
     return await_yesno_activity_impl(title, message, message_size, "Yes", "Skip", default_selection, help_url);
+}
+
+// BBB-AIRGAP: variant of the Yes/No activity with caller-supplied labels, for questions that
+// are a choice between two named options rather than a confirmation.  Returns true when the
+// first label was chosen.
+bool await_choice_activity(const char* title, const char* message[], const size_t message_size, const char* yes_txt,
+    const char* no_txt, const bool default_selection, const char* help_url)
+{
+    return await_yesno_activity_impl(title, message, message_size, yes_txt, no_txt, default_selection, help_url);
 }
 
 // Variant of the Yes/No activity that is instead Continue/Back (latter in title bar)
@@ -582,7 +1122,7 @@ bool await_continueback_activity(const char* title, const char* message[], const
     gui_activity_t* const act = make_show_message_activity(message, message_size, title, hdrbtns, 2, &ftrbtn, 1);
     gui_set_activity_initial_selection((default_selection ? ftrbtn : hdrbtns[0]).btn);
 
-    return await_yesno_activity_loop(act, help_url);
+    return await_yesno_activity_loop(act, help_url, false, NULL);
 }
 
 // Updatable label with left/right arrows
@@ -640,6 +1180,75 @@ gui_activity_t* make_carousel_activity(const char* title, gui_view_node_t** labe
     gui_set_parent(node, hsplit);
 
     return act;
+}
+
+// BBB-AIRGAP: see ui.h.  The loop is the one upstream writes in handle_qr_options() (main/qrmode.c)
+// and handle_screen_brightness() (main/process/dashboard.c), for a fixed set of labels.
+size_t await_carousel_activity(
+    const char* title, const char* const* labels, const size_t num_labels, const size_t initial)
+{
+    JADE_ASSERT(title);
+    JADE_ASSERT(labels);
+    JADE_ASSERT(num_labels > 1);
+    JADE_ASSERT(initial < num_labels);
+
+    gui_view_node_t* item = NULL;
+    gui_activity_t* const act = make_carousel_activity(title, NULL, &item);
+    JADE_ASSERT(item);
+
+    size_t index = initial;
+    gui_update_text(item, labels[index]);
+
+    // One registration held for the whole screen, exactly as the dice entry screen does
+    // (main/entropy_sources.c) - the same shape of screen, wheel and click with no clickable node.
+    // gui_activity_wait_event() attaches a fresh handler and a fresh semaphore to the activity on
+    // every call and never detaches either (main/gui.c). In a loop that costs two things a user can
+    // feel: a click arriving between two iterations is signalled to the previous, already abandoned
+    // semaphore and lost, and the handler list grows for as long as the screen stays open.
+    // ESP_EVENT_ANY_ID is safe here for the reason run_list_activity() above cannot use it: the
+    // carousel has no clickable node, so select_action() (main/gui.c) posts no GUI_BUTTON_EVENT for
+    // a press here and each press produces exactly one dispatch into event_data.
+    wait_event_data_t* const event_data = gui_activity_make_wait_event_data(act);
+    JADE_ASSERT(event_data);
+    gui_activity_register_event(act, GUI_EVENT, ESP_EVENT_ANY_ID, sync_wait_event_handler, event_data);
+
+    // Switch synchronously so this activity's handlers are live before the drain below, then throw
+    // away what is already in flight. This screen is reached by clicking a menu row, and that one
+    // physical press posts its GUI_BUTTON_EVENT and then its own GUI_EVENT click
+    // (gui_wheel_click()/gui_front_click(), main/gui.c). With the asynchronous switch that trailing
+    // click could be dispatched to this activity once its handlers went live and be read as
+    // confirmation, returning the initial value before the user saw a usable screen. Same drain and
+    // the same 10ms idle timeout as run_list_activity().
+    gui_set_current_activity_sync(act, false);
+    while (sync_wait_event(event_data, NULL, NULL, NULL, 10 / portTICK_PERIOD_MS) == ESP_OK) {
+        // discard - see comment above
+    }
+
+    while (true) {
+        int32_t ev_id;
+        // BBB-AIRGAP: KEY3 drained during the synchronous switch is still an escape, not a
+        // reason to wait forever for another event or save the currently previewed setting.
+        if (gui_escape_pending()) {
+            return initial;
+        }
+        if (sync_wait_event(event_data, NULL, &ev_id, NULL, 0) != ESP_OK) {
+            continue;
+        }
+        if (ev_id == GUI_WHEEL_LEFT_EVENT) {
+            index = (index + num_labels - 1) % num_labels;
+        } else if (ev_id == GUI_WHEEL_RIGHT_EVENT) {
+            index = (index + 1) % num_labels;
+        } else if (ev_id == gui_get_click_event()) {
+            return index;
+        } else if (ev_id == GUI_ALT_EVENT) {
+            // BBB-AIRGAP: leave without applying anything - the caller gets the value it came in
+            // with, so an escape out of a settings carousel changes no setting.
+            return initial;
+        } else {
+            continue;
+        }
+        gui_update_text(item, labels[index]);
+    }
 }
 
 // Function to update the highlight colour used for the selection

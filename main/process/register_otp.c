@@ -33,6 +33,39 @@ static bool validate_otp_name(const char* otp_name, const char** errmsg)
             *errmsg = "Already have maximum number of otp records";
             return false;
         }
+        return true;
+    }
+
+    // BBB-AIRGAP: a record already exists under this name, and overwriting it is only the user's
+    // own record to overwrite if the loaded wallet can actually read it.  The store is device-wide
+    // by name (main/storage.c) but the uri is encrypted per wallet (get_otp_encryption_key,
+    // main/otpauth.c), so with a second wallet loaded, registering a same-named record silently
+    // replaced the first wallet's secret - and the owner would only find out the next time they
+    // needed that code.  There is no recovery: the old ciphertext is gone.
+    //
+    // This is a data-integrity guard for the legitimate owner of two wallets, not a defence
+    // against an attacker.  Someone holding the card does not need this path at all; the store is
+    // a file on removable media (pijade/host/pijade_host.c) and they can delete it outright.
+    //
+    // It pairs with the view screen, which no longer offers to delete a record it cannot read:
+    // together they make a record that the loaded wallet cannot open immutable, changed only by a
+    // Factory Reset.  That is the cost of an honest store and it was accepted deliberately.
+    // Reading it takes all four steps, the same chain handle_view_otps uses.  otp_load_uri() alone
+    // is not a test of anything: the ciphertext has no authentication tag, so decrypting under the
+    // wrong key returns true with rubbish in the buffer (measured - the register screen came up on
+    // another wallet's record).  What actually distinguishes the keys is that the plaintext then
+    // fails to parse as an otpauth uri.
+    char existing_uri[OTP_MAX_URI_LEN];
+    SENSITIVE_PUSH(existing_uri, sizeof(existing_uri));
+    size_t written = 0;
+    otpauth_ctx_t existing_ctx = { .name = otp_name };
+    const bool readable = otp_load_uri(otp_name, existing_uri, sizeof(existing_uri), &written) && written
+        && otp_uri_to_ctx(existing_uri, written, &existing_ctx) && otp_is_valid(&existing_ctx);
+    SENSITIVE_POP(existing_uri);
+
+    if (!readable) {
+        *errmsg = "Cannot read existing record";
+        return false;
     }
 
     return true;
@@ -178,12 +211,17 @@ static bool get_otp_data_from_kb(
         strncpy(kb_entry.strdata, otp_name, max_len);
         kb_entry.strdata[max_len] = '\0';
         kb_entry.len = max_len;
-        JADE_LOGI("Pre-filled OTP name in keyboard activity: %d, %s", (int)kb_entry.len, kb_entry.strdata);
+        // BBB-AIRGAP: otp name is user data; only its length is logged.
+        JADE_LOGI("Pre-filled OTP name in keyboard activity: %d", (int)kb_entry.len);
     }
 
     // 1. Get the OTP Name from the keyboard
     bool done = false;
     while (!done) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            return false;
+        }
         // Run the keyboard entry loop to get a typed passphrase
         run_keyboard_entry_loop(&kb_entry);
 
@@ -226,6 +264,11 @@ static bool get_otp_data_from_kb(
 
         // For testing uri validity
         while (!done) {
+            // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+            if (gui_escape_pending()) {
+                kb_entry.len = 0;
+                break;
+            }
             // Run the keyboard entry loop to get a typed passphrase
             run_keyboard_entry_loop(&kb_entry);
 
@@ -438,7 +481,7 @@ bool register_otp_qr(void)
     SENSITIVE_PUSH(&qr_data, sizeof(qr_data));
 
     // Get URI from qr code scan
-    if (!jade_camera_scan_qr(&qr_data, NULL, QR_GUIDE_SHOW, "blkstrm.com/otp") || !qr_data.len) {
+    if (!jade_camera_scan_qr(&qr_data, "OTP QR", QR_GUIDE_SHOW, "blkstrm.com/otp") || !qr_data.len) {
         // User exit without scanning
         JADE_LOGW("No qr code scanned");
         goto cleanup;

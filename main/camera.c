@@ -66,7 +66,15 @@ static volatile bool camera_task_running = false;
 #endif
 
 // Screen area used to display camera image - full screen
+#ifdef HAVE_CAMERA_ROTATION_SETTING
+// BBB-AIRGAP: the whole width, for two reasons. The labels and buttons are drawn over the image
+// rather than beside it (see make_camera_activity in main/ui/camera.c), so nothing needs the other
+// 30%; and at full width on a square screen both rotation classes produce the same image size,
+// which is what lets the rotation be a stored setting instead of a build option.
+#define UI_DISPLAY_WIDTH CONFIG_DISPLAY_WIDTH
+#else
 #define UI_DISPLAY_WIDTH (CONFIG_DISPLAY_WIDTH * 70 / 100) // 70% of screen width
+#endif
 #define UI_DISPLAY_HEIGHT CONFIG_DISPLAY_HEIGHT
 
 // Scale down if image much larger than screen area in both dimensions
@@ -83,9 +91,28 @@ static volatile bool camera_task_running = false;
 #define DISPLAY_IMAGE_WIDTH CAM_MIN(UI_DISPLAY_WIDTH, CAM2UI(UI_CAMERA_IMAGE_WIDTH))
 #define DISPLAY_IMAGE_HEIGHT CAM_MIN(UI_DISPLAY_HEIGHT, CAM2UI(UI_CAMERA_IMAGE_HEIGHT))
 
+#ifdef HAVE_CAMERA_ROTATION_SETTING
+// BBB-AIRGAP: how many rows of the displayed image the header row of make_camera_activity()
+// (main/ui/camera.c) is drawn over.  Both come from the same CAMERA_HEADER_PCNT in main/ui.h.
+#define CAMERA_HEADER_ROWS ((DISPLAY_IMAGE_HEIGHT * CAMERA_HEADER_PCNT) / 100)
+#endif
+
 // Crop central area of camera frame if scaled image still larger
 #define XOFFSET CAM_MAX(0, ((UI_CAMERA_IMAGE_WIDTH - UI2CAM(DISPLAY_IMAGE_WIDTH)) / 2))
 #define YOFFSET CAM_MAX(0, ((UI_CAMERA_IMAGE_HEIGHT - UI2CAM(DISPLAY_IMAGE_HEIGHT)) / 2))
+
+// The 90 and 270 degree copies read the camera frame along its other axis, so they crop it by a
+// different amount than the 0 and 180 ones do.
+#ifdef HAVE_CAMERA_ROTATION_SETTING
+// BBB-AIRGAP: all four are compiled here, so both sets of offsets are needed at once. The sizes
+// they are cropped to are the same for both; jade_camera_init() asserts it.
+#define XOFFSET_ROTATED CAM_MAX(0, ((CAMERA_IMAGE_HEIGHT - UI2CAM(DISPLAY_IMAGE_WIDTH)) / 2))
+#define YOFFSET_ROTATED CAM_MAX(0, ((CAMERA_IMAGE_WIDTH - UI2CAM(DISPLAY_IMAGE_HEIGHT)) / 2))
+#else
+// Only one class is compiled, and UI_CAMERA_IMAGE_WIDTH/HEIGHT already describe it.
+#define XOFFSET_ROTATED XOFFSET
+#define YOFFSET_ROTATED YOFFSET
+#endif
 
 static inline void copy_pixel(uint8_t dest[DISPLAY_IMAGE_HEIGHT][DISPLAY_IMAGE_WIDTH], const uint16_t destx,
     const uint16_t desty, const uint8_t src[CAMERA_IMAGE_HEIGHT][CAMERA_IMAGE_WIDTH], const uint16_t srcx,
@@ -113,14 +140,16 @@ static inline void copy_pixel(uint8_t dest[DISPLAY_IMAGE_HEIGHT][DISPLAY_IMAGE_W
 
 // Loops to copy the camera image
 // Avoids any 'ifs' or function calls during the image copy loop
-#if defined(CONFIG_CAMERA_ROTATE_90) || defined(CONFIG_CAMERA_ROTATE_270)
+// BBB-AIRGAP: upstream compiles the pair matching the build's fixed camera mounting; the libjade
+// build compiles all four so the mounting can be chosen on the device.
+#if defined(HAVE_CAMERA_ROTATION_SETTING) || defined(CONFIG_CAMERA_ROTATE_90) || defined(CONFIG_CAMERA_ROTATE_270)
 static void copy_camera_image_90(
     uint8_t dest[DISPLAY_IMAGE_HEIGHT][DISPLAY_IMAGE_WIDTH], const uint8_t src[CAMERA_IMAGE_HEIGHT][CAMERA_IMAGE_WIDTH])
 {
     for (uint16_t desty = 0; desty < DISPLAY_IMAGE_HEIGHT; ++desty) {
         for (uint16_t destx = 0; destx < DISPLAY_IMAGE_WIDTH; ++destx) {
-            const uint16_t srcy = (CAMERA_IMAGE_HEIGHT - 1) - XOFFSET - UI2CAM(destx);
-            const uint16_t srcx = YOFFSET + UI2CAM(desty);
+            const uint16_t srcy = (CAMERA_IMAGE_HEIGHT - 1) - XOFFSET_ROTATED - UI2CAM(destx);
+            const uint16_t srcx = YOFFSET_ROTATED + UI2CAM(desty);
             copy_pixel(dest, destx, desty, src, srcx, srcy);
         }
     }
@@ -131,13 +160,15 @@ static void copy_camera_image_270(
 {
     for (uint16_t desty = 0; desty < DISPLAY_IMAGE_HEIGHT; ++desty) {
         for (uint16_t destx = 0; destx < DISPLAY_IMAGE_WIDTH; ++destx) {
-            const uint16_t srcy = XOFFSET + UI2CAM(destx);
-            const uint16_t srcx = (CAMERA_IMAGE_WIDTH - 1) - YOFFSET - UI2CAM(desty);
+            const uint16_t srcy = XOFFSET_ROTATED + UI2CAM(destx);
+            const uint16_t srcx = (CAMERA_IMAGE_WIDTH - 1) - YOFFSET_ROTATED - UI2CAM(desty);
             copy_pixel(dest, destx, desty, src, srcx, srcy);
         }
     }
 }
-#else
+#endif
+#if defined(HAVE_CAMERA_ROTATION_SETTING)                                                                          \
+    || !(defined(CONFIG_CAMERA_ROTATE_90) || defined(CONFIG_CAMERA_ROTATE_270))
 static void copy_camera_image_0(
     uint8_t dest[DISPLAY_IMAGE_HEIGHT][DISPLAY_IMAGE_WIDTH], const uint8_t src[CAMERA_IMAGE_HEIGHT][CAMERA_IMAGE_WIDTH])
 {
@@ -213,6 +244,10 @@ typedef struct {
 
     // Output: the camera activity created (if show_ui)
     gui_activity_t* camera_act;
+
+    // BBB-AIRGAP: output - the on-screen text label node (if show_ui), so the processing
+    // callback can update it. Optional.
+    gui_view_node_t** label_out;
 } camera_task_config_t;
 
 // Signal to the caller that we are done, and await our death
@@ -246,6 +281,18 @@ static void jade_camera_init(void)
     JADE_LOGI("DISPLAY_IMAGE_HEIGHT: %u", DISPLAY_IMAGE_HEIGHT);
     JADE_LOGI("XOFFSET: %u", XOFFSET);
     JADE_LOGI("YOFFSET: %u", YOFFSET);
+#ifdef HAVE_CAMERA_ROTATION_SETTING
+    JADE_LOGI("XOFFSET_ROTATED: %u", XOFFSET_ROTATED);
+    JADE_LOGI("YOFFSET_ROTATED: %u", YOFFSET_ROTATED);
+    // BBB-AIRGAP: every rotation draws into one buffer of one size, so the quarter turns have to
+    // agree on that size. They do while the screen is square and the image spans it. Should either
+    // stop being true, fail here rather than let a rotated copy write outside the image.
+    JADE_STATIC_ASSERT(UI_DISPLAY_WIDTH <= CAMERA_IMAGE_HEIGHT); // no upscaling in either axis
+    JADE_STATIC_ASSERT(CAM_MIN(UI_DISPLAY_WIDTH, CAM2UI(CAMERA_IMAGE_HEIGHT)) == DISPLAY_IMAGE_WIDTH);
+    JADE_STATIC_ASSERT(CAM_MIN(UI_DISPLAY_HEIGHT, CAM2UI(CAMERA_IMAGE_WIDTH)) == DISPLAY_IMAGE_HEIGHT);
+    JADE_STATIC_ASSERT(XOFFSET_ROTATED >= 0);
+    JADE_STATIC_ASSERT(YOFFSET_ROTATED >= 0);
+#endif
 
     const esp_err_t ret = power_camera_on();
     if (ret != ESP_OK) {
@@ -376,8 +423,20 @@ static void jade_camera_task(void* data)
 
     typedef void (*copy_camera_image_fn_t)(
         uint8_t[DISPLAY_IMAGE_HEIGHT][DISPLAY_IMAGE_WIDTH], const uint8_t[CAMERA_IMAGE_HEIGHT][CAMERA_IMAGE_WIDTH]);
+#ifdef HAVE_CAMERA_ROTATION_SETTING
+    // BBB-AIRGAP: the mounting angle is a stored setting here, and turning the display over adds
+    // another half turn on top of it, so the two compose into one quarter-turn count.
+    // Read once, as upstream does: a change made while the camera is open takes effect the next
+    // time it opens, not part way through a scan.
+    static const copy_camera_image_fn_t rotations[]
+        = { copy_camera_image_0, copy_camera_image_90, copy_camera_image_180, copy_camera_image_270 };
+    const uint8_t quarter_turns
+        = (gui_get_camera_rotation() + (gui_get_flipped_orientation() ? 2 : 0)) % CAMERA_ROTATION_NUM_VALUES;
+    const copy_camera_image_fn_t copy_camera_image = rotations[quarter_turns];
+#else
     copy_camera_image_fn_t copy_camera_image
         = gui_get_flipped_orientation() ? COPY_CAMERA_IMAGE_FLIPPED : COPY_CAMERA_IMAGE_STRAIGHT;
+#endif
 
     camera_task_config_t* const camera_config = (camera_task_config_t*)data;
     JADE_ASSERT(camera_config->fn_process);
@@ -409,6 +468,9 @@ static void jade_camera_task(void* data)
         act = make_camera_activity(&image_node, &label_node, camera_config->show_click_button,
             camera_config->qr_guide_type, camera_config->progress_bar, camera_config->help_url);
         camera_config->camera_act = act;
+        if (camera_config->label_out) {
+            *camera_config->label_out = label_node;
+        }
         gui_set_current_activity(act);
     }
 
@@ -451,6 +513,16 @@ static void jade_camera_task(void* data)
     camera_task_should_run = true;
     camera_task_running = true;
     while (!done && camera_task_should_run) {
+        // BBB-AIRGAP: KEY3 leaves the camera.  Checked here rather than in the event branch below
+        // because that branch is skipped on every second frame while auto-scanning, and skipped
+        // altogether when there is no gui; the loop head is the one place every frame passes
+        // through.  Only when there is a screen to leave: the boot entropy pass runs this same
+        // loop with no ui, and a press there is not the user asking to leave anything.
+        if (camera_config->show_ui && gui_escape_pending()) {
+            done = true;
+            break;
+        }
+
         // Capture camera output
         camera_fb_t* const fb = esp_camera_fb_get();
         if (!fb) {
@@ -482,6 +554,19 @@ static void jade_camera_task(void* data)
             uint8_t(*image_matrix)[DISPLAY_IMAGE_WIDTH] = image_buffer;
             const uint8_t(*fb_matrix)[CAMERA_IMAGE_WIDTH] = (const uint8_t(*)[CAMERA_IMAGE_WIDTH])fb->buf;
             copy_camera_image(image_matrix, fb_matrix);
+#ifdef HAVE_CAMERA_ROTATION_SETTING
+            // BBB-AIRGAP: darken the rows the header is drawn over, so its white text and button
+            // outlines stay legible whatever the camera is pointed at.  Darkened rather than
+            // painted over: the image is full-screen here, so an opaque strip would hide 38 of the
+            // 220 rows quirc reads (jade_camera_scan_qr, main/qrscan.c), and a code held high in
+            // the frame would be scanned without the user being able to see it.  Done in the copy
+            // rather than the gui because the gui has no alpha blending.
+            for (uint16_t y = 0; y < CAMERA_HEADER_ROWS; ++y) {
+                for (uint16_t x = 0; x < DISPLAY_IMAGE_WIDTH; ++x) {
+                    image_matrix[y][x] >>= 1;
+                }
+            }
+#endif
             gui_update_picture(image_node, &pic, false);
 
             // Ensure showing camera activity/captured image
@@ -530,7 +615,7 @@ static void jade_camera_task(void* data)
 
 void jade_camera_process_images(camera_process_fn_t fn, void* ctx, const bool show_ui, const char* text_label,
     const bool show_click_button, const qr_guide_type_t qr_guide_type, const char* help_url,
-    progress_bar_t* progress_bar, gui_activity_t** act_out)
+    progress_bar_t* progress_bar, gui_activity_t** act_out, gui_view_node_t** label_out)
 {
     JADE_ASSERT(fn);
     // ctx is optional
@@ -543,6 +628,7 @@ void jade_camera_process_images(camera_process_fn_t fn, void* ctx, const bool sh
     // help_url is optional - if preset a '?' (and help screen) are shown
     // progress_bar is optional, and is for providing feedback for multi-frame scanning
     // act_out is optional - if provided receives the camera activity created (when show_ui is true)
+    // label_out is optional - if provided receives the text label node (when show_ui is true)
     // NOTE: not valid to have a label, button[label], help_url, qr frame or progress bar if no ui shown
     // NOTE: atm show_click_btn and help_url are mutually exclusive
     if (!show_ui) {
@@ -551,6 +637,7 @@ void jade_camera_process_images(camera_process_fn_t fn, void* ctx, const bool sh
         JADE_ASSERT(!help_url);
         JADE_ASSERT(qr_guide_type == QR_GUIDE_HIDE);
         JADE_ASSERT(!progress_bar);
+        JADE_ASSERT(!label_out);
     }
 
     // Config for the camera task
@@ -562,7 +649,8 @@ void jade_camera_process_images(camera_process_fn_t fn, void* ctx, const bool sh
         .progress_bar = progress_bar,
         .fn_process = fn,
         .ctx = ctx,
-        .camera_act = NULL };
+        .camera_act = NULL,
+        .label_out = label_out };
 
     // When running the camera task we set the minimum idle timeout to keep the hw from sleeping too quickly
     // (If the user has set a longer timeout value that is respected)
@@ -600,11 +688,14 @@ void jade_camera_process_images(camera_process_fn_t fn, void* ctx, const bool sh
 
 void jade_camera_process_images(camera_process_fn_t fn, void* ctx, const bool show_ui, const char* text_label,
     const bool show_click_button, const qr_guide_type_t qr_guide_type, const char* help_url,
-    progress_bar_t* progress_bar, gui_activity_t** act_out)
+    progress_bar_t* progress_bar, gui_activity_t** act_out, gui_view_node_t** label_out)
 {
     JADE_LOGW("No camera supported for this device");
     if (act_out) {
         *act_out = NULL;
+    }
+    if (label_out) {
+        *label_out = NULL;
     }
     await_error("No camera detected");
 }

@@ -14,7 +14,7 @@ fi
 (cd main && ${CLANG_FORMAT} -i *.c *.h */*.{c,h,inc})
 pushd libjade
 LIBJADE_SRCS=$(ls *.c *.h | grep -v miniz)
-${CLANG_FORMAT} -i $LIBJADE_SRCS */*.h */*/*.h
+${CLANG_FORMAT} -i $LIBJADE_SRCS selfcheck/*.c */*.h */*/*.h
 popd
 
 ${CLANG_FORMAT} -i tools/bip85_rsa_key_gen/main.c

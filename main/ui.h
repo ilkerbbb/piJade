@@ -10,6 +10,18 @@ struct wally_tx;
 // 'sign-message' screen - longer messages display the hash
 #define MAX_DISPLAY_MESSAGE_LEN 192
 
+// BBB-AIRGAP: the share of the screen width the title bar gives its middle cell, between the two
+// header buttons (populate_title_bar, main/ui/dialogs.c).  Named here rather than left as a bare
+// number in that split, because a caller that has to decide whether its title will fit needs the
+// same figure, and two copies of it would drift apart.
+#define TITLE_CELL_PCNT 70
+
+// BBB-AIRGAP: the share of the camera screen's height taken by its header row, and by the matching
+// footer row that holds the progress bar (make_camera_activity, main/ui/camera.c).  Named here
+// because main/camera.c needs the same figure to know how many rows of the image the header covers
+// and therefore dims as it copies them; two copies of the number would drift apart.
+#define CAMERA_HEADER_PCNT 20
+
 // Keyboard entry screens
 #define MAX_KB_ENTRY_LEN 256
 
@@ -119,6 +131,11 @@ typedef struct {
 // Helper to update dynamic menu item label (name: value)
 void update_menu_item(gui_view_node_t* node, const char* label, const char* value);
 
+// BBB-AIRGAP: writes a bitcoin amount into 'buf' in BTC or in satoshis, whichever the device is set
+// to (Features), and returns the ticker to show beside it.  Defined in main/ui/sign_tx.c,
+// where the tx screens use it; the mining screen shows a block reward through it too.
+const char* format_btc_amount(uint64_t satoshi, char* buf, size_t buf_len);
+
 // Helper to create an even split
 gui_view_node_t* make_even_split(ui_button_layout_t layout, uint8_t num_splits);
 
@@ -140,6 +157,54 @@ gui_activity_t* make_text_grid_activity(const char* title, btn_data_t* hdrbtns, 
 gui_activity_t* make_menu_activity(
     const char* title, btn_data_t* hdrbtns, const size_t num_hdrbtns, btn_data_t* menubtns, size_t num_menubtns);
 
+// BBB-AIRGAP: the buttons check paints one mark per input it can see.  KEY3 has no mark because
+// pressing it leaves the screen, which is the whole of its test; the centre press and KEY2 have
+// one each but light together, because the two keys are wired to the same input
+// (pijade/host/pijade_host.c).  Built by make_io_test_buttons_activity() (main/ui/dashboard.c),
+// coloured in by handle_io_test_buttons() (main/process/dashboard.c).
+typedef enum {
+    IO_TEST_MARK_UP,
+    IO_TEST_MARK_LEFT,
+    IO_TEST_MARK_CLICK,
+    IO_TEST_MARK_RIGHT,
+    IO_TEST_MARK_DOWN,
+    IO_TEST_MARK_KEY1,
+    IO_TEST_MARK_KEY2,
+    IO_TEST_NUM_MARKS
+} io_test_mark_t;
+
+// BBB-AIRGAP: scrolling list. Jade's menus stop at four items (make_menu_activity above) and the
+// gui engine has neither vertical scrolling nor clipping, so a longer menu cannot simply be drawn
+// taller. Instead the screen keeps four rows of the usual height and a window moves over the
+// items: the row labels are rewritten as the selection reaches an edge. Row height, fonts and
+// borders are the ones the four-item menu already uses.
+#define LIST_VISIBLE_ROWS 4
+
+typedef struct {
+    const char* txt;
+    // BBB-AIRGAP: optional single character drawn in the symbols font at the right of the row,
+    // for a mark the label itself cannot carry. NULL leaves that space empty. A list where no
+    // item has one is laid out exactly as before, without the extra column.
+    const char* symbol;
+    int32_t ev_id;
+} list_item_t;
+
+// Builds the list screen itself. 'rowbtns' are the visible rows, at most LIST_VISIBLE_ROWS of
+// them; their labels are owned by the caller through the returned nodes (btn_data_t::content).
+// 'scrollbar_cells' is optional: pass an array of LIST_VISIBLE_ROWS nodes to get a scroll
+// indicator down the right edge, whose cells the caller lights through update_list_scrollbar(),
+// or NULL for a list that fits on screen and needs none. 'symbol_nodes' is optional in the same
+// way: pass an array to get a symbol column beside the labels, whose text the caller sets, or
+// NULL for rows that are label-only. Either way rowbtns[i].content comes back as the label node.
+gui_activity_t* make_list_activity(const char* title, btn_data_t* hdrbtns, size_t num_hdrbtns, btn_data_t* rowbtns,
+    size_t num_rows, gui_view_node_t** scrollbar_cells, gui_view_node_t** symbol_nodes);
+
+// Runs the list until the user picks an item, and returns that item's ev_id; returns 'exit_ev_id'
+// if they leave through the title-bar button instead. '*io_selected' is the selected item on entry
+// and on exit, so a caller that returns from a sub-screen reopens the list where it was left.
+int32_t run_list_activity(
+    const char* title, int32_t exit_ev_id, const list_item_t* items, size_t num_items, size_t* io_selected);
+
 // Helper to create an activity to show a message on a single central label
 gui_activity_t* make_show_message_activity(const char* message[], size_t message_size, const char* title,
     btn_data_t* hdrbtns, size_t num_hdrbtns, btn_data_t* ftrbtns, size_t num_ftrbtns);
@@ -153,6 +218,11 @@ gui_activity_t* display_processing_message_activity();
 
 // Run activity that displays a message and awaits an 'ack' button click
 void await_message(const char* msg);
+// BBB-AIRGAP: the same screen as await_message(), returning true when KEY3 dismissed it.  The
+// answer is taken inside the wait, so a later press cannot clear it into consent; use it wherever
+// what follows the notice is destructive, irreversible or outward-facing.
+bool await_message_escaped(const char* message[], size_t message_size);
+void await_titled_message(const char* title, const char* msg);
 void await_message_2(const char* msg1, const char* msg2);
 void await_message_3(const char* msg1, const char* msg2, const char* msg3);
 void await_message_4(const char* msg1, const char* msg2, const char* msg3, const char* msg4);
@@ -165,11 +235,20 @@ bool await_yesno_activity(
     const char* title, const char* message[], size_t message_size, bool default_selection, const char* help_url);
 bool await_skipyes_activity(
     const char* title, const char* message[], size_t message_size, bool default_selection, const char* help_url);
+// BBB-AIRGAP: two-option question with caller-supplied labels.  Returns true for the first.
+bool await_choice_activity(const char* title, const char* message[], size_t message_size, const char* yes_txt,
+    const char* no_txt, bool default_selection, const char* help_url);
 bool await_continueback_activity(
     const char* title, const char* message[], size_t message_size, bool default_selection, const char* help_url);
 
 // Updatable label with left/right arrows
 gui_activity_t* make_carousel_activity(const char* title, gui_view_node_t** label, gui_view_node_t** item);
+// BBB-AIRGAP: Jade changes a setting on a screen of its own - the title names the setting, the value
+// in use sits between the arrows, left/right move through the values and the click keeps the one
+// shown (Display > Brightness, QR Settings > QR Density).  Upstream writes that loop out in every
+// handler; this fork has settings of its own, so the loop lives here once.  Shows 'labels[initial]'
+// first and returns the index of the label the click landed on.
+size_t await_carousel_activity(const char* title, const char* const* labels, size_t num_labels, size_t initial);
 void update_carousel_highlight_color(const gui_view_node_t* text_label, color_t color, bool repaint);
 
 // Functions for keyboard entry

@@ -10,6 +10,7 @@
 #define OTP_MAX_NAME_LEN 16
 #define OTP_MAX_URI_LEN 256
 #define OTP_MAX_TOKEN_LEN 12
+#define OTP_MAX_LABEL_LEN 128
 
 #define OTP_MAX_RECORDS 16
 

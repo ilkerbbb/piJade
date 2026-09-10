@@ -37,10 +37,13 @@ void camera_set_debug_image(const uint8_t* data, size_t len);
 // 'help_url' can be passed to link to a help url/resource.
 // 'progress_bar' can be passed to give feedback on multi-frame scanning.
 // act_out is optional - if provided receives the camera activity created (when show_ui is true)
+// BBB-AIRGAP: label_out is optional - if provided receives the on-screen text label node, so a
+// caller whose callback runs for as long as the user wants can tell the user where they stand.
+// It is only set when show_ui is true.
 // NOTE: atm show_click_btn and help_url are mutually exclusive
 void jade_camera_process_images(camera_process_fn_t fn, void* ctx, bool show_ui, const char* text_label,
     bool show_click_button, qr_guide_type_t qr_guide_type, const char* help_url, progress_bar_t* progress_bar,
-    gui_activity_t** act_out);
+    gui_activity_t** act_out, gui_view_node_t** label_out);
 
 // Signal the camera task to exit its loop and wait until it has finished
 // Safe to call when no camera task is running (it will be a no-op).

@@ -46,6 +46,10 @@ void vTaskDelete(void* task);
 void vTaskDeleteWithCaps(void* task);
 TickType_t xTaskGetTickCount(void);
 
+// BBB-AIRGAP: forgets where xTaskGetTickCount() is counting from, so the next caller sets a fresh
+// origin. libjade_start() calls this; nothing else should.
+void libjade_tick_epoch_reset(void);
+
 #define eNoAction 0
 
 int xTaskNotify(TaskHandle_t task, unsigned int v, int action);

@@ -187,6 +187,8 @@ static bool show_view_multisig_activity(const char* multisig_name, const bool in
             act = act_blindingkey;
             break;
 
+        // BBB-AIRGAP: KEY3 leaves through the screen's own decline, never its accept.
+        case BTN_ESCAPE_HOME:
         case BTN_MULTISIG_DISCARD_DELETE:
             return false;
 
@@ -311,6 +313,8 @@ static bool show_final_multisig_summary_activity(const char* multisig_name, cons
             act = act_type;
             break;
 
+        // BBB-AIRGAP: KEY3 leaves through the screen's own decline, never its accept.
+        case BTN_ESCAPE_HOME:
         case BTN_MULTISIG_DISCARD_DELETE:
             return false;
 
@@ -342,6 +346,11 @@ bool show_multisig_activity(const char* multisig_name, const bool is_sorted, con
     bool confirmed = false;
     uint8_t screen = 0; // 0 = initial summary, 1->n = signers, n+1 = final summary
     while (true) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            confirmed = false;
+            break;
+        }
         JADE_ASSERT(screen <= num_signer_details + 1);
         if (screen == 0) {
             confirmed = show_view_multisig_activity(multisig_name, initial_confirmation, is_valid, is_sorted, threshold,

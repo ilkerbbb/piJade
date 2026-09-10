@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>piJade help pages</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0 auto; padding: 24px 16px; max-width: 32rem;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #f6f6f4; color: #14201c; line-height: 1.55;
+  }
+  h1 { font-size: 1.2rem; margin: 0 0 6px; font-weight: 650; }
+  p.alt { color: #4a5a54; font-size: 0.88rem; margin: 0 0 20px; }
+  ul { padding-left: 1.1rem; }
+  li { margin: 8px 0; }
+  a { color: #0a6c52; }
+  code { background: #eceae4; padding: 1px 5px; border-radius: 3px; font-size: 0.93em; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #121614; color: #e8ece9; }
+    p.alt { color: #9aa8a2; }
+    code { background: #242c28; }
+    a { color: #5fd0a8; }
+  }
+</style>
+</head>
+<body>
+<h1>piJade help pages</h1>
+<p class="alt">These are the addresses the device shows as QR codes on its screen. Each page is a
+single file and never goes online once it has loaded.</p>
+<ul>
+  <li><a href="clock/">clock</a>: a live clock QR code for <code>Options &gt; OTP &gt; Set Clock</code></li>
+  <li><a href="sign/">sign</a>: the QR code of the message to sign, for <code>Sign Message</code></li>
+</ul>
+</body>
+</html>

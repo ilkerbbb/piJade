@@ -20,11 +20,22 @@ void debug_clean_reset_process(void* process_ptr)
     ASSERT_CURRENT_MESSAGE(process, "debug_clean_reset");
 
     // Pop up a notification that the wallet is being wiped
-    await_message("Warning: debug wipe");
+    // BBB-AIRGAP: dismissing this notification with KEY3 is not permission to wipe storage, and
+    // the answer has to be taken at the press rather than read from gui_escape_pending() further
+    // down: the delay below is a quarter of a second in which a stray direction would clear the
+    // flag (gui_escape_clear(), main/gui.c) and turn the escape into consent to erase the wallet.
+    const char* warning[] = { "Warning: debug wipe" };
+    const bool escaped = await_message_escaped(warning, 1);
     vTaskDelay(250 / portTICK_PERIOD_MS);
 
+    if (escaped) {
+        jade_process_reject_message(process, CBOR_RPC_USER_CANCELLED, "User abandoned debug wipe");
+        return;
+    }
+
     // Clean keychain from memory and storage
-    keychain_erase_encrypted();
+    const bool erased = keychain_erase_encrypted();
+    JADE_ASSERT(erased);
     keychain_clear();
 
     // Clean pinserver overrides from storage

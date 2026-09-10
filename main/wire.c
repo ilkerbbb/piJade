@@ -91,8 +91,13 @@ static bool handle_immediate_message(const cbor_msg_t* const ctx)
             }
         }
 #if defined(CONFIG_DEBUG_MODE) && defined(CONFIG_LIBJADE)
-        else if (method_len == strlen("libjade_request") && !strncmp(method, "libjade_request", method_len)) {
-            process_libjade_request(ctx);
+        else if (method_len == strlen(LIBJADE_REQUEST_METHOD) && !strncmp(method, LIBJADE_REQUEST_METHOD, method_len)) {
+            // BBB-AIRGAP: route only a parsed libjade_request to libjade_out. The daemon supplies
+            // SOURCE_SERIAL before parsing because its 1024-byte reads split the measured
+            // 76873-byte camera request; payload inspection in libjade_send() cannot classify it.
+            cbor_msg_t libjade_ctx = *ctx;
+            libjade_ctx.source = SOURCE_LIBJADE;
+            process_libjade_request(&libjade_ctx);
             return true;
         }
 #endif

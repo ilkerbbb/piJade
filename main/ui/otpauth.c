@@ -30,7 +30,7 @@ static gui_activity_t* make_otp_details_activities(const otpauth_ctx_t* ctx, con
 
     const char* const title = initial_confirmation ? "Confirm OTP" : "OTP Details";
     const bool show_help_btn = false;
-    char display_str[128];
+    char display_str[OTP_MAX_LABEL_LEN];
 
     // First row, name
     gui_view_node_t* splitname;
@@ -49,13 +49,26 @@ static gui_activity_t* make_otp_details_activities(const otpauth_ctx_t* ctx, con
 
     // If not valid, no details, just message
     if (!is_valid) {
-        // Create 'name' button and warning
+        // BBB-AIRGAP: the delete button is the caller's decision here, as it already is on the
+        // valid-record screen below.  It used to be hardcoded, which stated something this device
+        // cannot know: a record that will not decrypt may have been written by another wallet, or
+        // may be corrupt, and the two are indistinguishable because the ciphertext carries no
+        // authentication tag (otp_load_uri, main/otpauth.c).  Offering to delete is only safe in
+        // the second case, so whoever knows the context decides.
+        //
+        // The wording changed with it.  'Not valid' asserts the record is broken; what the device
+        // actually observed is that it could not read it with the wallet that is loaded.
         btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_OTP_RETAIN_CONFIRM },
-            { .txt = "X", .font = GUI_TITLE_FONT, .ev_id = BTN_OTP_DISCARD_DELETE } };
+            { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
+        if (show_delete_btn) {
+            hdrbtns[1].txt = "X";
+            hdrbtns[1].font = GUI_TITLE_FONT;
+            hdrbtns[1].ev_id = BTN_OTP_DISCARD_DELETE;
+        }
 
         btn_data_t menubtns[] = { { .content = splitname, .ev_id = BTN_OTA_VIEW_CURRENT_VERSION },
-            { .txt = "Not valid for", .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE },
-            { .txt = "current wallet", .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE },
+            { .txt = "Cannot be read with", .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE },
+            { .txt = "the wallet in use", .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE },
             { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
 
         gui_activity_t* const act = make_menu_activity(title, hdrbtns, 2, menubtns, 4);
@@ -164,15 +177,24 @@ static gui_activity_t* make_otp_details_activities(const otpauth_ctx_t* ctx, con
     return act;
 }
 
-gui_activity_t* make_view_export_otp_activity(const char* name)
+gui_activity_t* make_view_export_otp_activity(const char* name, const bool is_valid)
 {
     btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_BACK },
         { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
 
+    // BBB-AIRGAP: Export is offered only for a record this wallet can actually read.  It draws the
+    // stored uri as a 'Scan Secret Key' QR, and for a record written by another wallet the decrypt
+    // produces rubbish - measured: the screen came up and offered to export it.  Nothing secret
+    // leaks that way, the bytes are meaningless, but the screen tells the user it is handing them
+    // their key, which is the same dishonesty as the delete button on the same record.
+    //
+    // Last in the array so the count can drop it, matching the details screen: a record that
+    // cannot be read is shown and named, and nothing is offered that would act on it.
     btn_data_t menubtns[] = { { .txt = "View", .font = GUI_DEFAULT_FONT, .ev_id = BTN_OTP_DETAILS_VIEW },
         { .txt = "Export", .font = GUI_DEFAULT_FONT, .ev_id = BTN_OTP_DETAILS_EXPORT } };
 
-    return make_menu_activity(name, hdrbtns, 2, menubtns, 2);
+    const size_t num_menubtns = sizeof(menubtns) / sizeof(btn_data_t) - (is_valid ? 0 : 1);
+    return make_menu_activity(name, hdrbtns, 2, menubtns, num_menubtns);
 }
 
 // otp details screen for viewing or confirmation
@@ -218,7 +240,19 @@ bool show_otp_details_activity(
 
         case BTN_SETTINGS_OTP_HELP:
             await_qr_help_activity("blkstrm.com/otp");
+            // BBB-AIRGAP: help consumed KEY3; preserve the same retain/decline contract as below.
+            if (gui_escape_pending()) {
+                return !initial_confirmation;
+            }
             break;
+
+        // BBB-AIRGAP: escape is not the same answer as discard on this screen.  The return
+        // value means 'retain', and two callers have no discard option at all: they assert on
+        // it (main/process/dashboard.c, the BTN_OTP_DETAILS branches), so a false there would
+        // abort the device instead of going home.  While confirming a record that has just
+        // arrived, leaving must not store it, so there the escape declines.
+        case BTN_ESCAPE_HOME:
+            return !initial_confirmation;
 
         case BTN_OTP_DISCARD_DELETE:
             return false;

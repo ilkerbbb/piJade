@@ -74,7 +74,7 @@ gui_activity_t* make_home_screen_activity(const char* device_name, const char* f
     gui_set_parent(vsplit, act->root_node);
 
     // Main area, scrolling horizontal menu, in two sections - this/next
-    gui_make_hsplit(&hsplit, GUI_SPLIT_RELATIVE, 2, 65, 35);
+    gui_make_hsplit(&hsplit, GUI_SPLIT_RELATIVE, 2, HOME_SCREEN_SELECTED_TILE_PCT, 100 - HOME_SCREEN_SELECTED_TILE_PCT);
     const size_t toppad = (CONFIG_DISPLAY_HEIGHT > 200) ? (CONFIG_DISPLAY_HEIGHT - 180) / 2 : 8;
     gui_set_padding(hsplit, GUI_MARGIN_ALL_DIFFERENT, toppad, 0, 8, 0);
     gui_set_parent(hsplit, vsplit);
@@ -177,6 +177,8 @@ gui_activity_t* make_select_connection_activity_if_required(const bool temporary
     btn_data_t menubtns[] = { { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE },
         { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE },
         { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
+    btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_CONNECT_SELECT_BACK },
+        { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
     size_t ibtn = 0;
 
     // Temporary restore has QR first (Camera-Enabled hw only)
@@ -217,7 +219,10 @@ gui_activity_t* make_select_connection_activity_if_required(const bool temporary
     }
 
     // Otherwise make a menu and return that
-    return make_menu_activity("Select Connection", NULL, 0, menubtns, ibtn);
+    gui_activity_t* const act = make_menu_activity("Select Connection", hdrbtns, 2, menubtns, ibtn);
+    // BBB-AIRGAP: The new title button must not steal the screen's existing first menu selection.
+    gui_set_activity_initial_selection(menubtns[0].btn);
+    return act;
 }
 
 gui_activity_t* make_confirm_qrmode_activity(void)
@@ -274,118 +279,37 @@ gui_activity_t* make_startup_options_activity(void)
     return make_menu_activity("Boot Menu", hdrbtns, 2, menubtns, sizeof(menubtns) / sizeof(btn_data_t));
 }
 
-gui_activity_t* make_uninitialised_settings_activity(void)
-{
-    btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_SETTINGS_EXIT },
-        { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
-    btn_data_t menubtns[]
-        = { { .txt = "Temporary Signer", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_TEMPORARY_WALLET_LOGIN },
 #if defined(CONFIG_IDF_TARGET_ESP32S3) && defined(CONFIG_HAS_BATTERY)
-              { .txt = "USB Storage", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_USBSTORAGE },
-#endif
-              { .txt = "BIP39 Passphrase", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_BIP39_PASSPHRASE },
-              { .txt = "Settings", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_PREFS } };
-
-    return make_menu_activity("Options", hdrbtns, 2, menubtns, sizeof(menubtns) / sizeof(btn_data_t));
-}
-
-gui_activity_t* make_locked_settings_activity(void)
-{
-    btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_SETTINGS_EXIT },
-        { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
-
-    btn_data_t menubtns[]
-        = { { .txt = "BIP39 Passphrase", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_BIP39_PASSPHRASE },
-              { .txt = "Device", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DEVICE },
-              { .txt = "Temporary Signer", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_TEMPORARY_WALLET_LOGIN } };
-
-    return make_menu_activity("Options", hdrbtns, 2, menubtns, sizeof(menubtns) / sizeof(btn_data_t));
-}
-
-gui_activity_t* make_unlocked_settings_activity(void)
-{
-    btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_SETTINGS_EXIT },
-        { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
-
-    btn_data_t menubtns[] = { { .txt = "Wallet", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_WALLET },
-        { .txt = "Device", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DEVICE },
-#if defined(CONFIG_IDF_TARGET_ESP32S3) && defined(CONFIG_HAS_BATTERY)
-        { .txt = "USB Storage", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_USBSTORAGE },
-#endif
-        { .txt = "Authentication", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_AUTHENTICATION } };
-
-    return make_menu_activity("Options", hdrbtns, 2, menubtns, sizeof(menubtns) / sizeof(btn_data_t));
-}
-
-gui_activity_t* make_wallet_settings_activity(void)
-{
-    btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_SETTINGS_WALLET_EXIT },
-        { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
-
-    btn_data_t menubtns[] = { { .txt = "Export Xpub", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_XPUB_EXPORT },
-        { .txt = "Registered Wallets", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_REGISTERED_WALLETS },
-        { .txt = "BIP85", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_BIP85 } };
-
-    return make_menu_activity("Wallet", hdrbtns, 2, menubtns, 3);
-}
-
-#if defined(CONFIG_IDF_TARGET_ESP32S3) && defined(CONFIG_HAS_BATTERY)
-gui_activity_t* make_usbstorage_settings_activity(const bool unlocked)
+gui_activity_t* make_usbstorage_settings_activity(const bool wallet_loaded, const bool firmware_upgrade_allowed)
 {
     btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_SETTINGS_USBSTORAGE_EXIT },
         { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
 
-    btn_data_t menubtns[] = {
-        { .txt = "Firmware Upgrade", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_USBSTORAGE_FW },
-        { .txt = "Sign", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_USBSTORAGE_SIGN },
-        { .txt = "Export Xpub", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_USBSTORAGE_EXPORT_XPUB },
-    };
+    // BBB-AIRGAP: a temporary wallet can sit over a locked PIN blob.  Its own signing and xpub
+    // export remain valid, but OTA is not authenticated, so build those two rows without the
+    // otherwise dead Firmware Upgrade row.
+    btn_data_t menubtns[3];
+    size_t num_menubtns = 0;
+    if (firmware_upgrade_allowed) {
+        menubtns[num_menubtns++]
+            = (btn_data_t){ .txt = "Firmware Upgrade", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_USBSTORAGE_FW };
+    }
+    if (wallet_loaded) {
+        menubtns[num_menubtns++]
+            = (btn_data_t){ .txt = "Sign", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_USBSTORAGE_SIGN };
+        menubtns[num_menubtns++] = (btn_data_t){
+            .txt = "Export Xpub", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_USBSTORAGE_EXPORT_XPUB
+        };
+    }
+    // Never zero: the row that opens this screen is itself offered only with a wallet loaded or
+    // with no PIN on the device (run_options_list(), main/process/dashboard.c), and ota_allowed()
+    // returns true whenever there is no PIN - so the two conditions cannot both be false here.
+    JADE_ASSERT(num_menubtns > 0 && num_menubtns < 5);
 
-    return make_menu_activity("USB Storage", hdrbtns, 2, menubtns, unlocked ? 3 : 1);
+    return make_menu_activity("USB Storage", hdrbtns, 2, menubtns, num_menubtns);
 }
 
 #endif
-
-gui_activity_t* make_device_settings_activity(void)
-{
-    btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_SETTINGS_DEVICE_EXIT },
-        { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
-
-    btn_data_t menubtns[] = { { .txt = "Settings", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_PREFS },
-        { .txt = "Factory Reset", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_RESET },
-        { .txt = "Info", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_INFO } };
-
-    return make_menu_activity("Device", hdrbtns, 2, menubtns, 3);
-}
-
-gui_activity_t* make_prefs_settings_activity(const bool initialised_and_locked, gui_view_node_t** network_type_item)
-{
-    btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_SETTINGS_PREFS_EXIT },
-        { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
-
-    btn_data_t menubtns[] = { { .txt = "Display", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DISPLAY },
-        { .txt = "Idle Timeout", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_IDLE_TIMEOUT },
-        { .txt = "Bluetooth", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_BLE } };
-
-    // If qr_mode_network_item status control passed, implies want that button visible
-    // Otherwise show 'idle timeout' button
-    if (network_type_item) {
-        gui_make_text(network_type_item, "Network:", TFT_WHITE);
-        gui_set_align(*network_type_item, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
-        menubtns[1].txt = NULL;
-        menubtns[1].content = *network_type_item;
-        menubtns[1].ev_id = BTN_SETTINGS_NETWORK_TYPE;
-    }
-
-    // If Jade is initialised and locked, show the 'change_pin' option.
-    // If not (ie. is unlocked, or is uninitialised) show the ble option.
-    if (initialised_and_locked) {
-        menubtns[2].txt = "Change PIN";
-        menubtns[2].ev_id = BTN_SETTINGS_CHANGE_PIN;
-    }
-
-    return make_menu_activity("Settings", hdrbtns, 2, menubtns, 3);
-}
 
 gui_activity_t* make_display_settings_activity(void)
 {
@@ -407,34 +331,24 @@ gui_activity_t* make_display_settings_activity(void)
 #elif defined(CONFIG_BOARD_TYPE_JADE)
     btn_data_t menubtns[] = { { .txt = "Theme", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DISPLAY_THEME } };
 #else // DIY units
-    btn_data_t menubtns[]
-        = { { .txt = "Flip Orientation", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DISPLAY_ORIENTATION },
-              { .txt = "Theme", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DISPLAY_THEME } };
+    btn_data_t menubtns[] = {
+#ifdef HAVE_DISPLAY_BRIGHTNESS_SETTING
+        // BBB-AIRGAP: kept first, as it is on the boards upstream lists, so the menu reads the same.
+        { .txt = "Display Brightness", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DISPLAY_BRIGHTNESS },
+#endif
+        { .txt = "Flip Orientation", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DISPLAY_ORIENTATION },
+        { .txt = "Theme", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DISPLAY_THEME },
+#ifdef HAVE_CAMERA_ROTATION_SETTING
+        // BBB-AIRGAP: a hand-assembled unit can have the camera mounted at any angle, so the
+        // angle upstream fixes per board is chosen here instead - on a screen of its own,
+        // as brightness and theme are (main/process/dashboard.c handle_camera_rotation), so
+        // the row reads like the three above it.
+        { .txt = "Camera Rotation", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DISPLAY_CAMERA_ROTATION },
+#endif
+    };
 #endif
 
     return make_menu_activity("Display", hdrbtns, 2, menubtns, sizeof(menubtns) / sizeof(btn_data_t));
-}
-
-gui_activity_t* make_authentication_activity(const bool initialised_and_pin_unlocked)
-{
-    btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_SETTINGS_AUTHENTICATION_EXIT },
-        { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
-
-    btn_data_t menubtns[] = { { .txt = "Duress PIN", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_WALLET_ERASE_PIN },
-        { .txt = "OTP", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_OTP },
-#ifdef CONFIG_HAS_CAMERA
-        { .txt = "Change PIN (QR)", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_CHANGE_PIN_QR }
-#endif
-    };
-
-    size_t num_menubtns = 2;
-#ifdef CONFIG_HAS_CAMERA
-    if (initialised_and_pin_unlocked) {
-        num_menubtns = 3;
-    }
-#endif
-
-    return make_menu_activity("Authentication", hdrbtns, 2, menubtns, num_menubtns);
 }
 
 gui_activity_t* make_otp_activity(void)
@@ -442,10 +356,16 @@ gui_activity_t* make_otp_activity(void)
     btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_SETTINGS_OTP_EXIT },
         { .txt = "?", .font = GUI_TITLE_FONT, .ev_id = BTN_SETTINGS_OTP_HELP } };
 
+    // BBB-AIRGAP: 'Set Clock' scans an epoch QR (ur:jade-epoch).  Time-based codes are wrong
+    // until the clock is set, and this port loses the clock on every power cut (no RTC), so the
+    // step belongs in the menu that leads to those codes rather than buried in a generic scan.
     btn_data_t menubtns[] = { { .txt = "View OTP", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_OTP_VIEW },
+#ifdef CONFIG_HAS_CAMERA
+        { .txt = "Set Clock", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_OTP_SET_CLOCK },
+#endif
         { .txt = "New OTP Record", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_OTP_NEW } };
 
-    return make_menu_activity("OTP", hdrbtns, 2, menubtns, 2);
+    return make_menu_activity("OTP", hdrbtns, 2, menubtns, sizeof(menubtns) / sizeof(btn_data_t));
 }
 
 gui_activity_t* make_new_otp_activity(void)
@@ -508,10 +428,8 @@ gui_activity_t* make_wallet_erase_pin_info_activity(void)
     return act;
 }
 
-gui_activity_t* make_wallet_erase_pin_options_activity(gui_view_node_t** pin_text)
+gui_activity_t* make_wallet_erase_pin_options_activity(void)
 {
-    JADE_INIT_OUT_PPTR(pin_text);
-
     btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_WALLET_ERASE_PIN_EXIT },
         { .txt = "?", .font = GUI_TITLE_FONT, .ev_id = BTN_WALLET_ERASE_PIN_HELP } };
 
@@ -524,36 +442,41 @@ gui_activity_t* make_wallet_erase_pin_options_activity(gui_view_node_t** pin_tex
     gui_set_parent(vsplit, parent);
 
     gui_view_node_t* label;
-    gui_make_text(&label, "Wallet-erase PIN set:", TFT_WHITE);
+    gui_make_text(&label, "Wallet-erase PIN:", TFT_WHITE);
     gui_set_align(label, GUI_ALIGN_LEFT, GUI_ALIGN_MIDDLE);
     gui_set_parent(label, vsplit);
 
-    gui_make_text(pin_text, "", TFT_WHITE);
-    gui_set_align(*pin_text, GUI_ALIGN_CENTER, GUI_ALIGN_TOP);
-    gui_set_parent(*pin_text, vsplit);
+    // BBB-AIRGAP: this row used to hold the stored PIN itself.  The PIN is kept as a salted
+    // verifier now (main/storage.c) and cannot be read back, so the row states that one is set.
+    // The screen is only ever reached when that is true (main/process/dashboard.c).
+    gui_view_node_t* value;
+    gui_make_text(&value, "Enabled", TFT_WHITE);
+    gui_set_align(value, GUI_ALIGN_CENTER, GUI_ALIGN_TOP);
+    gui_set_parent(value, vsplit);
 
-    btn_data_t ftrbtns[] = { { .txt = "Change", .font = GUI_DEFAULT_FONT, .ev_id = BTN_WALLET_ERASE_PIN_SET },
-        { .txt = "Disable", .font = GUI_DEFAULT_FONT, .ev_id = BTN_WALLET_ERASE_PIN_DISABLE } };
+    // BBB-AIRGAP: without explicit borders add_button() draws them in black (dialogs.c:64), so the
+    // two controls read as plain text until one is selected; the standard two-button footer is
+    // TOPRIGHT/TOPLEFT plus an initial selection (dialogs.c:960-965).  'Change' is selected first
+    // because 'Disable' removes the duress wallet's protection - the destructive option is not the
+    // one that should sit under the click by default.  Presentation only: the duress PIN's unlock
+    // and wipe behaviour is untouched.
+    btn_data_t ftrbtns[] = { { .txt = "Change",
+                                 .font = GUI_DEFAULT_FONT,
+                                 .ev_id = BTN_WALLET_ERASE_PIN_SET,
+                                 .borders = GUI_BORDER_TOPRIGHT },
+        { .txt = "Disable",
+            .font = GUI_DEFAULT_FONT,
+            .ev_id = BTN_WALLET_ERASE_PIN_DISABLE,
+            .borders = GUI_BORDER_TOPLEFT } };
     add_buttons(vsplit, UI_ROW, ftrbtns, 2);
+    gui_set_activity_initial_selection(ftrbtns[0].btn);
 
     return act;
 }
 
-gui_activity_t* make_session_activity(void)
-{
-    btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_SESSION_EXIT },
-        { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
-
-    btn_data_t menubtns[] = { { .txt = "Log Out", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SESSION_LOGOUT }
-#ifndef CONFIG_ETH_USE_OPENETH
-        ,
-        { .txt = "Sleep", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SESSION_SLEEP }
-#endif
-    };
-
-    return make_menu_activity("Session", hdrbtns, 2, menubtns, sizeof(menubtns) / sizeof(btn_data_t));
-}
-
+// BBB-AIRGAP: the loaded wallet appears here under its fingerprint, and its operations hang off
+// that entry. 'seed_label' is only read while the menu is built - the builder keeps its own copy
+// of the text (main/gui.c:1170) - so a caller's stack buffer is enough.
 gui_activity_t* make_ble_activity(gui_view_node_t** ble_status_item)
 {
     JADE_INIT_OUT_PPTR(ble_status_item);
@@ -613,7 +536,12 @@ gui_activity_t* make_info_activity(const char* fw_version)
     gui_set_parent(fwver, splitfw);
 
     btn_data_t menubtns[] = { { .content = splitfw, .ev_id = BTN_SETTINGS_INFO_FWVERSION },
-        { .txt = "Device Info", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DEVICE_INFO }
+        { .txt = "Device Info", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DEVICE_INFO },
+        // BBB-AIRGAP: this port runs on hardware that was rewired by hand, so the display and the
+        // camera are the two parts most likely to be the fault and the least likely to be
+        // diagnosable without a build environment.  Their check lives here, next to the other
+        // things you look at when you want to know what this device is.
+        { .txt = "I/O Test", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_IO_TEST }
 #ifdef CONFIG_BOARD_TYPE_JADE_ANY
         // Legal screens only apply to official Jade hw
         ,
@@ -629,7 +557,140 @@ gui_activity_t* make_info_activity(const char* fw_version)
     return act;
 }
 
-gui_activity_t* make_device_info_activity(void)
+// BBB-AIRGAP: upstream does have a hardware check (main/smoketest.c) but it is built only into QA
+// firmware and ends by powering the device off, so it is not something a user can reach.  This is
+// the reachable version, and it covers the two parts this port rewired.
+gui_activity_t* make_io_test_activity(void)
+{
+    btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_IO_TEST_EXIT },
+        { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
+
+    btn_data_t menubtns[] = {
+        { .txt = "Screen", .font = GUI_DEFAULT_FONT, .ev_id = BTN_IO_TEST_SCREEN },
+#ifdef CONFIG_LIBJADE
+        // BBB-AIRGAP: the buttons check is only offered where its exit exists.  It leaves on
+        // GUI_ALT_EVENT and nothing else, and the only caller of gui_alt_click() is
+        // libjade_input() (libjade/libjade.c); none of the native handlers in main/input/ has a
+        // third key to call it with.  On an official Jade board this row would open a screen with
+        // no way out of it.
+        { .txt = "Buttons", .font = GUI_DEFAULT_FONT, .ev_id = BTN_IO_TEST_BUTTONS },
+#endif
+#ifdef CONFIG_HAS_CAMERA
+        { .txt = "Camera", .font = GUI_DEFAULT_FONT, .ev_id = BTN_IO_TEST_CAMERA },
+#endif
+    };
+
+    return make_menu_activity("I/O Test", hdrbtns, 2, menubtns, sizeof(menubtns) / sizeof(btn_data_t));
+}
+
+// BBB-AIRGAP: the strip along the top keeps the instruction visible while the rest of the panel is
+// painted whatever colour is being checked - including white, which would swallow white text, and
+// black, which would swallow the border of a button.  Splitting it off is what makes the colour
+// area a flat field with nothing drawn over it, which is what a dead pixel has to show against.
+gui_activity_t* make_io_test_screen_activity(gui_view_node_t** colour_fill)
+{
+    JADE_INIT_OUT_PPTR(colour_fill);
+
+    gui_activity_t* const act = gui_make_activity();
+
+    gui_view_node_t* vsplit;
+    gui_make_vsplit(&vsplit, GUI_SPLIT_RELATIVE, 2, 18, 82);
+    gui_set_parent(vsplit, act->root_node);
+
+    gui_view_node_t* label;
+    gui_make_text(&label, "Click for next color", TFT_WHITE);
+    gui_set_align(label, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
+    gui_set_parent(label, vsplit);
+
+    gui_make_fill(colour_fill, TFT_BLACK, FILL_PLAIN, vsplit);
+
+    return act;
+}
+
+// BBB-AIRGAP: the buttons check.  The board has eight keys and the firmware above libjade sees
+// seven inputs, because KEY2 and the joystick centre are wired to the same one
+// (pijade/host/pijade_host.c).  So the pair lights two marks together and the screen says so; which of the
+// two was pressed is known to the person pressing it, and a key that is dead marks nothing.
+//
+// Nothing here is selectable.  The marks are painted by handle_io_test_buttons()
+// (main/process/dashboard.c) as the events arrive, and the glyphs come from the symbols font
+// (main/fonts/jade_symbols_16x16.c): K and L are the small up and down triangles, H and I the
+// left and right ones, and M the hollow circle standing for the centre press.
+gui_activity_t* make_io_test_buttons_activity(gui_view_node_t** marks)
+{
+    JADE_ASSERT(marks);
+
+    gui_activity_t* const act = gui_make_activity();
+
+    gui_view_node_t* vsplit;
+    gui_make_vsplit(&vsplit, GUI_SPLIT_RELATIVE, 3, 20, 56, 24);
+    gui_set_parent(vsplit, act->root_node);
+
+    gui_view_node_t* title;
+    gui_make_text(&title, "Press each button", TFT_WHITE);
+    gui_set_align(title, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
+    gui_set_parent(title, vsplit);
+
+    gui_view_node_t* body;
+    gui_make_hsplit(&body, GUI_SPLIT_RELATIVE, 2, 55, 45);
+    gui_set_parent(body, vsplit);
+
+    // Joystick: up on its own row, then left/centre/right, then down.
+    gui_view_node_t* pad;
+    gui_make_vsplit(&pad, GUI_SPLIT_RELATIVE, 3, 33, 34, 33);
+    gui_set_parent(pad, body);
+
+    gui_make_text_font(&marks[IO_TEST_MARK_UP], "K", TFT_DARKGREY, JADE_SYMBOLS_16x16_FONT);
+    gui_set_align(marks[IO_TEST_MARK_UP], GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
+    gui_set_parent(marks[IO_TEST_MARK_UP], pad);
+
+    gui_view_node_t* midrow;
+    gui_make_hsplit(&midrow, GUI_SPLIT_RELATIVE, 3, 33, 34, 33);
+    gui_set_parent(midrow, pad);
+
+    gui_make_text_font(&marks[IO_TEST_MARK_LEFT], "H", TFT_DARKGREY, JADE_SYMBOLS_16x16_FONT);
+    gui_set_align(marks[IO_TEST_MARK_LEFT], GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
+    gui_set_parent(marks[IO_TEST_MARK_LEFT], midrow);
+
+    gui_make_text_font(&marks[IO_TEST_MARK_CLICK], "M", TFT_DARKGREY, JADE_SYMBOLS_16x16_FONT);
+    gui_set_align(marks[IO_TEST_MARK_CLICK], GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
+    gui_set_parent(marks[IO_TEST_MARK_CLICK], midrow);
+
+    gui_make_text_font(&marks[IO_TEST_MARK_RIGHT], "I", TFT_DARKGREY, JADE_SYMBOLS_16x16_FONT);
+    gui_set_align(marks[IO_TEST_MARK_RIGHT], GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
+    gui_set_parent(marks[IO_TEST_MARK_RIGHT], midrow);
+
+    gui_make_text_font(&marks[IO_TEST_MARK_DOWN], "L", TFT_DARKGREY, JADE_SYMBOLS_16x16_FONT);
+    gui_set_align(marks[IO_TEST_MARK_DOWN], GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
+    gui_set_parent(marks[IO_TEST_MARK_DOWN], pad);
+
+    // The three keys down the right hand edge, in the order they sit on the board.
+    gui_view_node_t* keys;
+    gui_make_vsplit(&keys, GUI_SPLIT_RELATIVE, 3, 33, 34, 33);
+    gui_set_parent(keys, body);
+
+    gui_make_text(&marks[IO_TEST_MARK_KEY1], "K1 First", TFT_DARKGREY);
+    gui_set_align(marks[IO_TEST_MARK_KEY1], GUI_ALIGN_LEFT, GUI_ALIGN_MIDDLE);
+    gui_set_parent(marks[IO_TEST_MARK_KEY1], keys);
+
+    gui_make_text(&marks[IO_TEST_MARK_KEY2], "K2 Click", TFT_DARKGREY);
+    gui_set_align(marks[IO_TEST_MARK_KEY2], GUI_ALIGN_LEFT, GUI_ALIGN_MIDDLE);
+    gui_set_parent(marks[IO_TEST_MARK_KEY2], keys);
+
+    gui_view_node_t* key3;
+    gui_make_text(&key3, "K3 Exit", TFT_WHITE);
+    gui_set_align(key3, GUI_ALIGN_LEFT, GUI_ALIGN_MIDDLE);
+    gui_set_parent(key3, keys);
+
+    gui_view_node_t* note;
+    gui_make_text(&note, "K2 is the center press", TFT_WHITE);
+    gui_set_align(note, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
+    gui_set_parent(note, vsplit);
+
+    return act;
+}
+
+gui_activity_t* make_device_info_activity(const bool show_ble)
 {
     btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_SETTINGS_DEVICE_INFO_EXIT },
         { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
@@ -638,9 +699,22 @@ gui_activity_t* make_device_info_activity(void)
 #ifdef CONFIG_HAS_BATTERY
         { .txt = "Battery Volts", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DEVICE_INFO_BATTERY },
 #endif
-        { .txt = "Storage", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DEVICE_INFO_STORAGE } };
+        { .txt = "Storage", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DEVICE_INFO_STORAGE },
+        // BBB-AIRGAP: the radio row sits here rather than among the preferences, because on this
+        // hardware it cannot act: the Bluetooth circuit is cut and handle_ble() only says the
+        // firmware has it disabled.  A row that states a fact about the device belongs with the
+        // other facts about the device.  It keeps its event id and its behaviour, so a build that
+        // does have Bluetooth still opens the real screen from here.
+        //
+        // Last in the array so 'show_ble' can drop it by shortening the count.  It has to be
+        // droppable: upstream offered this row only when the device was not locked (the locked
+        // device got Change PIN in its place, main/process/dashboard.c before the move), and on a
+        // build with the radio present handle_ble() switches Bluetooth on and deletes pairings -
+        // neither of which should be reachable by someone who has not entered the PIN.
+        { .txt = "Bluetooth", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_BLE } };
 
-    return make_menu_activity("Device Info", hdrbtns, 2, menubtns, sizeof(menubtns) / sizeof(btn_data_t));
+    const size_t num_menubtns = sizeof(menubtns) / sizeof(btn_data_t) - (show_ble ? 0 : 1);
+    return make_menu_activity("Device Info", hdrbtns, 2, menubtns, num_menubtns);
 }
 
 #ifdef CONFIG_BOARD_TYPE_JADE_ANY

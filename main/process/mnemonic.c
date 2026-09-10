@@ -3,6 +3,7 @@
 
 #include "../bcur.h"
 #include "../button_events.h"
+#include "../entropy_sources.h"
 #include "../jade_assert.h"
 #include "../jade_wally_verify.h"
 #include "../keychain.h"
@@ -11,7 +12,9 @@
 #include "../qrmode.h"
 #include "../qrscan.h"
 #include "../random.h"
+#include "../seedqr.h"
 #include "../sensitive.h"
+#include "../storage.h"
 #include "../ui.h"
 #include "../utils/cbor_rpc.h"
 #include "../utils/network.h"
@@ -21,6 +24,8 @@
 
 #include <cdecoder.h>
 #include <ctype.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #define MAX_NUM_FINAL_WORDS 128
 #define NUM_WORDS_SELECT 10
@@ -49,16 +54,18 @@ gui_activity_t* make_calculate_final_word_activity(void);
 
 gui_activity_t* make_confirm_passphrase_activity(const char* passphrase, gui_view_node_t** textbox);
 
-gui_activity_t* make_export_qr_overview_activity(const Icon* icon, bool initial);
+gui_activity_t* make_export_qr_overview_activity(bool initial);
+gui_activity_t* make_export_qr_fullscreen_activity(const Icon* icon);
 gui_activity_t* make_export_qr_fragment_activity(
-    const Icon* icon, gui_view_node_t** icon_node, gui_view_node_t** label_node);
+    const Icon* icon, bool context_available, gui_view_node_t** icon_node, gui_view_node_t** label_node);
 
 gui_activity_t* make_bip85_mnemonic_words_activity(void);
 
 #ifdef CONFIG_HAS_CAMERA
 // Export a mnemonic by asking the user to transcribe it to hard copy, then
 // scanning that hard copy back in and verifying the data matches.
-// NOTE: the SeedSigner 'CompactSeedQR' format is used (raw entropy).
+// NOTE: both SeedSigner formats are offered - 'CompactSeedQR' (raw entropy) and the
+// 'Standard SeedQR' digit string (four digits per BIP39 word index).
 // NOTE: a 'true' return means the user either completed the QR copy and verification
 // process, OR they decided to abandon/skip it - in either case move on to the next step.
 // 'false' implies they pressed a 'back' button and we should NOT move forward.
@@ -70,52 +77,82 @@ static bool mnemonic_export_qr(const char* mnemonic, bool* export_qr_verified)
     // Will be set if scan succeeds
     *export_qr_verified = false;
 
-    const char* question[] = { "Draw the", "CompactSeedQR for", "use with QR Mode." };
+    const char* question[] = { "Draw the SeedQR", "for use with", "QR Mode." };
     if (!await_skipyes_activity(NULL, question, 3, true, "blkstrm.com/seedqr")) {
         // User decided against it at this time - 'true' return implies a definitive
         // decision by the user - as opposed to a simple 'back' button press.
         return true;
     }
 
-    // CompactSeedQR is simply the mnemonic entropy
-    // Only 12 or 24 word mnemonics are supported (ie. 128 & 256 bit entropy)
+    // CompactSeedQR is simply the mnemonic entropy; the Standard format is a digit string
+    // derived from it.  Only 12 or 24 word mnemonics are supported (ie. 128 & 256 bit entropy)
     size_t entropy_len = 0;
     uint8_t entropy[BIP32_ENTROPY_LEN_256]; // Sufficient for 12 and 24 words
     SENSITIVE_PUSH(entropy, sizeof(entropy));
     JADE_WALLY_VERIFY(bip39_mnemonic_to_bytes(NULL, mnemonic, entropy, sizeof(entropy), &entropy_len));
     JADE_ASSERT(entropy_len == BIP32_ENTROPY_LEN_128 || entropy_len == BIP32_ENTROPY_LEN_256);
 
-    // Convert the entropy into a small (v1 or v2) qr-code
+    // BBB-AIRGAP: offer the two SeedSigner formats.  'Compact' is the raw entropy (the only
+    // format Jade produced before) and stays the default; 'Standard' is the digit string.
+    const char* format_question[] = { "Which SeedQR", "format?" };
+    const bool compact
+        = await_choice_activity(NULL, format_question, 2, "Compact", "Standard", true, "blkstrm.com/seedqr");
+
+    // BBB-AIRGAP: 'Standard' and a KEY3 escape both come back as false, and Standard goes on to
+    // derive the seed as a digit string.  The loops below would stop at their first escape check
+    // anyway, but by then that seed-equivalent material has been built for a user who asked to
+    // leave; there is no reason to compute it at all, so the escape is answered first.  'false'
+    // is the 'back' return, and the callers treat a pending escape as the end of the export.
+    if (gui_escape_pending()) {
+        SENSITIVE_POP(entropy);
+        return false;
+    }
+
+    // BBB-AIRGAP: the Standard format is the seed as a digit string, so it is seed-equivalent
+    char digits[97]; // 96 digits plus the NUL
+    size_t digits_len = 0;
+    SENSITIVE_PUSH(digits, sizeof(digits));
+    if (!compact) {
+        JADE_ASSERT(seedqr_digits_from_entropy(entropy, entropy_len, digits, sizeof(digits), &digits_len));
+    }
+
+    // Convert the payload into a small (v1 to v3) qr-code
     QRCode qrcode;
-    const uint8_t qrcode_version = entropy_len == BIP32_ENTROPY_LEN_128 ? 1 : 2;
-    uint8_t qrbuffer[96]; // underlying qrcode data/work area - opaque
+    const uint8_t qrcode_version = compact ? (entropy_len == BIP32_ENTROPY_LEN_128 ? 1 : 2)
+                                           : (entropy_len == BIP32_ENTROPY_LEN_128 ? 2 : 3);
+    uint8_t qrbuffer[112]; // underlying qrcode data/work area - opaque; v3 needs 106
     JADE_ASSERT(sizeof(qrbuffer) > qrcode_getBufferSize(qrcode_version));
     SENSITIVE_PUSH(qrbuffer, sizeof(qrbuffer));
-    const int qret = qrcode_initBytes(&qrcode, qrbuffer, qrcode_version, ECC_LOW, entropy, entropy_len);
+    // BBB-AIRGAP: qrcode_initText() returns 0 even when the payload does not fit - it silently
+    // truncates (measured, see pijade/tools/v3_capacity_probe.c).  The version/length pairing is
+    // therefore asserted here and never inferred from the return value.
+    JADE_ASSERT(compact
+        || (digits_len == 48 && qrcode_version == 2) || (digits_len == 96 && qrcode_version == 3));
+    const int qret = compact
+        ? qrcode_initBytes(&qrcode, qrbuffer, qrcode_version, ECC_LOW, entropy, entropy_len)
+        : qrcode_initText(&qrcode, qrbuffer, qrcode_version, ECC_LOW, digits);
     JADE_ASSERT(qret == 0);
 
-#if CONFIG_DISPLAY_WIDTH >= 480 && CONFIG_DISPLAY_HEIGHT >= 220
-    const uint8_t overview_scale = qrcode_version == 1 ? 9 : 8;
-    const uint8_t fragment_target_size = 210;
-#elif CONFIG_DISPLAY_WIDTH >= 320 && CONFIG_DISPLAY_HEIGHT >= 170
-    const uint8_t overview_scale = qrcode_version == 1 ? 7 : 6;
-    const uint8_t fragment_target_size = 150;
-#else
-    const uint8_t overview_scale = qrcode_version == 1 ? 5 : 4;
-    const uint8_t fragment_target_size = 105;
-#endif
+    const uint16_t fragment_row_height = CONFIG_DISPLAY_HEIGHT * QRCODE_FRAGMENT_ROW_PERCENT / 100;
+    const uint16_t fragment_target_size
+        = CONFIG_DISPLAY_WIDTH < fragment_row_height ? CONFIG_DISPLAY_WIDTH : fragment_row_height;
 
-    // Make qr code icon as an overview image
-    Icon qr_overview;
-    qrcode_toIcon(&qrcode, &qr_overview, overview_scale);
+    Icon qr_fullscreen;
+    qrcode_toIcon(&qrcode, &qr_fullscreen, qr_fullscreen_scale_factor(qrcode_version));
 
     // Make a bag of icons for square fragments of the qr
     Icon* icons = NULL;
     size_t num_icons = 0;
     const bool show_grid = true;
-    const uint8_t expected_grid_size = (qrcode_version == 1) ? 3 : 5;
-    JADE_ASSERT(qrcode_toFragmentsIcons(&qrcode, fragment_target_size, show_grid, &icons, &num_icons));
+    const uint8_t expected_grid_size = qrcode_version == 1 ? 3 : (qrcode_version == 2 ? 5 : 6);
+    JADE_ASSERT(qrcode_toFragmentsIcons(&qrcode, fragment_target_size, show_grid, 0, &icons, &num_icons));
     JADE_ASSERT(num_icons == expected_grid_size * expected_grid_size);
+
+    const uint8_t context_modules = 2;
+    const bool context_available
+        = qrcode_fragmentsContextFits(qrcode_version, fragment_target_size, context_modules);
+    Icon* context_icons = NULL;
+    size_t num_context_icons = 0;
 
     // Show the overview and magnified fragments, and when the user
     // is done try to scan the qr code they have made and verify it
@@ -133,9 +170,33 @@ static bool mnemonic_export_qr(const char* mnemonic, bool* export_qr_verified)
         while (true) {
             // Show the overview QR
             uint8_t ipart = 0; // fragment to show
-            gui_activity_t* const act_overview_qr = make_export_qr_overview_activity(&qr_overview, first_attempt);
+            gui_activity_t* const act_overview_qr = make_export_qr_overview_activity(first_attempt);
+            bool code_shown = false;
             gui_set_current_activity_ex(act_overview_qr, true);
-            if (gui_activity_wait_event(act_overview_qr, GUI_BUTTON_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0)) {
+            while (true) {
+                // BBB-AIRGAP: KEY3 leaves the export entirely, not just this screen.  Leaving
+                // only the innermost loop left ev_id short of BTN_QR_EXPORT_DONE, so the loop
+                // around it rebuilt the overview and the fragments again with the flag still
+                // set; the screens allocate on every pass, so that was a growing loop rather
+                // than a stall.  The export has one exit and the escape takes it.
+                if (gui_escape_pending()) {
+                    retval = false;
+                    goto cleanup;
+                }
+
+                ev_id = wait_export_screen_button(
+                    act_overview_qr, first_attempt ? BTN_QR_EXPORT_NEXT : BTN_QR_EXPORT_DONE, &code_shown);
+                if (ev_id == BTN_QR_SHOW_FULLSCREEN) {
+                    gui_activity_t* const act_fullscreen = make_export_qr_fullscreen_activity(&qr_fullscreen);
+                    gui_set_current_activity(act_fullscreen);
+                    gui_activity_wait_button(act_fullscreen, BTN_QR_FULLSCREEN_EXIT);
+#ifdef CONFIG_DEBUG_UNATTENDED_CI
+                    // BBB-AIRGAP: The CI wait returns before the GUI task draws; qrmode.c:286 holds it too.
+                    vTaskDelay(500 / portTICK_PERIOD_MS);
+#endif
+                    gui_destroy_current_activity(act_fullscreen, act_overview_qr);
+                    continue;
+                }
                 if (ev_id == BTN_QR_EXPORT_DONE) {
                     // We are done viewing/copying the qr
                     break;
@@ -143,46 +204,64 @@ static bool mnemonic_export_qr(const char* mnemonic, bool* export_qr_verified)
                     // Move to fragments carousel, showing the first fragment
                     ipart = 0;
                 } else if (ev_id == BTN_QR_EXPORT_PREV) {
-                    if (first_attempt) {
-                        // On the initial screen, 'back' takes us back out of these screens
-                        // A false return implies a 'back' option was pressed.
-                        retval = false;
-                        goto cleanup;
-                    } else {
-                        // On subsequent loops through, the 'back' button goes back into
-                        // the carousel of grid images, from the end (ie. backwards)
-                        ipart = num_icons - 1;
-                    }
+                    // BBB-AIRGAP: 'back' leaves the export, on this pass and every later one.
+                    // Upstream sent it into the fragment carousel from the end once the carousel
+                    // had been visited, and the carousel's own 'back' at the first fragment
+                    // returns here (ipart wraps to num_icons, the loop above), so the two screens
+                    // handed each other back and forth with no way out: the device round of
+                    // 2026-09-02 hit exactly that, pressing back repeatedly and never leaving.
+                    // Nothing is lost by exiting instead, because that screen grew a '>' header
+                    // button on later passes (main/ui/mnemonic.c, the !initial branch) which
+                    // enters the carousel forwards from the first fragment.
+                    // A false return implies a 'back' option was pressed.
+                    retval = false;
+                    goto cleanup;
                 } else {
                     // Unexpected button event, continue waiting
                     continue;
                 }
-            } else {
-                // Unexpected gui event, continue waiting
-                continue;
+                break;
+            }
+            if (ev_id == BTN_QR_EXPORT_DONE) {
+                break;
             }
             first_attempt = false;
 
             // Make a screen to display qr-code fragment icons
             gui_view_node_t* icon_node = NULL;
             gui_view_node_t* text_node = NULL;
-            gui_activity_t* const act_qr_part = make_export_qr_fragment_activity(&qr_overview, &icon_node, &text_node);
+            gui_activity_t* const act_qr_part
+                = make_export_qr_fragment_activity(&icons[0], context_available, &icon_node, &text_node);
             JADE_ASSERT(icon_node);
             JADE_ASSERT(text_node);
+            bool show_context = false;
+            bool part_changed = true;
 
             // Show QR parts, using the buttons to navigate to previous/next fragment
             while (true) {
+                // BBB-AIRGAP: KEY3 leaves the export entirely, not just this screen.  Leaving
+                // only the innermost loop left ev_id short of BTN_QR_EXPORT_DONE, so the loop
+                // around it rebuilt the overview and the fragments again with the flag still
+                // set; the screens allocate on every pass, so that was a growing loop rather
+                // than a stall.  The export has one exit and the escape takes it.
+                if (gui_escape_pending()) {
+                    retval = false;
+                    goto cleanup;
+                }
+
                 // Update display - ipart == num_icons implies going back to the 'overview' of the entire qr-code
-                if (ipart < num_icons) {
+                if (ipart >= num_icons) {
+                    // Done showing fragments - back to qr overview screen
+                    break;
+                }
+                if (part_changed) {
                     char label[12];
                     const int ret = snprintf(label, sizeof(label), "Grid: %c%u", 'A' + (ipart / expected_grid_size),
                         1 + (ipart % expected_grid_size));
                     JADE_ASSERT(ret > 0 && ret < sizeof(label));
-                    gui_update_icon(icon_node, icons[ipart], false);
+                    gui_update_icon(icon_node, show_context ? context_icons[ipart] : icons[ipart], false);
                     gui_update_text(text_node, label);
-                } else {
-                    // Done showing fragments - back to qr overview screen
-                    break;
+                    part_changed = false;
                 }
 
                 gui_set_current_activity_ex(act_qr_part, true);
@@ -190,9 +269,20 @@ static bool mnemonic_export_qr(const char* mnemonic, bool* export_qr_verified)
                     switch (ev_id) {
                     case BTN_QR_EXPORT_PREV:
                         ipart = (ipart + num_icons) % (num_icons + 1);
+                        part_changed = true;
                         break;
                     case BTN_QR_EXPORT_NEXT:
                         ipart = (ipart + 1) % (num_icons + 1);
+                        part_changed = true;
+                        break;
+                    case BTN_QR_EXPORT_CONTEXT:
+                        if (!context_icons) {
+                            JADE_ASSERT(qrcode_toFragmentsIcons(&qrcode, fragment_target_size, show_grid,
+                                context_modules, &context_icons, &num_context_icons));
+                            JADE_ASSERT(num_context_icons == num_icons);
+                        }
+                        show_context = !show_context;
+                        gui_update_icon(icon_node, show_context ? context_icons[ipart] : icons[ipart], true);
                         break;
                     default:
                         break;
@@ -203,12 +293,18 @@ static bool mnemonic_export_qr(const char* mnemonic, bool* export_qr_verified)
 
         // Verify QR by scanning it back
         qr_data_t* qr_data = JADE_CALLOC(1, sizeof(qr_data_t));
-        const bool scan_success
-            = jade_camera_scan_qr(qr_data, "Scan QR to verify", QR_GUIDE_SHOW, "blkstrm.com/seedqr");
+        const bool scan_success = jade_camera_scan_qr(qr_data, "Scan to verify", QR_GUIDE_SHOW, "blkstrm.com/seedqr");
         const bool qr_found = scan_success && qr_data->len != 0;
-        const bool is_match = qr_found && qr_data->len == entropy_len && !memcmp(qr_data->data, entropy, entropy_len);
+        const bool is_match = qr_found
+            && (compact ? (qr_data->len == entropy_len && !memcmp(qr_data->data, entropy, entropy_len))
+                        : (qr_data->len == digits_len && !memcmp(qr_data->data, digits, digits_len)));
         wally_bzero(qr_data, sizeof(qr_data_t));
         free(qr_data);
+        // BBB-AIRGAP: leaving the verification camera must not open the Retry question.
+        if (gui_escape_pending()) {
+            retval = false;
+            goto cleanup;
+        }
         if (is_match) {
             // QR Code scanned, and it matched expected entropy
             await_message("QR Code Verified");
@@ -228,16 +324,45 @@ static bool mnemonic_export_qr(const char* mnemonic, bool* export_qr_verified)
 
 cleanup:
     SENSITIVE_POP(qrbuffer);
+    SENSITIVE_POP(digits);
     SENSITIVE_POP(entropy);
-    // Free the icons
+    for (size_t i = 0; i < num_context_icons; ++i) {
+        qrcode_freeIconData(&context_icons[i]);
+    }
+    free(context_icons);
     for (int i = 0; i < num_icons; ++i) {
         qrcode_freeIconData(&icons[i]);
     }
     free(icons);
-    qrcode_freeIconData(&qr_overview);
+    qrcode_freeIconData(&qr_fullscreen);
 
     // Return 'true' if done, or 'false' if 'back' was pressed
     return retval;
+}
+
+// BBB-AIRGAP: the backup-menu entry point to the screens above.  Upstream reaches them once,
+// from the setup flow, with the mnemonic the user just typed still in scope; this reaches the
+// same screens for the wallet in use, building the words from the entropy its slot holds and
+// wiping them again on the way out.  Doing it here rather than in the caller keeps the words
+// inside the file that already knows how to draw them.
+static void export_wallet_seedqr(void)
+{
+    char* mnemonic = NULL;
+    if (!keychain_export_mnemonic(&mnemonic)) {
+        // The menu only offers this for a wallet that has entropy, so this is not a state the
+        // user can reach - say so rather than showing an empty screen.
+        JADE_LOGE("SeedQR export requested for a wallet with no entropy");
+        await_message("Export unavailable");
+        return;
+    }
+
+    SENSITIVE_PUSH(mnemonic, strlen(mnemonic));
+    bool export_qr_verified = false;
+    // A 'false' return is the 'back' button on the first screen, which from here means "leave
+    // export", so unlike the setup flow there is nothing to loop over.
+    mnemonic_export_qr(mnemonic, &export_qr_verified);
+    SENSITIVE_POP(mnemonic);
+    JADE_WALLY_VERIFY(wally_free_string(mnemonic));
 }
 #endif // CONFIG_HAS_CAMERA
 
@@ -263,6 +388,62 @@ static void change_mnemonic_word_separator(char* mnemonic, const size_t len, con
     JADE_ASSERT(i == len + 1);
 }
 
+// BBB-AIRGAP: waits on the mnemonic pages for the button that leaves them, and returns its id.
+// Two properties of this wait matter, and neither is free.  First, the registration is made once
+// and held for the whole wait: the page-turn buttons post GUI_BUTTON_EVENT too (see
+// connect_button_activity() in main/gui.c), so a registration made per iteration - as
+// sync_await_single_event() does - is torn down and rebuilt on every page turn, and a press landing
+// in that gap is lost.  Second, only the two buttons that leave are registered, not
+// ESP_EVENT_ANY_ID: the handler overwrites a single event-id field and gives a binary semaphore
+// (main/utils/event.c), so a page turn arriving before the waiting task is scheduled would both
+// overwrite the id being waited for and be swallowed by the already-given semaphore.  Either
+// failure leaves the words drawn on screen with nothing waiting for them.
+static int32_t await_mnemonic_pages_exit(gui_activity_t* first_activity)
+{
+    JADE_ASSERT(first_activity);
+
+    // BBB-AIRGAP: an escape from the incorrect-word message has already consumed its event.
+    if (gui_escape_pending()) {
+        return BTN_MNEMONIC_EXIT;
+    }
+
+    esp_event_handler_instance_t ctx_exit = NULL;
+    esp_event_handler_instance_t ctx_verify = NULL;
+    esp_event_handler_instance_t ctx_alt = NULL;
+    wait_event_data_t* const wait_data = make_wait_event_data();
+    JADE_ASSERT(wait_data);
+    JADE_ZERO_VERIFY(esp_event_handler_instance_register(
+        GUI_BUTTON_EVENT, BTN_MNEMONIC_EXIT, sync_wait_event_handler, wait_data, &ctx_exit));
+    JADE_ZERO_VERIFY(esp_event_handler_instance_register(
+        GUI_BUTTON_EVENT, BTN_MNEMONIC_VERIFY, sync_wait_event_handler, wait_data, &ctx_verify));
+    // BBB-AIRGAP: page navigation changes activities, so keep ALT registered across all pages
+    // just like the two exit buttons. KEY3 posts on GUI_EVENT, which those registrations miss.
+    JADE_ZERO_VERIFY(esp_event_handler_instance_register(
+        GUI_EVENT, GUI_ALT_EVENT, sync_wait_event_handler, wait_data, &ctx_alt));
+
+    gui_set_current_activity(first_activity);
+
+    // A blocking wait (max_wait 0), so this returns only once one of the registered exit events has
+    // fired - the page-turn buttons walk the chain of activities without waking it.
+    int32_t ev_id = ESP_EVENT_ANY_ID;
+    esp_event_base_t ev_base = NULL;
+    JADE_ZERO_VERIFY(sync_wait_event(wait_data, &ev_base, &ev_id, NULL, 0));
+    // BBB-AIRGAP: the event namespaces overlap; ALT can only mean abandon, never verify.
+    if (ev_base == GUI_EVENT && ev_id == GUI_ALT_EVENT) {
+        ev_id = BTN_MNEMONIC_EXIT;
+    }
+    JADE_ASSERT(ev_id == BTN_MNEMONIC_EXIT || ev_id == BTN_MNEMONIC_VERIFY);
+
+    // Unregister before the data is freed - a handler left registered would write into freed memory
+    // on the next button press.
+    JADE_ZERO_VERIFY(esp_event_handler_instance_unregister(GUI_BUTTON_EVENT, BTN_MNEMONIC_EXIT, ctx_exit));
+    JADE_ZERO_VERIFY(esp_event_handler_instance_unregister(GUI_BUTTON_EVENT, BTN_MNEMONIC_VERIFY, ctx_verify));
+    // BBB-AIRGAP: remove the added handler before freeing its shared wait data.
+    JADE_ZERO_VERIFY(esp_event_handler_instance_unregister(GUI_EVENT, GUI_ALT_EVENT, ctx_alt));
+    free_wait_event_data(wait_data);
+    return ev_id;
+}
+
 // Helper to display mnemonic words, and then have the user confirm some
 // NOTE: this function replaces spaces with \0's in the passed mnemonic!
 static bool display_confirm_mnemonic(const size_t nwords, char* mnemonic, const size_t mnemonic_len)
@@ -272,7 +453,10 @@ static bool display_confirm_mnemonic(const size_t nwords, char* mnemonic, const 
     JADE_ASSERT(mnemonic);
 
     // Show the warning banner screen, user to confirm
-    {
+    // BBB-AIRGAP: a device can be set to leave this banner out (Features).  What it guards is
+    // the user's attention, not the words: the screens either side of it are unchanged, and the
+    // words are shown on the next screen whichever way this one is answered other than 'back'.
+    if (storage_get_feature_flags() & FEATURE_FLAGS_HARSH_WARNINGS) {
         const char* message[] = { "These words are your", "wallet. Keep them", "protected and offline." };
         if (!await_continueback_activity(NULL, message, 3, true, "blkstrm.com/phrase")) {
             // Abandon before we begin
@@ -293,24 +477,16 @@ static bool display_confirm_mnemonic(const size_t nwords, char* mnemonic, const 
     JADE_ASSERT(last_activity);
 
     while (!mnemonic_confirmed) {
-        gui_set_current_activity(first_activity);
-        int32_t ev_id;
-        while (true) {
-            ev_id = ESP_EVENT_ANY_ID;
-            if (sync_await_single_event(GUI_BUTTON_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0) != ESP_OK) {
-                continue;
-            }
-            if (ev_id == BTN_MNEMONIC_EXIT) {
-                // User abandonded
-                JADE_LOGD("user abandoned noting mnemonic");
-                goto cleanup;
-            }
-            if (ev_id == BTN_MNEMONIC_VERIFY) {
-                // User ready to verify mnemonic
-                JADE_LOGD("moving on to confirm mnemonic");
-                break;
-            }
+        int32_t ev_id = await_mnemonic_pages_exit(first_activity);
+        if (ev_id == BTN_MNEMONIC_EXIT) {
+            // User abandonded
+            JADE_LOGD("user abandoned noting mnemonic");
+            goto cleanup;
         }
+
+        // User ready to verify mnemonic
+        JADE_ASSERT(ev_id == BTN_MNEMONIC_VERIFY);
+        JADE_LOGD("moving on to confirm mnemonic");
 
         // Confirm the mnemonic - show groups of three consecutive words
         // and have user confirm one of them at random.
@@ -321,8 +497,12 @@ static bool display_confirm_mnemonic(const size_t nwords, char* mnemonic, const 
             const size_t offset_word_to_confirm = get_uniform_random_byte(3);
             const size_t selected = i + offset_word_to_confirm;
             gui_view_node_t* textbox = NULL;
+            // BBB-AIRGAP: the backup check opts out of the KEY3 escape.  The words are on the
+            // screen the user is being asked about; a stray press must not end the check and leave
+            // a wallet whose backup was never confirmed.  Its own 'incorrect' path is the way out.
             gui_activity_t* const confirm_act
                 = make_confirm_mnemonic_word_activity(&textbox, i, offset_word_to_confirm, mnemonic, word_offs, nwords);
+            gui_activity_set_escape(confirm_act, false);
             JADE_LOGD("selected = %u", selected);
 
             // Pick some other words from the mnemonic as options, but avoid
@@ -352,13 +532,34 @@ static bool display_confirm_mnemonic(const size_t nwords, char* mnemonic, const 
             uint8_t index = get_uniform_random_byte(num_words_options);
             gui_update_text(textbox, mnemonic + word_offs[random_words[index]]);
 
-            gui_set_current_activity(confirm_act);
+            // BBB-AIRGAP: keep one handler live for this whole confirmation screen. Re-registering
+            // after every wheel/click event leaves a gap where the next press is delivered to the
+            // previous semaphore and lost, with the recovery phrase still drawn and no waiter for
+            // that press. The activity owns both the registration and its wait data, so switching
+            // away removes the handler before freeing the data.
+            wait_event_data_t* const event_data = gui_activity_make_wait_event_data(confirm_act);
+            gui_activity_register_event(confirm_act, GUI_EVENT, ESP_EVENT_ANY_ID, sync_wait_event_handler, event_data);
+
+            // Switched synchronously so the drain below has something to drain: the asynchronous
+            // gui_set_current_activity() only queues the switch, and this activity's handlers go
+            // live later, on the gui task.  What is discarded is the second half of the press that
+            // opened this screen - a single press posts GUI_BUTTON_EVENT via select_action() and
+            // then, unconditionally, its own GUI_EVENT click (main/gui.c:2556-2573), and the
+            // registration above takes any GUI_EVENT.  This screen is rebuilt for every word, so
+            // the press that confirmed the previous word is exactly what would land here and
+            // confirm this one at whichever option it opened on - almost always the wrong one,
+            // sending the user back to check a recovery phrase that was written down correctly.
+            // Same 10ms idle timeout as run_list_activity() (main/ui/dialogs.c).
+            gui_set_current_activity_sync(confirm_act, false);
+            while (sync_wait_event(event_data, NULL, NULL, NULL, 10 / portTICK_PERIOD_MS) == ESP_OK) {
+                // discard - see comment above
+            }
 
             bool stop = false;
             while (!stop) {
                 // wait for a GUI event
                 ev_id = ESP_EVENT_ANY_ID;
-                gui_activity_wait_event(confirm_act, GUI_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0);
+                JADE_ZERO_VERIFY(sync_wait_event(event_data, NULL, &ev_id, NULL, 0));
 
                 switch (ev_id) {
                 case GUI_WHEEL_LEFT_EVENT:
@@ -396,9 +597,136 @@ cleanup:
     return mnemonic_confirmed;
 }
 
+// BBB-AIRGAP: the backup screens exist only where the entropy does, and entropy is held only on a
+// device with a camera (see derive_keychain below) - so the whole surface is built under the same
+// condition rather than laid out and then never reached.
+#ifdef CONFIG_HAS_CAMERA
+// BBB-AIRGAP: how many words a mnemonic holds, counted from its separators rather than derived
+// from the entropy - the caller only needs the count, and deriving it would mean holding the
+// entropy in another buffer for no other reason.
+static size_t count_mnemonic_words(const char* mnemonic)
+{
+    JADE_ASSERT(mnemonic);
+
+    size_t nwords = 1;
+    for (const char* p = mnemonic; *p; ++p) {
+        if (*p == ' ') {
+            ++nwords;
+        }
+    }
+    return nwords;
+}
+
+// BBB-AIRGAP: the words of the wallet in use, shown and nothing more.  The setup flow reaches the
+// same screens on its way to the verification quiz (display_confirm_mnemonic above); here there is
+// nothing after them, so the forward button on the last page leaves just as the back button does.
+static void show_wallet_words(char* mnemonic, const size_t mnemonic_len, const size_t nwords)
+{
+    JADE_ASSERT(mnemonic);
+    JADE_ASSERT(nwords == 12 || nwords == 24);
+
+    // BBB-AIRGAP: as in display_confirm_mnemonic() above - the same banner, and the same setting.
+    if (storage_get_feature_flags() & FEATURE_FLAGS_HARSH_WARNINGS) {
+        const char* message[] = { "These words are your", "wallet. Keep them", "protected and offline." };
+        if (!await_continueback_activity(NULL, message, 3, true, "blkstrm.com/phrase")) {
+            return;
+        }
+    }
+
+    // NOTE: this replaces the spaces in the passed mnemonic with NULs, as the screens below take
+    // each word as its own string.
+    uint16_t word_offs[MNEMONIC_MAXWORDS];
+    change_mnemonic_word_separator(mnemonic, mnemonic_len, ' ', '\0', word_offs, nwords);
+
+    gui_activity_t* first_activity = NULL;
+    gui_activity_t* last_activity = NULL;
+    make_show_mnemonic_activities(&first_activity, &last_activity, mnemonic, word_offs, nwords);
+    JADE_ASSERT(first_activity);
+
+    // Either end of the chain leaves: there is nothing after these screens to move on to.
+    await_mnemonic_pages_exit(first_activity);
+}
+
+// BBB-AIRGAP: builds the words of the wallet in use from the entropy its slot holds, hands them to
+// 'fn', and wipes them again.  Every backup screen needs them the same way, so the fetching and
+// the wiping live in one place rather than in each of them.
+static void with_wallet_words(void (*fn)(char*, size_t, size_t))
+{
+    JADE_ASSERT(fn);
+
+    char* mnemonic = NULL;
+    if (!keychain_export_mnemonic(&mnemonic)) {
+        // The menu only offers these screens for a wallet that has entropy, so this is not a state
+        // the user can reach - say so rather than showing an empty screen.
+        JADE_LOGE("Backup screen requested for a wallet with no entropy");
+        await_message("Backup unavailable");
+        return;
+    }
+
+    const size_t mnemonic_len = strlen(mnemonic);
+    SENSITIVE_PUSH(mnemonic, mnemonic_len);
+    fn(mnemonic, mnemonic_len, count_mnemonic_words(mnemonic));
+    SENSITIVE_POP(mnemonic);
+    JADE_WALLY_VERIFY(wally_free_string(mnemonic));
+}
+
+static void verify_wallet_words(char* mnemonic, const size_t mnemonic_len, const size_t nwords)
+{
+    if (display_confirm_mnemonic(nwords, mnemonic, mnemonic_len)) {
+        // Said out loud because this screen is reached on purpose, unlike the setup flow where
+        // passing the quiz simply moves on to the next step.
+        await_message("Backup Verified");
+    }
+}
+
+// BBB-AIRGAP: the backup screens for the wallet in use, grouped the way SeedSigner groups them
+// (View words / Export SeedQR / Verify backup).  All three need the words, which exist only for a
+// wallet whose slot still holds the entropy they were built from, so the caller offers this menu
+// on that condition - see handle_session() in main/process/dashboard.c.
+void handle_wallet_backup(void)
+{
+    size_t selected = 0;
+    while (true) {
+        // BBB-AIRGAP: an escape started on a screen this menu opened has to keep going; the list
+        // itself only sees KEY3 while it is the one waiting.
+        if (gui_escape_pending()) {
+            return;
+        }
+        list_item_t items[3];
+        size_t num_items = 0;
+        items[num_items++] = (list_item_t){ .txt = "View Words", .ev_id = BTN_WALLET_BACKUP_VIEW };
+        items[num_items++] = (list_item_t){ .txt = "Export SeedQR", .ev_id = BTN_WALLET_BACKUP_SEEDQR };
+        items[num_items++] = (list_item_t){ .txt = "Verify Backup", .ev_id = BTN_WALLET_BACKUP_VERIFY };
+        JADE_ASSERT(num_items <= sizeof(items) / sizeof(items[0]));
+
+        const int32_t ev_id = run_list_activity("Backup", BTN_WALLET_BACKUP_EXIT, items, num_items, &selected);
+        switch (ev_id) {
+        case BTN_WALLET_BACKUP_VIEW:
+            with_wallet_words(show_wallet_words);
+            break;
+
+        case BTN_WALLET_BACKUP_SEEDQR:
+            export_wallet_seedqr();
+            break;
+
+        case BTN_WALLET_BACKUP_VERIFY:
+            with_wallet_words(verify_wallet_words);
+            break;
+
+        case BTN_WALLET_BACKUP_EXIT:
+        default:
+            return;
+        }
+    }
+}
+#endif // CONFIG_HAS_CAMERA
+
 #ifndef CONFIG_DEBUG_UNATTENDED_CI
 // NOTE: only the English wordlist is supported.
-static bool mnemonic_new(const size_t nwords, char* mnemonic, const size_t mnemonic_len)
+// BBB-AIRGAP: 'entropy' is user-supplied (eg. dice rolls); pass NULL to use the
+// device RNG, which is the upstream behaviour.
+static bool mnemonic_new(
+    const size_t nwords, const uint8_t* entropy, const size_t entropy_len, char* mnemonic, const size_t mnemonic_len)
 {
     // Support 12-word and 24-word mnemonics only
     JADE_ASSERT(nwords == 12 || nwords == 24);
@@ -407,7 +735,13 @@ static bool mnemonic_new(const size_t nwords, char* mnemonic, const size_t mnemo
 
     // Generate and show the mnemonic - NOTE: only the English wordlist is supported.
     char* new_mnemonic = NULL;
-    keychain_get_new_mnemonic(&new_mnemonic, nwords);
+    if (entropy) {
+        JADE_ASSERT(entropy_len == (nwords == 12 ? BIP39_ENTROPY_LEN_128 : BIP39_ENTROPY_LEN_256));
+        JADE_WALLY_VERIFY(bip39_mnemonic_from_bytes(NULL, entropy, entropy_len, &new_mnemonic));
+        JADE_WALLY_VERIFY(bip39_mnemonic_validate(NULL, new_mnemonic));
+    } else {
+        keychain_get_new_mnemonic(&new_mnemonic, nwords);
+    }
     JADE_ASSERT(new_mnemonic);
     const size_t new_mnemonic_len = strnlen(new_mnemonic, MNEMONIC_BUFLEN);
     JADE_ASSERT(new_mnemonic_len < MNEMONIC_BUFLEN); // buffer should be large enough for any mnemonic
@@ -634,6 +968,9 @@ static size_t get_wordlist_words(
     const bool show_enter_btn = !is_mnemonic; // Don't show 'done' button when entering mnemonic words
     gui_activity_t* const enter_word_activity
         = make_enter_wordlist_word_activity(&titletext, show_enter_btn, &textbox, &backspace, &enter, btns, btns_len);
+    // BBB-AIRGAP: word entry opts out of the KEY3 escape - one press must not throw away
+    // the letters typed so far.  The screen's own backspace and 'back' remain the way out.
+    gui_activity_set_escape(enter_word_activity, false);
     JADE_ASSERT(enter);
     enter->is_active = show_enter_btn;
 
@@ -647,6 +984,9 @@ static size_t get_wordlist_words(
     gui_view_node_t* label = NULL;
     const char* select_word_title = ((purpose == WORDLIST_PASSPHRASE) ? "Enter Passphrase" : "Recover Wallet");
     gui_activity_t* const choose_word_activity = make_carousel_activity(select_word_title, &label, &text_selection);
+    // BBB-AIRGAP: word entry opts out of the KEY3 escape - one press must not throw away
+    // the words entered so far.  The screen's own backspace and 'back' remain the way out.
+    gui_activity_set_escape(choose_word_activity, false);
     int32_t ev_id;
 
     // For each word
@@ -665,6 +1005,11 @@ static size_t get_wordlist_words(
         if (purpose == MNEMONIC_ADVANCED && word_index == nwords - 1) {
             gui_activity_t* const final_word_activity = make_calculate_final_word_activity();
             while (true) {
+                // BBB-AIRGAP: this question and its help are escapable even though word typing
+                // is exempt. Return the existing abandoned-entry result before reopening either.
+                if (gui_escape_pending()) {
+                    return 0;
+                }
                 gui_set_current_activity(final_word_activity);
 
                 if (gui_activity_wait_event(
@@ -1148,7 +1493,11 @@ bool import_and_validate_mnemonic(qr_data_t* qr_data)
     return ret;
 }
 
-static bool mnemonic_qr(char* mnemonic, const size_t mnemonic_len)
+// BBB-AIRGAP: no longer static - the Options list reaches this to load a second wallet
+// (BTN_SETTINGS_ADD_WALLET, main/process/dashboard.c).  It is the scanner that accepts a recovery
+// phrase and nothing else, which is what that row promises; the generic scanner would also take a
+// PSBT or an address.
+bool mnemonic_qr(char* mnemonic, const size_t mnemonic_len)
 {
     JADE_ASSERT(mnemonic);
     JADE_ASSERT(mnemonic_len == MNEMONIC_BUFLEN);
@@ -1160,7 +1509,7 @@ static bool mnemonic_qr(char* mnemonic, const size_t mnemonic_len)
 
     // We return 'true' if we scanned any string data at all
     const bool qr_scanned
-        = jade_camera_scan_qr(&qr_data, NULL, QR_GUIDE_SHOW, "blkstrm.com/scanwallet") && qr_data.len > 0;
+        = jade_camera_scan_qr(&qr_data, "Seed QR", QR_GUIDE_SHOW, "blkstrm.com/scanwallet") && qr_data.len > 0;
     if (!qr_scanned) {
         JADE_LOGW("No qr code scanned");
         goto cleanup;
@@ -1212,12 +1561,40 @@ static void get_freetext_passphrase(char* passphrase, const size_t passphrase_le
         gui_update_text(text_to_confirm, kb_entry.len > 0 ? kb_entry.strdata : "<no passphrase>");
         gui_set_current_activity(confirm_passphrase_activity);
         gui_activity_wait_event(confirm_passphrase_activity, GUI_BUTTON_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0);
+
+        // BBB-AIRGAP: leaving the confirmation abandons the passphrase.  Without this the loop
+        // would reopen the keyboard, which is exempt from the escape, and the first key typed
+        // there clears the flag - so the cancel could no longer be recovered by the checks in
+        // get_passphrase()'s callers.  The empty string is what they then see.
+        if (ev_id == BTN_ESCAPE_HOME) {
+            kb_entry.len = 0;
+            kb_entry.strdata[0] = '\0';
+            break;
+        }
         done = (ev_id == BTN_YES);
     }
 
     JADE_ASSERT(kb_entry.len < passphrase_len);
     strcpy(passphrase, kb_entry.strdata);
     SENSITIVE_POP(kb_entry.strdata);
+}
+
+// BBB-AIRGAP: the entry itself, without the question that precedes it in get_passphrase().  Split
+// out for the one caller that has already asked its own version of that question and must not ask
+// twice (derive_keychain, when the words scanned turn out to be a wallet already held).
+static void enter_passphrase(char* passphrase, const size_t passphrase_len)
+{
+    JADE_ASSERT(passphrase);
+    JADE_ASSERT(passphrase_len);
+
+    if (keychain_get_passphrase_type() == PASSPHRASE_WORDLIST) {
+        // Passphrase made up only of bip39 wordlist words
+        // BBB-AIRGAP: the word count narrows the passphrase search space, so it is not logged.
+        get_wordlist_words(WORDLIST_PASSPHRASE, WORDLIST_PASSPHRASE_MAX_WORDS, passphrase, passphrase_len);
+    } else {
+        // Free-text passphrase
+        get_freetext_passphrase(passphrase, passphrase_len);
+    }
 }
 
 void get_passphrase(char* passphrase, const size_t passphrase_len)
@@ -1231,22 +1608,50 @@ void get_passphrase(char* passphrase, const size_t passphrase_len)
         return;
     }
 
-    // Ask user to enter passphrase
-    if (keychain_get_passphrase_type() == PASSPHRASE_WORDLIST) {
-        // Passphrase made up only of bip39 wordlist words
-        const size_t nwords
-            = get_wordlist_words(WORDLIST_PASSPHRASE, WORDLIST_PASSPHRASE_MAX_WORDS, passphrase, passphrase_len);
-        JADE_LOGI("%u wordlist words used for passphrase", nwords);
-    } else {
-        // Free-text passphrase
-        get_freetext_passphrase(passphrase, passphrase_len);
+    // BBB-AIRGAP: asked before the keyboard rather than opening straight onto it.  Carrying on
+    // without a passphrase was always possible - leave the keyboard empty and confirm the
+    // '<no passphrase>' it then shows - but the keyboard reads as "type something", so a setting
+    // of 'always ask' looked like a requirement.  The choice is now a screen of its own, and Skip
+    // is the initial selection because it is the ending that leaves the wallet as it was.
+    const char* question[] = { "Enter a passphrase?" };
+    if (!await_choice_activity("Passphrase", question, 1, "Enter", "Skip", false, NULL)) {
+        // Skipped - the empty passphrase, which is what an empty keyboard gave before
+        return;
     }
+
+    enter_passphrase(passphrase, passphrase_len);
 }
 
-bool derive_keychain(const bool temporary_restore, const char* mnemonic)
+// BBB-AIRGAP: the wallet already held is made the one in use.  Scanning its QR says which wallet
+// the user wants; the device has it, so it switches to it instead of reporting an error or opening
+// a second slot for the same keys (which is what it used to do - the session list then showed one
+// fingerprint twice and looked like two wallets).
+static void switch_to_held_wallet(const size_t position)
+{
+    // BBB-AIRGAP: this both tells the user and CHANGES which wallet is active.  A KEY3 escape
+    // reaches the callers as the same 'No' that means "keep the one already loaded", but leaving
+    // is not that answer: it must not activate a slot, and it must not stop the cascade at a
+    // message screen either.  Guarded here rather than at each caller, because every path into
+    // this function arrives from a question the escape can answer.
+    if (gui_escape_pending()) {
+        return;
+    }
+    await_message_2("This wallet is", "already loaded");
+    // BBB-AIRGAP: KEY3 can also dismiss this message; it must not activate the named wallet.
+    if (gui_escape_pending()) {
+        return;
+    }
+    keychain_slot_activate(position);
+}
+
+derive_keychain_result_t derive_keychain(const bool temporary_restore, const char* mnemonic, const bool into_free_slot)
 {
     JADE_ASSERT(mnemonic);
     // NOTE: mnemnonic should be valid at this point for best UX
+
+    derive_keychain_result_t result = DERIVE_KEYCHAIN_FAILED;
+    size_t held_position = 0;
+    bool passphrase_asked = false;
 
     keychain_t keydata = { 0 };
     SENSITIVE_PUSH(&keydata, sizeof(keydata));
@@ -1256,30 +1661,176 @@ bool derive_keychain(const bool temporary_restore, const char* mnemonic)
     SENSITIVE_PUSH(passphrase, sizeof(passphrase));
     passphrase[0] = '\0';
 
-    get_passphrase(passphrase, sizeof(passphrase));
+    // BBB-AIRGAP: a scanned wallet is checked against the ones already held before the passphrase
+    // screen opens.  A wallet's identity is its master key, so it cannot be known until a wallet
+    // has been built from the words - but it can be built with the empty passphrase, which is what
+    // a device set to never ask uses anyway.  So the words are derived once here, and that
+    // derivation is either the answer (no passphrase entered) or the check that lets the device
+    // say "this one is already loaded" before asking for anything.
+    if (into_free_slot) {
+        display_processing_message_activity();
+        if (!keychain_derive_from_mnemonic(mnemonic, passphrase, &keydata)) {
+            JADE_LOGE("Failed to derive wallet");
+            goto cleanup;
+        }
+
+        // BBB-AIRGAP: the words scanned may be a wallet already held, and switching to that one
+        // needs no slot, so a full table is not refused here.  It is refused below, once the
+        // wallet that would be loaded is known - including the wallet a passphrase makes, because
+        // that one can be a wallet already held too.
+        if (keychain_find_slot(&keydata, &held_position)) {
+            // The words are already loaded.  A passphrase would make a different wallet out of
+            // them, so that is offered - unless the device is set never to ask, when the wallet
+            // held is the only ending these words have and there is nothing to offer.  A full
+            // table is deliberately not a reason to skip the offer: the passphrase wallet these
+            // words make can be held too, and switching to that one needs no slot either.
+            if (keychain_get_passphrase_freq() == PASSPHRASE_NEVER) {
+                switch_to_held_wallet(held_position);
+                result = DERIVE_KEYCHAIN_ABORTED;
+                goto cleanup;
+            }
+
+            // BBB-AIRGAP: a yes/no question rather than two named buttons, because the naming is
+            // what was hard to get right: the answer decides whether a SECOND wallet is made out
+            // of these words, and saying that in the question leaves the buttons nothing to
+            // explain.  'No' is the initial selection - the wallet is already there, so doing
+            // nothing new is the safe ending.
+            const char* question[] = { "This wallet is already", "loaded. Add it again", "with a passphrase?" };
+            if (!await_yesno_activity("Add Wallet", question, 3, false, NULL)) {
+                switch_to_held_wallet(held_position);
+                result = DERIVE_KEYCHAIN_ABORTED;
+                goto cleanup;
+            }
+            // The passphrase question has just been answered, so the entry screen is opened
+            // directly rather than asking again in get_passphrase().
+            passphrase_asked = true;
+        }
+    }
+
+    if (passphrase_asked) {
+        enter_passphrase(passphrase, sizeof(passphrase));
+    } else {
+        get_passphrase(passphrase, sizeof(passphrase));
+    }
+
+    // BBB-AIRGAP: 'Skip' and a KEY3 escape both come back from that question as false, and Skip
+    // goes on to derive and install the empty-passphrase wallet.  The escape means leave, so it
+    // must not change which wallet is in use; the flag is the only thing that separates the two.
+    if (gui_escape_pending()) {
+        result = DERIVE_KEYCHAIN_ABORTED;
+        goto cleanup;
+    }
     const size_t passphrase_len = strnlen(passphrase, sizeof(passphrase));
     JADE_ASSERT(passphrase_len < sizeof(passphrase));
 
-    display_processing_message_activity();
-
     // If the mnemonic is valid derive temporary keychain from it.
     // Otherwise break/return here.
-    const bool wallet_created = keychain_derive_from_mnemonic(mnemonic, passphrase, &keydata);
+    // BBB-AIRGAP: the empty-passphrase derivation above is this wallet when no passphrase was
+    // entered, so it is not repeated; a passphrase makes a different wallet and has to be derived.
+    bool wallet_created = true;
+    if (!into_free_slot || passphrase_len) {
+        display_processing_message_activity();
+        wallet_created = keychain_derive_from_mnemonic(mnemonic, passphrase, &keydata);
+    }
     SENSITIVE_POP(passphrase);
 
     if (!wallet_created) {
-        SENSITIVE_POP(&keydata);
         JADE_LOGE("Failed to derive wallet");
-        return false;
+        goto cleanup_keydata;
+    }
+
+    if (into_free_slot) {
+        // BBB-AIRGAP: checked again, and unconditionally: a passphrase makes a different wallet
+        // and that one can be held too, while leaving the passphrase screen empty after choosing
+        // to continue gives back the very wallet the first check found.  The check is two memcmps
+        // over keys that are already in memory, so it is not narrowed to the cases that need it
+        // and cannot be reasoned wrong later.
+        if (keychain_find_slot(&keydata, &held_position)) {
+            switch_to_held_wallet(held_position);
+            result = DERIVE_KEYCHAIN_ABORTED;
+            goto cleanup_keydata;
+        }
+
+        // BBB-AIRGAP: capacity is decided here and nowhere earlier, because this is the first
+        // point at which the device knows a slot is actually needed: every ending above leaves
+        // the table as it was.  The cost is that a passphrase can be entered before the refusal
+        // is shown; the alternative was refusing scans that needed no slot at all.
+        if (!keychain_has_free_slot()) {
+            await_error_2("No free wallet slot -", "forget one or log out");
+            result = DERIVE_KEYCHAIN_ABORTED;
+            goto cleanup_keydata;
+        }
+
+        // BBB-AIRGAP: the confirmation names the wallet being loaded rather than asking about "this
+        // wallet", and it is asked here rather than before the scan is worked through, because the
+        // fingerprint is what makes the question answerable - the user compares it with the one
+        // they expect.  'No' is the initial selection: a wallet QR arrives from somewhere, and
+        // whoever prepared it knows the words, so loading one is not the harmless default.
+        char label[2 * BIP32_KEY_FINGERPRINT_LEN + 1];
+        char* fphex = NULL;
+        JADE_WALLY_VERIFY(wally_hex_from_bytes(keydata.xpriv.hash160, BIP32_KEY_FINGERPRINT_LEN, &fphex));
+        map_string(fphex, toupper);
+        const int ret = snprintf(label, sizeof(label), "%s", fphex);
+        JADE_ASSERT(ret > 0 && ret < sizeof(label));
+        JADE_WALLY_VERIFY(wally_free_string(fphex));
+
+        char question0[32];
+        const int qret = snprintf(question0, sizeof(question0), "Load wallet %s?", label);
+        JADE_ASSERT(qret > 0 && qret < sizeof(question0));
+        const char* question[] = { question0, "Whoever made this QR", "knows this wallet." };
+        if (!await_yesno_activity("Load Wallet", question, 3, false, "blkstrm.com/temporary")) {
+            result = DERIVE_KEYCHAIN_ABORTED;
+            goto cleanup_keydata;
+        }
     }
 
     // All good - push temporary into main in-memory keychain
-    // and remove the restriction on network-types.
-    keychain_set(&keydata, SOURCE_NONE, temporary_restore);
-    keychain_clear_network_type_restriction();
+    if (into_free_slot) {
+        // BBB-AIRGAP: loading a further wallet must not disturb the ones already in memory, and
+        // must not relax the network-type restriction either - that restriction is device policy
+        // rather than a property of a wallet, so only the single-wallet path below clears it.
+        if (!keychain_load_into_free_slot(&keydata, SOURCE_NONE, temporary_restore)) {
+            JADE_LOGE("No free wallet slot to load into");
+            goto cleanup_keydata;
+        }
+    } else {
+        // and remove the restriction on network-types.
+        keychain_set(&keydata, SOURCE_NONE, temporary_restore);
+        keychain_clear_network_type_restriction();
+    }
 
+#ifdef CONFIG_HAS_CAMERA
+    // BBB-AIRGAP: keep the entropy with the wallet so its SeedQR can be drawn from the session
+    // menu, not only during setup.  This function is the one path that turns a mnemonic the user
+    // presented into a wallet, so holding the entropy here is what limits it to wallets whose
+    // words were shown in this session - a PIN-unlocked wallet arrives through keychain_load()
+    // instead and gets none.  Guarded on the camera because the export screens verify the drawn
+    // code by scanning it back: with no camera there is no export, so there is no reason to hold
+    // the entropy at all.
+    //
+    // A passphrase wallet is left out on purpose.  A SeedQR carries the words and nothing else,
+    // so the code drawn for such a wallet opens a DIFFERENT wallet when it is scanned back - a
+    // backup that looks complete and is not.  Upstream never hits this because it offers export
+    // before the passphrase is asked for (see initialise_with_mnemonic below); reaching the same
+    // screens from a menu titled with the wallet's fingerprint would read as "this wallet's
+    // backup", so the row is not offered rather than qualified with a warning.
+    if (!passphrase_len) {
+        keychain_set_entropy(mnemonic);
+    }
+#endif
+
+    result = DERIVE_KEYCHAIN_OK;
+
+cleanup_keydata:
     SENSITIVE_POP(&keydata);
-    return true;
+    return result;
+
+cleanup:
+    // The passphrase buffer is still on the sensitive stack here: this is the exit taken before
+    // it is read, so it has to come off before the keychain it sits above.
+    SENSITIVE_POP(passphrase);
+    SENSITIVE_POP(&keydata);
+    return result;
 }
 
 void initialise_with_mnemonic(const bool temporary_restore, const bool force_qr_scan, bool* offer_qr_temporary)
@@ -1324,6 +1875,14 @@ void initialise_with_mnemonic(const bool temporary_restore, const bool force_qr_
 
         bool got_mnemonic = false;
         while (!got_mnemonic) {
+            // BBB-AIRGAP: this loop also reaches screens through helpers that wait on their own
+            // (the Advanced Setup question, the word entry), so the escape gets back here as a
+            // flag with no event left to wake anything; checking at the head is what carries the
+            // cancel on out of the setup flow instead of stopping one screen short.
+            if (gui_escape_pending()) {
+                goto cleanup;
+            }
+
             gui_set_current_activity_ex(act, true);
 
             const int32_t ev_id = gui_activity_wait_button(act, BTN_EVENT_TIMEOUT);
@@ -1340,6 +1899,8 @@ void initialise_with_mnemonic(const bool temporary_restore, const bool force_qr_
                 break;
 #else
                 JADE_ASSERT(false);
+            // BBB-AIRGAP: KEY3 abandons setup through the screen's own exit
+            case BTN_ESCAPE_HOME:
             case BTN_MNEMONIC_EXIT:
                 // Abandon setting up mnemonic altogether
                 goto cleanup;
@@ -1365,6 +1926,10 @@ void initialise_with_mnemonic(const bool temporary_restore, const bool force_qr_
                 continue;
 
             case BTN_NEW_MNEMONIC:
+                // BBB-AIRGAP: no button raises this any more; the advanced arm of the setup-method
+                // menu now raises BTN_NEW_MNEMONIC_SOURCE, and the word-count screen this opens is
+                // reached from await_new_mnemonic_nwords() instead. Upstream's branch is left as it
+                // stands so that merging a new upstream release does not conflict here.
                 act = make_new_mnemonic_activity();
                 continue;
 
@@ -1374,12 +1939,54 @@ void initialise_with_mnemonic(const bool temporary_restore, const bool force_qr_
 
             // Await user mnemonic entry/confirmation
             case BTN_NEW_MNEMONIC_12:
-                got_mnemonic = mnemonic_new(12, mnemonic, sizeof(mnemonic));
+                got_mnemonic = mnemonic_new(12, NULL, 0, mnemonic, sizeof(mnemonic));
                 break;
 
             case BTN_NEW_MNEMONIC_24:
-                got_mnemonic = mnemonic_new(24, mnemonic, sizeof(mnemonic));
+                got_mnemonic = mnemonic_new(24, NULL, 0, mnemonic, sizeof(mnemonic));
                 break;
+
+            // BBB-AIRGAP: choose where the entropy for a new wallet comes from
+            case BTN_NEW_MNEMONIC_SOURCE:
+                act = make_new_mnemonic_source_activity();
+                continue;
+
+            case BTN_NEW_MNEMONIC_DEVICE:
+            case BTN_NEW_MNEMONIC_DICE:
+            case BTN_NEW_MNEMONIC_CAMERA:
+            case BTN_NEW_MNEMONIC_COMBINED: {
+                const size_t nwords = await_new_mnemonic_nwords();
+                if (!nwords) {
+                    // 'back' - the entropy-source menu is still the current activity
+                    break;
+                }
+                if (ev_id == BTN_NEW_MNEMONIC_DEVICE) {
+                    // No user-supplied entropy, so the rng is used - the upstream behaviour
+                    got_mnemonic = mnemonic_new(nwords, NULL, 0, mnemonic, sizeof(mnemonic));
+                    break;
+                }
+
+                const size_t entropy_len = nwords == 12 ? BIP39_ENTROPY_LEN_128 : BIP39_ENTROPY_LEN_256;
+                uint8_t entropy[BIP39_ENTROPY_LEN_256];
+                SENSITIVE_PUSH(entropy, sizeof(entropy));
+                bool have_entropy = false;
+                if (ev_id == BTN_NEW_MNEMONIC_DICE) {
+                    have_entropy = gather_dice_entropy(nwords, entropy, entropy_len);
+                }
+#ifdef HAVE_CAMERA_ENTROPY
+                else if (ev_id == BTN_NEW_MNEMONIC_CAMERA) {
+                    have_entropy = gather_camera_entropy(nwords, entropy, entropy_len);
+                }
+#endif
+                else if (ev_id == BTN_NEW_MNEMONIC_COMBINED) {
+                    have_entropy = gather_combined_entropy(nwords, entropy, entropy_len);
+                }
+                if (have_entropy) {
+                    got_mnemonic = mnemonic_new(nwords, entropy, entropy_len, mnemonic, sizeof(mnemonic));
+                }
+                SENSITIVE_POP(entropy);
+                break;
+            }
 
             case BTN_RESTORE_MNEMONIC_12:
                 got_mnemonic = mnemonic_recover(12, advanced_mode, mnemonic, sizeof(mnemonic));
@@ -1421,7 +2028,7 @@ void initialise_with_mnemonic(const bool temporary_restore, const bool force_qr_
 
         // If the user did not scan a QR, offer the chance to export (ie. draw) one now
         if (!qr_scanned) {
-            const char* question[] = { "Export recovery phrase", "as a CompactSeedQR?" };
+            const char* question[] = { "Export recovery phrase", "as a SeedQR?" };
             bool export_qr = await_yesno_activity(NULL, question, 2, true, "blkstrm.com/seedqr");
 
             bool export_qr_verified = false;
@@ -1429,6 +2036,21 @@ void initialise_with_mnemonic(const bool temporary_restore, const bool force_qr_
                 // Call export function - it returns 'true' when the step is complete (or skipped)
                 // (it returns 'false' if the user presses 'back' to restart the process)
                 export_qr = !mnemonic_export_qr(mnemonic, &export_qr_verified);
+
+                // BBB-AIRGAP: 'back' restarts the export, but a KEY3 escape ends it.  Both
+                // arrive here as false, so the flag is what tells them apart; without this the
+                // escape would be answered by opening the export again.
+                if (gui_escape_pending()) {
+                    break;
+                }
+            }
+
+            // BBB-AIRGAP: and the escape ends the whole setup, not just the export.  Carrying on
+            // would reach derive_keychain() below, which now returns DERIVE_KEYCHAIN_ABORTED for
+            // the same escape and used to be reported as 'Failed to create wallet' on a blocking
+            // screen the user never asked for.
+            if (gui_escape_pending()) {
+                goto cleanup;
             }
 
             // If the user successfully exported the qr for a non-temporary login, we may double-check
@@ -1445,7 +2067,17 @@ void initialise_with_mnemonic(const bool temporary_restore, const bool force_qr_
     // (In advanced mode we ask the user, in default/basic mode we always silently export the key.)
     keychain_set_confirm_export_blinding_key(advanced_mode);
 
-    if (!derive_keychain(temporary_restore, mnemonic)) {
+    const bool into_free_slot = false;
+    // BBB-AIRGAP: this path CAN now be aborted inside derive_keychain(): the passphrase question
+    // it opens is a screen the escape can end, and that is a cancel rather than a failure.  (The
+    // note that used to stand here said the opposite, and was written before the escape existed.)
+    // Leaving quietly is the whole point, so the abort gets no error screen.
+    const derive_keychain_result_t derived = derive_keychain(temporary_restore, mnemonic, into_free_slot);
+    if (derived == DERIVE_KEYCHAIN_ABORTED) {
+        JADE_LOGI("Wallet setup abandoned");
+        goto cleanup;
+    }
+    if (derived != DERIVE_KEYCHAIN_OK) {
         // Error making wallet...
         JADE_LOGE("Failed to derive keychain from valid mnemonic");
         await_error("Failed to create wallet");
@@ -1501,6 +2133,11 @@ void handle_bip85_mnemonic()
     uint8_t nwords = 0;
 
     while (true) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            return;
+        }
+
         const int32_t ev_id = gui_activity_wait_button(act, BTN_BIP85_12_WORDS);
         if (ev_id == BTN_BIP85_12_WORDS) {
             nwords = 12;
@@ -1522,6 +2159,10 @@ void handle_bip85_mnemonic()
 
     uint32_t index = 0;
     while (true) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            return;
+        }
         reset_digit_entry(&digit_entry, "BIP85");
         gui_set_current_activity(digit_entry.activity);
         if (!run_digit_entry_loop(&digit_entry)) {

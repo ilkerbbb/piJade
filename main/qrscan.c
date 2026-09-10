@@ -135,8 +135,14 @@ bool scan_qr(const size_t width, const size_t height, const uint8_t* data, const
     JADE_ASSERT(qret == 0);
     qr_data->len = 0;
 
-    JADE_LOGE("SCAN WIDTH: %u", scan_width);
-    JADE_LOGE("SCAN HEIGHT: %u", scan_width);
+    // BBB-AIRGAP: upstream logs these at ERROR level (719fa40c), but they are not errors - the
+    // scan box is a fixed calculation from the camera size. On this device the log is a product
+    // feature (T3.13 added --log-level), so a line that reads ERROR has to BE an error; two
+    // fake ones on every QR scan both bury real failures and make the audit tool report a
+    // finding where nothing is wrong. Kept at debug level rather than deleted: the value is
+    // worth having when the scan box is being tuned for a different panel.
+    JADE_LOGD("SCAN WIDTH: %u", scan_width);
+    JADE_LOGD("SCAN HEIGHT: %u", scan_width);
 
     qr_data->ds = JADE_MALLOC_PREFER_DRAM(sizeof(struct datastream));
     qr_data->ds->data = JADE_MALLOC_PREFER_DRAM(QUIRC_MAX_PAYLOAD * sizeof(uint8_t));
@@ -182,8 +188,14 @@ bool jade_camera_scan_qr(
     JADE_ASSERT(qret == 0);
     qr_data->len = 0;
 
-    JADE_LOGE("SCAN WIDTH: %u", scan_width);
-    JADE_LOGE("SCAN HEIGHT: %u", scan_width);
+    // BBB-AIRGAP: upstream logs these at ERROR level (719fa40c), but they are not errors - the
+    // scan box is a fixed calculation from the camera size. On this device the log is a product
+    // feature (T3.13 added --log-level), so a line that reads ERROR has to BE an error; two
+    // fake ones on every QR scan both bury real failures and make the audit tool report a
+    // finding where nothing is wrong. Kept at debug level rather than deleted: the value is
+    // worth having when the scan box is being tuned for a different panel.
+    JADE_LOGD("SCAN WIDTH: %u", scan_width);
+    JADE_LOGD("SCAN HEIGHT: %u", scan_width);
 
     qr_data->ds = JADE_MALLOC_PREFER_DRAM(sizeof(struct datastream));
     qr_data->ds->data = JADE_MALLOC_PREFER_DRAM(QUIRC_MAX_PAYLOAD * sizeof(uint8_t));
@@ -193,7 +205,7 @@ bool jade_camera_scan_qr(
     const bool show_click_button = false;
     gui_activity_t* camera_act = NULL;
     jade_camera_process_images(qr_recognize, qr_data, show_camera_ui, text_label, show_click_button, qr_guide_type,
-        help_url, qr_data->progress_bar, &camera_act);
+        help_url, qr_data->progress_bar, &camera_act, NULL);
 
     // Destroy the camera activity that was created by the camera task
     // and restore the previous activity.

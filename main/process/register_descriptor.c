@@ -1,5 +1,6 @@
 #ifndef AMALGAMATED_BUILD
 #include "../descriptor.h"
+#include "../descriptor_text.h"
 #include "../jade_assert.h"
 #include "../jade_wally_verify.h"
 #include "../keychain.h"
@@ -33,8 +34,16 @@ static int register_descriptor(
     JADE_ASSERT(descriptor->script_len < sizeof(descriptor->script));
     JADE_ASSERT(descriptor->num_values <= MAX_ALLOWED_SIGNERS);
 
-    if (network_is_liquid(network_id) && !descriptor_allow_liquid()) {
-        *errmsg = "Descriptor wallets not supported on liquid network";
+    // BBB-AIRGAP: a descriptor record does not carry its network (descriptor_data_t,
+    // main/descriptor.h), while the address explorer reconstructs one exact bitcoin network from
+    // the device setting.  Accepting liquid, localtest, or testnet while an unrestricted debug
+    // keychain defaults to mainnet would therefore persist a record that the explorer later opens
+    // under a different network.  Refuse every mismatch here, including the CONFIG_DEBUG_MODE
+    // liquid exception in descriptor_allow_liquid(), so emulator behaviour remains what ships.
+    const network_t supported_network
+        = keychain_get_network_type_restriction() == NETWORK_TYPE_TEST ? NETWORK_BITCOIN_TESTNET : NETWORK_BITCOIN;
+    if (network_id != supported_network) {
+        *errmsg = "Descriptor network does not match device setting";
         return CBOR_RPC_BAD_PARAMETERS;
     }
 
@@ -45,7 +54,9 @@ static int register_descriptor(
     }
 
     int retval = 0;
+    const size_t body_len = DESCRIPTOR_BODY_LEN(descriptor);
     const size_t registration_len = DESCRIPTOR_BYTES_LEN(descriptor);
+    uint8_t* const body = JADE_MALLOC(body_len);
     uint8_t* const registration = JADE_MALLOC(registration_len);
     signer_t* const signers = JADE_CALLOC(MAX_ALLOWED_SIGNERS, sizeof(signer_t));
     size_t num_signers = 0;
@@ -92,7 +103,8 @@ static int register_descriptor(
     JADE_WALLY_VERIFY(wally_free_string(addr0));
     JADE_WALLY_VERIFY(wally_free_string(addr1));
 
-    if (!descriptor_to_bytes(descriptor, registration, registration_len)) {
+    if (!descriptor_body_to_bytes(descriptor, body, body_len)
+        || !descriptor_seal_body(body, body_len, registration, registration_len)) {
         *errmsg = "Failed to serialise descriptor";
         retval = CBOR_RPC_INTERNAL_ERROR;
         goto cleanup;
@@ -104,15 +116,54 @@ static int register_descriptor(
     // If so, see if it is identical to the record we are trying to persist
     // - if so, just return true immediately.
     if (overwriting) {
-        size_t written = 0;
-        uint8_t* const existing = JADE_MALLOC(registration_len);
-        if (storage_get_descriptor_registration(descriptor_name, existing, registration_len, &written)
-            && written == registration_len && !sodium_memcmp(existing, registration, registration_len)) {
+        // BBB-AIRGAP: same reason as register_multisig(): random IV, so compare opened bodies.
+        size_t existing_len = 0;
+        size_t existing_body_len = 0;
+        uint8_t* const existing = JADE_MALLOC(MAX_DESCRIPTOR_BYTES_LEN);
+        uint8_t* const existing_body = JADE_MALLOC(MAX_DESCRIPTOR_BODY_LEN);
+        const bool identical
+            = storage_get_descriptor_registration(descriptor_name, existing, MAX_DESCRIPTOR_BYTES_LEN, &existing_len)
+            && descriptor_open_registration(
+                existing, existing_len, existing_body, MAX_DESCRIPTOR_BODY_LEN, &existing_body_len)
+            && existing_body_len == body_len && !sodium_memcmp(existing_body, body, body_len);
+        JADE_WALLY_VERIFY(wally_bzero(existing_body, MAX_DESCRIPTOR_BODY_LEN));
+        free(existing_body);
+        free(existing);
+        if (identical) {
+            // BBB-AIRGAP: upstream returned here without a word
+            // (fdb67a3f:main/process/register_descriptor.c:111), which on a QR-only device reads as the scan
+            // having been ignored: the screen goes straight back to the
+            // dashboard and nothing says whether a second copy was stored (seen on device round 6).
+            // The record is genuinely unchanged, so this is a notice and not a question; it names
+            // the record so the reader can see WHICH registration was already held.  Shown on the
+            // message path too, the way the "Name In Use" question below already is.
             JADE_LOGI("Descriptor %s: identical registration exists, returning immediately", descriptor_name);
-            free(existing);
+            await_titled_message("Already registered", descriptor_name);
             goto cleanup;
         }
-        free(existing);
+
+        // BBB-AIRGAP: same guard as register_multisig(), for the same reason - the storage key is
+        // the name alone while the record is sealed to the wallet that registered it, so a name
+        // reused from a second wallet destroys the first wallet's record with no screen naming
+        // its owner.  Kept in step with the multisig branch: descriptors now also arrive from the
+        // QR path (register_descriptor_text() below), so this guard is reachable on this device.
+        // Heap rather than stack because descriptor_data_t is some
+        // 3KB and RPC handlers run inline on the dashboard task (dashboard.c:635 calls
+        // task_function() directly), so there is no separate stack to spend it on.
+        descriptor_data_t* const existing_data = JADE_MALLOC(sizeof(descriptor_data_t));
+        const char* load_errmsg = NULL;
+        const bool readable = descriptor_load_from_storage(descriptor_name, existing_data, &load_errmsg);
+        free(existing_data);
+        if (!readable) {
+            JADE_LOGW("Descriptor %s: existing record not readable by current wallet: %s", descriptor_name,
+                load_errmsg ? load_errmsg : "no detail");
+            const char* question[] = { "Existing record is", "not readable by this", "wallet. Replace it?" };
+            if (!await_yesno_activity("Name In Use", question, 3, false, NULL)) {
+                *errmsg = "User declined to overwrite descriptor";
+                retval = CBOR_RPC_USER_CANCELLED;
+                goto cleanup;
+            }
+        }
     } else {
         // Not overwriting an existing record - check storage slot available
         if (storage_get_descriptor_registration_count() >= MAX_DESCRIPTOR_REGISTRATIONS) {
@@ -148,7 +199,34 @@ cleanup:
     if (blinding_key) {
         JADE_WALLY_VERIFY(wally_free_string(blinding_key));
     }
+    // The body carries the descriptor keys in plaintext
+    JADE_WALLY_VERIFY(wally_bzero(body, body_len));
+    free(body);
     free(registration);
+    return retval;
+}
+
+// BBB-AIRGAP: entry point for a descriptor scanned as a QR (text, Specter JSON export, or the
+// text bcur_parse_crypto_output() makes from a crypto-output UR).  Same validation and screens
+// as the RPC path: descriptor_text_parse() only rewrites the text into the persisted form.
+int register_descriptor_text(const char* text, const size_t text_len, const char** errmsg)
+{
+    JADE_ASSERT(text);
+    JADE_ASSERT(text_len);
+    JADE_INIT_OUT_PPTR(errmsg);
+
+    // Same network rule as register_multisig_file() and the address explorer
+    const network_t network_id
+        = keychain_get_network_type_restriction() == NETWORK_TYPE_TEST ? NETWORK_BITCOIN_TESTNET : NETWORK_BITCOIN;
+
+    // Heap: descriptor_data_t is some 3KB and this runs on the dashboard task
+    char descriptor_name[MAX_DESCRIPTOR_NAME_SIZE];
+    descriptor_data_t* const descriptor = JADE_MALLOC(sizeof(descriptor_data_t));
+    int retval = CBOR_RPC_BAD_PARAMETERS;
+    if (descriptor_text_parse(text, text_len, descriptor, descriptor_name, sizeof(descriptor_name), errmsg)) {
+        retval = register_descriptor(descriptor_name, network_id, descriptor, errmsg);
+    }
+    free(descriptor);
     return retval;
 }
 

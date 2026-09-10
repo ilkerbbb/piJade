@@ -1,3 +1,25 @@
+# piJade
+
+A fork of the Blockstream Jade firmware that turns a Raspberry Pi Zero W into an airgapped
+hardware wallet. The only cable reaching the device is power; everything else travels by QR code.
+
+> **Warning: this is experimental work.** The device is not used with real funds; testing is done
+> on testnet or with an empty wallet. The code in this repository has not had an independent
+> security audit.
+
+| Where to look | What is there |
+|---|---|
+| [`pijade/README.md`](./pijade/README.md) | The fork's own document: hardware, what was changed, install and use |
+| [`pijade/UPSTREAM.md`](./pijade/UPSTREAM.md) | Every departure from upstream, and the discipline for updating |
+| [`pijade/SECURITY-AUDIT-2026-09-03.md`](./pijade/SECURITY-AUDIT-2026-09-03.md) | The security audit: threat model, what was measured, what is deliberately not claimed |
+| [`pijade/SEEDSIGNER-COMPARISON.md`](./pijade/SEEDSIGNER-COMPARISON.md) | Seed menu and settings, item by item against SeedSigner |
+| [set the clock](https://ilkerbbb.github.io/piJade/clock) and [sign a message](https://ilkerbbb.github.io/piJade/sign) | The helper pages that draw the QR codes the device reads; source under `docs/`, works offline |
+
+The section below is Blockstream Jade's own build document; the fork keeps it as it is and takes
+upstream updates into it.
+
+---
+
 # Jade Firmware Development
 
 * DO NOT ATTEMPT TO BUILD/FLASH WITH OFFICIAL BLOCKSTREAM JADE HARDWARE UNITS

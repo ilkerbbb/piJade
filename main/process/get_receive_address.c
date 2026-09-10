@@ -263,7 +263,17 @@ void get_receive_address_process(void* process_ptr)
 
     // Show warning if necessary
     if (warning_msg[0] != '\0') {
-        await_message(warning_msg);
+        // BBB-AIRGAP: this notice carries something the user did not know when they confirmed the
+        // address - that the path is unusual, or that it is a change path - so leaving it with
+        // KEY3 is a change of mind, not consent to hand the address to the host.  Taken at the
+        // press, because gui_escape_pending() read here could already have been cleared.
+        const char* warning[] = { warning_msg };
+        if (await_message_escaped(warning, 1)) {
+            JADE_LOGW("User abandoned address confirmation at the warning");
+            jade_process_reject_message(
+                process, CBOR_RPC_USER_CANCELLED, "User declined to confirm address");
+            goto cleanup;
+        }
     }
 
     // Reply with the address

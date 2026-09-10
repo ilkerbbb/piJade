@@ -146,6 +146,8 @@ bool show_confirm_address_activity(const char* address, const bool default_selec
             act = act_addr2;
             break;
 
+        // BBB-AIRGAP: KEY3 leaves through the screen's own decline, never its accept.
+        case BTN_ESCAPE_HOME:
         case BTN_ADDRESS_REJECT:
             return false;
 

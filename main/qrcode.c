@@ -987,42 +987,61 @@ void qrcode_toIcon(QRCode* qrcode, Icon* icon, const uint8_t scale)
 }
 
 // Blockstream added function
-// NOTE: only supports v1 and v2 qrcodes atm.
+// NOTE: only supports v1 to v3 qrcodes atm.
 // fyi: target_size of 105 works well for jade v1 icons of v1 and v2 qrcodes
 // and: target_size of 150 works well for jade v2 icons of v1 and v2 qrcodes
 // and: target_size of 210 works well for large device icons of v1 and v2 qrcodes
-bool qrcode_toFragmentsIcons(
-    QRCode* qrcode, const uint8_t target_size, const bool show_grid, Icon** icons_out, size_t* num_icons_out)
+bool qrcode_fragmentsContextFits(
+    const uint8_t version, const uint16_t target_size, const uint8_t context_modules)
+{
+    // BBB-AIRGAP: v3 (29x29) uses the same 5-module fragment size as v2.
+    if (version < 1 || version > 3) {
+        return false;
+    }
+
+    const uint8_t fragment_size = version == 1 ? 7 : 5;
+    const uint16_t total_modules = fragment_size + (2 * context_modules);
+    return target_size / total_modules != 0;
+}
+
+bool qrcode_toFragmentsIcons(QRCode* qrcode, const uint16_t target_size, const bool show_grid,
+    const uint8_t context_modules, Icon** icons_out, size_t* num_icons_out)
 {
     JADE_ASSERT(qrcode);
     JADE_ASSERT(target_size);
     JADE_INIT_OUT_PPTR(icons_out);
     JADE_INIT_OUT_SIZE(num_icons_out);
 
-    // Only versions 1 and 2 are supported atm (sizes 21 and 25)
-    if (qrcode->version < 1 || qrcode->version > 2) {
+    // Only versions 1 to 3 are supported (sizes 21, 25 and 29)
+    if (qrcode->version < 1 || qrcode->version > 3) {
         JADE_LOGE("qr version unsupported for fragmenting: %u", qrcode->version);
         return false;
     }
 
     // For v1 (21x21) we use a 3x3 grid of 7x7 icons (ie. 9 icons)
     // For v2 (25x25) we use a 5x5 grid of 5x5 icons (ie. 25 icons)
-    const uint8_t num_fragments_per_side = qrcode->version == 1 ? 3 : 5;
+    // BBB-AIRGAP: for v3 (29x29) we use a 6x6 grid of 5x5 icons (ie. 36 icons); 29 does not
+    // tile evenly, so the final row and column carry one empty module strip inside the fixed
+    // 5x5 mask - the same thing SeedSigner shows (seed_screens.py: "up to 1 empty block inside
+    // the 5x5 mask (29x29 has a 4-block final col/row)").
+    const uint8_t num_fragments_per_side = qrcode->version == 1 ? 3 : (qrcode->version == 2 ? 5 : 6);
     const uint8_t fragment_size = qrcode->version == 1 ? 7 : 5;
-    JADE_ASSERT(num_fragments_per_side * fragment_size == qrcode->size);
-    if (target_size < fragment_size) {
-        JADE_LOGE("Target size too small for version %u code - min size %u", qrcode->version, fragment_size);
+    JADE_ASSERT(num_fragments_per_side * fragment_size >= qrcode->size);
+    // A whole fragment beyond the end of the code would be entirely empty
+    JADE_ASSERT((num_fragments_per_side - 1) * fragment_size < qrcode->size);
+    const uint16_t total_modules = fragment_size + (2 * context_modules);
+    const uint16_t scale = target_size / total_modules;
+    if (!scale) {
+        JADE_LOGE("Target size too small for version %u code", qrcode->version);
         return false;
     }
 
-    // Create the icon wrappers
-    const uint8_t scale = target_size / fragment_size;
-    const uint16_t icon_size = fragment_size * scale;
-    JADE_ASSERT(icon_size >= fragment_size);
+    const uint16_t icon_size = total_modules * scale;
+    JADE_ASSERT(icon_size >= total_modules);
 
     *num_icons_out = num_fragments_per_side * num_fragments_per_side;
     *icons_out = JADE_CALLOC(*num_icons_out, sizeof(Icon));
-    JADE_LOGI("Mapping QR version %u (%ux%u) into %u %ux%u fragments", qrcode->version, qrcode->size, qrcode->size,
+    JADE_LOGI("Mapping QR version %u (%ux%u) into %zu %ux%u fragments", qrcode->version, qrcode->size, qrcode->size,
         *num_icons_out, icon_size, icon_size);
 
     // Icon data is stored one bit per pixel, in uint32's
@@ -1037,19 +1056,24 @@ bool qrcode_toFragmentsIcons(
         icon->height = icon_size;
         icon->data = JADE_CALLOC_PREFER_SPIRAM(num_uints, sizeof(uint32_t));
 
-        const uint8_t fragment_orig_y = (i / num_fragments_per_side) * fragment_size;
-        const uint8_t fragment_orig_x = (i % num_fragments_per_side) * fragment_size;
-        JADE_LOGD("Fragment icon %u, origin maps to (%u, %u)", i, fragment_orig_x, fragment_orig_y);
+        const int fragment_orig_y = (i / num_fragments_per_side) * fragment_size;
+        const int fragment_orig_x = (i % num_fragments_per_side) * fragment_size;
+        const int source_orig_y = fragment_orig_y - context_modules;
+        const int source_orig_x = fragment_orig_x - context_modules;
+        JADE_LOGD("Fragment icon %zu, origin maps to (%d, %d)", i, source_orig_x, source_orig_y);
+
+        const uint16_t cx0 = context_modules * scale;
+        const uint16_t cy0 = context_modules * scale;
+        const uint16_t cx1 = cx0 + (fragment_size * scale) - 1;
+        const uint16_t cy1 = cy0 + (fragment_size * scale) - 1;
 
         // Iterate over the destination, copying the source data across
         for (uint16_t dest_y = 0; dest_y < icon->height; ++dest_y) {
             const uint32_t dest_y_pixel_offset = dest_y * icon->width;
-            const uint8_t src_y = (dest_y / scale) + fragment_orig_y;
-            JADE_ASSERT(src_y < qrcode->size);
+            const int src_y = (dest_y / scale) + source_orig_y;
 
             for (uint16_t dest_x = 0; dest_x < icon->width; ++dest_x) {
-                const uint8_t src_x = (dest_x / scale) + fragment_orig_x;
-                JADE_ASSERT(src_x < qrcode->size);
+                const int src_x = (dest_x / scale) + source_orig_x;
 
                 const uint32_t dest_pixel = dest_y_pixel_offset + dest_x;
                 JADE_ASSERT(dest_pixel < num_pixels);
@@ -1059,12 +1083,32 @@ bool qrcode_toFragmentsIcons(
                 const uint8_t dest_bit = dest_pixel % 32;
                 JADE_ASSERT(dest_elem < num_uints);
 
-                uint32_t paint = qrcode_getModule(qrcode, src_x, src_y);
-                if (show_grid) {
-                    // Invert if on a grid-line
-                    const bool gridline = (dest_x == icon->width - 1) || (dest_x % scale == 0)
-                        || (dest_y == icon->height - 1) || (dest_y % scale == 0);
+                const bool in_range
+                    = !(src_x < 0 || src_x >= qrcode->size || src_y < 0 || src_y >= qrcode->size);
+                const bool center = dest_x >= cx0 && dest_x <= cx1 && dest_y >= cy0 && dest_y <= cy1;
+
+                // BBB-AIRGAP: modules off the end of the code stay blank as before, EXCEPT
+                // inside the mask.  For v3 the final row and column carry one empty module
+                // strip there; it reads as a light module so that the grid still closes the
+                // last real cell and the context frame still surrounds the whole zone.
+                // For v1 and v2 the code tiles evenly, so out-of-range never falls inside the
+                // mask and this is bit-for-bit the previous behaviour.
+                if (!in_range && !center) {
+                    continue;
+                }
+
+                uint32_t paint = in_range ? qrcode_getModule(qrcode, src_x, src_y) : 0;
+                if (context_modules && !center && !paint) {
+                    paint = !(dest_x % 2 == 0 && dest_y % 2 == 0);
+                }
+                if (show_grid && center) {
+                    const bool gridline = (dest_x == cx1) || (dest_x % scale == 0) || (dest_y == cy1)
+                        || (dest_y % scale == 0);
                     paint = (paint != gridline);
+                }
+                if (context_modules && center
+                    && (dest_x == cx0 || dest_x == cx1 || dest_y == cy0 || dest_y == cy1)) {
+                    paint = 1;
                 }
                 icon->data[dest_elem] |= paint << dest_bit;
             }

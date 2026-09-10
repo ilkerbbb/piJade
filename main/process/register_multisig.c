@@ -36,6 +36,29 @@ static int register_multisig(const char* multisig_name, const network_t network_
     JADE_ASSERT(num_signers);
     JADE_INIT_OUT_PPTR(errmsg);
 
+    // BBB-AIRGAP: this device lists and signs only the bitcoin network selected in its settings,
+    // and a stored record does not carry the network it was registered for (multisig_data_t,
+    // main/multisig.h).  The address explorer reconstructs that exact mainnet-or-testnet choice
+    // from the device setting; accepting liquid, localtest, or testnet while the unrestricted
+    // debug keychain defaults to mainnet would later display the same record under a different
+    // network.  The blinding key cannot repair that ambiguity because it is optional for liquid.
+    // Refuse every mismatch here, where both registration callers still have the exact network.
+    const network_t supported_network
+        = keychain_get_network_type_restriction() == NETWORK_TYPE_TEST ? NETWORK_BITCOIN_TESTNET : NETWORK_BITCOIN;
+    if (network_id != supported_network) {
+        *errmsg = "Multisig network does not match device setting";
+        return CBOR_RPC_BAD_PARAMETERS;
+    }
+
+    // BBB-AIRGAP: a blinding key on a bitcoin registration is refused too.  It carries no meaning
+    // on bitcoin, and without this caller-independent guard an RPC or future path could persist the
+    // one field that says 'liquid' while every reader treats the record as bitcoin.  The file parser
+    // rejects it even earlier so it never copies the private value into a task-stack buffer.
+    if (master_blinding_key_len) {
+        *errmsg = "Master blinding key not supported on bitcoin network";
+        return CBOR_RPC_BAD_PARAMETERS;
+    }
+
     if (!storage_key_name_valid(multisig_name)) {
         *errmsg = "Invalid multisig name";
         return CBOR_RPC_BAD_PARAMETERS;
@@ -63,10 +86,13 @@ static int register_multisig(const char* multisig_name, const network_t network_
     }
 
     int retval = 0;
+    const size_t body_len = MULTISIG_BODY_LEN(master_blinding_key_len, num_signers, total_num_path_elements);
     const size_t registration_len = MULTISIG_BYTES_LEN(master_blinding_key_len, num_signers, total_num_path_elements);
+    uint8_t* const body = JADE_MALLOC(body_len);
     uint8_t* const registration = JADE_MALLOC(registration_len);
-    if (!multisig_data_to_bytes(script_variant, sorted, threshold, master_blinding_key, master_blinding_key_len,
-            signers, num_signers, total_num_path_elements, registration, registration_len)) {
+    if (!multisig_body_to_bytes(script_variant, sorted, threshold, master_blinding_key, master_blinding_key_len,
+            signers, num_signers, total_num_path_elements, body, body_len)
+        || !multisig_seal_body(body, body_len, registration, registration_len)) {
         *errmsg = "Failed to serialise multisig";
         retval = CBOR_RPC_INTERNAL_ERROR;
         goto cleanup;
@@ -78,15 +104,60 @@ static int register_multisig(const char* multisig_name, const network_t network_
     // If so, see if it is identical to the record we are trying to persist
     // - if so, just return true immediately.
     if (overwriting) {
-        size_t written = 0;
-        uint8_t* const existing = JADE_MALLOC(registration_len);
-        if (storage_get_multisig_registration(multisig_name, existing, registration_len, &written)
-            && written == registration_len && !sodium_memcmp(existing, registration, registration_len)) {
+        // BBB-AIRGAP: the sealed record carries a random IV (main/registration_seal.c), so two
+        // registrations of the same wallet never match byte for byte; the stored record is opened
+        // and its plaintext body compared with the body about to be sealed.
+        size_t existing_len = 0;
+        size_t existing_body_len = 0;
+        uint8_t* const existing = JADE_MALLOC(MAX_MULTISIG_BYTES_LEN);
+        uint8_t* const existing_body = JADE_MALLOC(MAX_MULTISIG_BODY_LEN);
+        const bool identical
+            = storage_get_multisig_registration(multisig_name, existing, MAX_MULTISIG_BYTES_LEN, &existing_len)
+            && multisig_open_registration(
+                existing, existing_len, existing_body, MAX_MULTISIG_BODY_LEN, &existing_body_len)
+            && existing_body_len == body_len && !sodium_memcmp(existing_body, body, body_len);
+        JADE_WALLY_VERIFY(wally_bzero(existing_body, MAX_MULTISIG_BODY_LEN));
+        free(existing_body);
+        free(existing);
+        if (identical) {
+            // BBB-AIRGAP: upstream returned here without a word
+            // (fdb67a3f:main/process/register_multisig.c:85), which on a QR-only device reads as the scan
+            // having been ignored: the screen goes straight back to the
+            // dashboard and nothing says whether a second copy was stored (seen on device round 6).
+            // The record is genuinely unchanged, so this is a notice and not a question; it names
+            // the record so the reader can see WHICH registration was already held.  Shown on the
+            // message path too, the way the "Name In Use" question below already is.
             JADE_LOGI("Multisig %s: identical registration exists, returning immediately", multisig_name);
-            free(existing);
+            await_titled_message("Already registered", multisig_name);
             goto cleanup;
         }
-        free(existing);
+
+        // BBB-AIRGAP: the record about to be replaced may belong to a different wallet.  The
+        // storage key is the name alone (main/storage.c:822-843) while the record is sealed to
+        // the wallet that registered it (main/wallet.c:1340-1352), so on a device that holds
+        // several wallets at once the same coordinator file registered from two of them lands on
+        // one key.  The confirmation further down says "Overwriting existing" but not whose, and
+        // the details it shows are the incoming record's, so nothing on that screen tells the
+        // reader what is being destroyed.  Asked here, before those screens, and answered No by
+        // default.  An unreadable record is either another wallet's or this wallet's own record
+        // gone bad - the HMAC cannot tell those apart - so the question names neither, it states
+        // only what was actually observed.  Heap rather than stack for the same reason as the
+        // descriptor branch: the loaded record is over a kilobyte and this handler runs inline on
+        // the dashboard task (dashboard.c:635), not on a stack of its own.
+        multisig_data_t* const existing_data = JADE_MALLOC(sizeof(multisig_data_t));
+        const char* load_errmsg = NULL;
+        const bool readable = multisig_load_from_storage(multisig_name, existing_data, NULL, 0, NULL, &load_errmsg);
+        free(existing_data);
+        if (!readable) {
+            JADE_LOGW("Multisig %s: existing record not readable by current wallet: %s", multisig_name,
+                load_errmsg ? load_errmsg : "no detail");
+            const char* question[] = { "Existing record is", "not readable by this", "wallet. Replace it?" };
+            if (!await_yesno_activity("Name In Use", question, 3, false, NULL)) {
+                *errmsg = "User declined to overwrite multisig";
+                retval = CBOR_RPC_USER_CANCELLED;
+                goto cleanup;
+            }
+        }
     } else {
         // Not overwriting an existing record - check storage slot available
         if (storage_get_multisig_registration_count() >= MAX_MULTISIG_REGISTRATIONS) {
@@ -131,6 +202,9 @@ static int register_multisig(const char* multisig_name, const network_t network_
     }
 
 cleanup:
+    // The body carries the signer xpubs in plaintext
+    JADE_WALLY_VERIFY(wally_bzero(body, body_len));
+    free(body);
     free(registration);
     return retval;
 }
@@ -173,6 +247,8 @@ static bool get_next_line(const char** ptr, const char** eol, const char* const 
     }
 }
 
+// BBB-AIRGAP: registration line contents are never logged from this parser because a line can
+// contain a private BlindingKey value, including malformed lines whose field cannot be identified.
 // Helper to split 'name: value' line from multisig registration file.
 // ptr and eol are line limits as above.  name_end indicates the end of the 'name' part.
 // The value part is copied into the passed output buffer.
@@ -191,7 +267,7 @@ static bool split_line(
     // Split into name/value
     const char* p = memchr(ptr, ':', eol - ptr);
     if (!p || p <= ptr) {
-        JADE_LOGW("Mising delimiter in multisig file line: %.*s", eol - ptr, ptr);
+        JADE_LOGW("Missing delimiter in multisig file line");
         return false;
     }
     *name_len = p - ptr;
@@ -204,7 +280,7 @@ static bool split_line(
     // Fail if value too long
     *written = eol - p;
     if (!*written || *written >= output_len) {
-        JADE_LOGW("Item value missing or too long in multisig file line: %.*s", eol - ptr, ptr);
+        JADE_LOGW("Item value missing or too long in multisig file line");
         return false;
     }
 
@@ -219,7 +295,6 @@ static bool split_line(
 #define FIELD_POLICY 0x2
 #define FIELD_FORMAT 0x4
 #define FIELD_SORTED 0x8
-#define FIELD_BLINDINGKEY 0x10
 #define FIELD_DERIVATION 0x20
 
 // Match the current line to a specific trial field, passed as a char[]
@@ -258,11 +333,6 @@ int register_multisig_file(const char* multisig_file, const size_t multisig_file
     // Optional 'sorted multi' field
     bool sorted = true; // for historical reasons defaults to 'true'
 
-    // Optional extension
-    uint8_t blinding_key_bytes[MULTISIG_MASTER_BLINDING_KEY_SIZE];
-    const uint8_t* blinding_key = NULL;
-    size_t blinding_key_len = 0;
-
     // Current signer's derivation path
     // (Can be global, or set per signer)
     uint32_t path[MAX_PATH_LEN];
@@ -278,13 +348,27 @@ int register_multisig_file(const char* multisig_file, const size_t multisig_file
     const char* const eof = multisig_file + multisig_file_len;
 
     while (get_next_line(&read_ptr, &eol, eof)) {
-        JADE_LOGI("Processing line: %.*s", eol - read_ptr, read_ptr);
+        // BBB-AIRGAP: registration lines are never logged because the optional BlindingKey field
+        // contains private material, and malformed input can put the same payload on a line that
+        // fails before its field name is known.  This path rejects that field below, but logging
+        // happens before parsing and would otherwise disclose the key even for a refused file.
+        JADE_LOGI("Processing multisig file line");
+
+        // BBB-AIRGAP: reject a bitcoin-inapplicable blinding key before split_line() copies its
+        // value into a task-stack buffer.  register_multisig() keeps the same guard for RPC and
+        // any future callers that do not pass through this file parser.
+        const char* const delimiter = memchr(read_ptr, ':', eol - read_ptr);
+        if (delimiter && delimiter - read_ptr == sizeof(MSIG_FILE_BLINDING_KEY) - 1
+            && !strncasecmp(MSIG_FILE_BLINDING_KEY, read_ptr, delimiter - read_ptr)) {
+            *errmsg = "Master blinding key not supported on bitcoin network";
+            goto cleanup;
+        }
 
         size_t name_len = 0;
         size_t value_len = 0;
         char value[128]; // should be sufficient for all valid values - eg. xpub
         if (!split_line(read_ptr, eol, &name_len, value, sizeof(value), &value_len) || !value_len) {
-            JADE_LOGE("Failed to process multisig file line: %.*s", eol - read_ptr, read_ptr);
+            JADE_LOGE("Failed to process multisig file line");
             *errmsg = "Invalid multisig file";
             goto cleanup;
         }
@@ -394,26 +478,6 @@ int register_multisig_file(const char* multisig_file, const size_t multisig_file
                 goto cleanup;
             }
             fields_read |= FIELD_SORTED;
-        } else if (IS_FIELD(MSIG_FILE_BLINDING_KEY)) {
-            if (fields_read & FIELD_BLINDINGKEY) {
-                JADE_LOGE("Repeated blinding key flag");
-                *errmsg = "Invalid multisig file";
-                goto cleanup;
-            }
-
-            // Master blinding key
-            size_t written = 0;
-            if (value_len != 2 * sizeof(blinding_key_bytes)
-                || wally_hex_n_to_bytes(value, value_len, blinding_key_bytes, sizeof(blinding_key_bytes), &written)
-                    != WALLY_OK
-                || written != sizeof(blinding_key_bytes)) {
-                JADE_LOGE("Error in master blinding key hex: %s", value);
-                *errmsg = "Invalid master blinding key";
-                goto cleanup;
-            }
-            blinding_key = blinding_key_bytes;
-            blinding_key_len = sizeof(blinding_key_bytes);
-            fields_read |= FIELD_BLINDINGKEY;
         } else if (IS_FIELD(MSIG_FILE_DERIVATION)) {
             // "m/a/b/c/d" - accepts m/ or M/ as master, and h, H or ' as hardened indicators
             // NOTE: allowed to see derivation element multiple times (eg once per signer)
@@ -462,13 +526,27 @@ int register_multisig_file(const char* multisig_file, const size_t multisig_file
             signers[isigner].derivation_len = path_len;
             signers[isigner].path_len = 0; // unused
 
+            // BBB-AIRGAP: never log the extended-key payload.  A malformed registration can put
+            // an xprv in this field; validation rejects it later, but printing it first would
+            // disclose the private scalar.
             // Xpub
             uint8_t serialised[BIP32_SERIALIZED_LEN + BASE58_CHECKSUM_LEN];
             if (value_len < sizeof(xpub_version) || value_len >= sizeof(signers[isigner].xpub)
                 || wally_base58_to_bytes(value, BASE58_FLAG_CHECKSUM, serialised, sizeof(serialised), &written)
                     != WALLY_OK
                 || written != BIP32_SERIALIZED_LEN) {
-                JADE_LOGE("Invalid xpub: %s", value);
+                wally_bzero(serialised, sizeof(serialised));
+                wally_bzero(value, sizeof(value));
+                JADE_LOGE("Invalid signer xpub");
+                *errmsg = "Invalid signer xpub";
+                goto cleanup;
+            }
+
+            const size_t key_data_offset = BIP32_SERIALIZED_LEN - EC_PUBLIC_KEY_LEN;
+            if (serialised[key_data_offset] != 0x02 && serialised[key_data_offset] != 0x03) {
+                wally_bzero(serialised, sizeof(serialised));
+                wally_bzero(value, sizeof(value));
+                JADE_LOGE("Signer key is not public");
                 *errmsg = "Invalid signer xpub";
                 goto cleanup;
             }
@@ -485,11 +563,11 @@ int register_multisig_file(const char* multisig_file, const size_t multisig_file
                 char* xpub = NULL;
                 memcpy(serialised, xpub_version, sizeof(xpub_version));
                 if (wally_base58_from_bytes(serialised, written, BASE58_FLAG_CHECKSUM, &xpub) != WALLY_OK || !xpub) {
-                    JADE_LOGE("Problem overwriting xpub version: %s", value);
+                    JADE_LOGE("Problem overwriting xpub version");
                     *errmsg = "Invalid signer xpub";
                     goto cleanup;
                 }
-                JADE_LOGI("new xpub: %s", xpub);
+                JADE_LOGI("Converted signer xpub version bytes");
 
                 const size_t new_len = strlen(xpub);
                 JADE_ASSERT(new_len < sizeof(signers[isigner].xpub));
@@ -504,14 +582,15 @@ int register_multisig_file(const char* multisig_file, const size_t multisig_file
             signers[isigner].path_len = 0;
             ++isigner;
         } else {
-            JADE_LOGE("Unexpected line in multisig file: %.*s", eol - read_ptr, read_ptr);
+            wally_bzero(value, sizeof(value));
+            JADE_LOGE("Unexpected line in multisig file");
             *errmsg = "Invalid multisig file";
             goto cleanup;
         }
     };
     JADE_LOGD("Processing multisig file complete: %u", fields_read);
 
-    // File exhausted - did we read all required data (Note: 'sorted' and blinding-key fields are optional)
+    // File exhausted - did we read all required data ('sorted' is optional; blinding keys are rejected above)
     if (!HAVE_FIELDS(fields_read, (FIELD_NAME | FIELD_POLICY | FIELD_FORMAT | FIELD_DERIVATION))) {
         JADE_LOGE("Insufficient information read from multisig file: %u", fields_read);
         *errmsg = "Insufficient information records";
@@ -536,8 +615,8 @@ int register_multisig_file(const char* multisig_file, const size_t multisig_file
     }
 
     // Try to register multisig!
-    retval = register_multisig(multisig_name, network_id, script_variant, sorted, threshold, signers, nsigners,
-        blinding_key, blinding_key_len, errmsg);
+    retval = register_multisig(
+        multisig_name, network_id, script_variant, sorted, threshold, signers, nsigners, NULL, 0, errmsg);
     if (retval) {
         JADE_LOGE("Failed to register multisig record: %s", *errmsg);
         goto cleanup;

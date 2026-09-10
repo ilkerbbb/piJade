@@ -4,6 +4,7 @@
 #include "jade_assert.h"
 #include "jade_wally_verify.h"
 #include "keychain.h"
+#include "process/process_utils.h"
 #include "sensitive.h"
 #include "storage.h"
 #include "utils/malloc_ext.h"
@@ -15,6 +16,7 @@
 #include <mbedtls/md.h>
 #include <pb_decode.h>
 
+#include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -56,7 +58,19 @@ bool otp_is_valid(const otpauth_ctx_t* otp_ctx)
 
     // Optional fields
     OTP_CHECK_BOOL_RETURN(!otp_ctx->label_len || otp_ctx->label);
+    if (otp_ctx->label_len) {
+        OTP_CHECK_BOOL_RETURN(is_valid_urlencoding(otp_ctx->label, otp_ctx->label_len, OTP_MAX_LABEL_LEN, isprint));
+    }
     OTP_CHECK_BOOL_RETURN(!otp_ctx->issuer_len || otp_ctx->issuer);
+    if (otp_ctx->issuer_len) {
+        // BBB-AIRGAP: upstream bounds the issuer by OTP_MAX_NAME_LEN, which is the 16-byte limit of
+        // the storage record name (otp_ctx->name, see storage_get_otp_hotp_counter). The issuer is a
+        // different field: both it and the label are decoded into display_str, which is
+        // OTP_MAX_LABEL_LEN bytes (main/ui/otpauth.c:33). Bounding it by the record-name limit
+        // rejected otherwise valid URIs whose issuer is 16 to 127 characters, which registered
+        // before this validation was added. The label two lines up already uses the right constant.
+        OTP_CHECK_BOOL_RETURN(is_valid_urlencoding(otp_ctx->issuer, otp_ctx->issuer_len, OTP_MAX_LABEL_LEN, isprint));
+    }
 
     return true;
 }
@@ -355,7 +369,8 @@ static bool decode_name_fn(pb_istream_t* stream, const pb_field_t* field, void**
     }
     buf[buf_len] = '\0';
 
-    JADE_LOGI("Decoded name: %s", buf);
+    // BBB-AIRGAP: otp account names identify the user's services; only the length is logged.
+    JADE_LOGI("Decoded name of length %u", (unsigned)buf_len);
 
     otp_migrate_decode_str_ctx_t* str_ctx = (otp_migrate_decode_str_ctx_t*)(*arg);
 
@@ -380,7 +395,8 @@ static bool decode_issuer_fn(pb_istream_t* stream, const pb_field_t* field, void
     }
     buf[buf_len] = '\0';
 
-    JADE_LOGI("Decoded issuer: %s", buf);
+    // BBB-AIRGAP: see the note on the decoded name above.
+    JADE_LOGI("Decoded issuer of length %u", (unsigned)buf_len);
 
     otp_migrate_decode_str_ctx_t* str_ctx = (otp_migrate_decode_str_ctx_t*)(*arg);
 
@@ -593,7 +609,12 @@ otp_err_t otp_set_default_value(otpauth_ctx_t* otp_ctx, uint64_t* value_out)
     if (otp_ctx->otp_type == OTPTYPE_TOTP) {
         // TOTP uses the current timestamp
         value = time(NULL);
-        if (value < MIN_ALLOWED_CURRENT_TIMESTAMP) {
+        // BBB-AIRGAP: clock_has_been_set() is the load-bearing half of this test on the Pi.  The
+        // sanity floor below only catches a clock that never moved off the epoch, which is what an
+        // ESP32 Jade does; this port boots at the image's build date instead (no RTC, see
+        // process_utils.c), so the floor passes and TOTP would emit codes for a wrong time without
+        // saying so.  The floor is kept because it still guards a clock set to a nonsense value.
+        if (!clock_has_been_set() || value < MIN_ALLOWED_CURRENT_TIMESTAMP) {
             JADE_LOGE("Using TOTP without time set!");
             return OTP_ERR_TOTP_TIME;
         }

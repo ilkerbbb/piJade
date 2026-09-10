@@ -11,6 +11,10 @@ try:
 except Exception as _:
     raise ImportError  # libjade.so not available
 
+# Method name used for libjade GUI/display requests
+# mirrors LIBJADE_REQUEST_METHOD in libjade.h
+_LIBJADE_REQUEST_METHOD = 'libjade_request'
+
 
 #
 # Experimental, internal, in-process interface to Jade

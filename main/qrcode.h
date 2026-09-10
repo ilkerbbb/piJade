@@ -56,6 +56,8 @@
 #define ECC_QUARTILE 2
 #define ECC_HIGH 3
 
+#define QRCODE_FRAGMENT_ROW_PERCENT 78
+
 // If set to non-zero, this library can ONLY produce QR codes at that version
 // This saves a lot of dynamic memory, as the codeword tables are skipped
 #ifndef LOCK_VERSION
@@ -87,9 +89,11 @@ void qrcode_toIcon(QRCode* qrcode, Icon* icon, uint8_t scale);
 void qrcode_freeIconData(Icon* icon);
 
 // Blockstream added function
-// NOTE: only supports v1 and v2 qrcodes atm.
+// NOTE: only supports v1 to v3 qrcodes atm.
 WARN_UNUSED_RESULT bool qrcode_toFragmentsIcons(
-    QRCode* qrcode, uint8_t target_size, bool show_grid, Icon** icons_out, size_t* num_icons_out);
+    QRCode* qrcode, uint16_t target_size, bool show_grid, uint8_t context_modules, Icon** icons_out,
+    size_t* num_icons_out);
+WARN_UNUSED_RESULT bool qrcode_fragmentsContextFits(uint8_t version, uint16_t target_size, uint8_t context_modules);
 
 #ifdef __cplusplus
 }

@@ -237,16 +237,21 @@ static bool decrypt_reply(const pin_keys_t* pinkeys, const uint8_t* encrypted, c
     // In theory the decrypted payload can be up to the size of the encrypted payload minus
     // the iv (an aes block len), *after* we've removed the trailing hmac.  It can be smaller - in
     // fact in this case we are expecting to decrypt exactly 32 bytes (aes key len)
+    // BBB-AIRGAP: this buffer receives the server's aes-key in clear, so it is sensitive in its
+    // own right - both exits below must leave it wiped, not just the successful one.
     uint8_t decrypted_padded[SERVER_REPLY_PAYLOAD_LEN - HMAC_SHA256_LEN - AES_BLOCK_LEN];
+    SENSITIVE_PUSH(decrypted_padded, sizeof(decrypted_padded));
     size_t written = 0;
     if (wally_aes_cbc_with_ecdh_key(pinkeys->privkey, sizeof(pinkeys->privkey), NULL, 0, encrypted, encrypted_len,
             pinkeys->ske, sizeof(pinkeys->ske), LABEL_ORACLE_RESPONSE, sizeof(LABEL_ORACLE_RESPONSE), AES_FLAG_DECRYPT,
             decrypted_padded, sizeof(decrypted_padded), &written)
             != WALLY_OK
         || written != decryptedaes_len) {
+        SENSITIVE_POP(decrypted_padded);
         return false;
     }
     memcpy(decryptedaes, decrypted_padded, written);
+    SENSITIVE_POP(decrypted_padded);
     return true;
 }
 
@@ -457,12 +462,17 @@ static pinserver_result_t pinserver_interaction(jade_process_t* process, const u
     uint8_t entropy[ENTROPY_LEN];
     uint8_t sig[EC_SIGNATURE_RECOVERABLE_LEN];
     uint8_t payload[CLIENT_REQUEST_MAX_PAYLOAD_LEN];
+    // BBB-AIRGAP: the server's half of the final aes-key. Declared here rather than at its first
+    // use further down so that every 'goto cleanup' above that point leaves a balanced sensitive
+    // stack; the pops below run in reverse order of these pushes.
+    uint8_t serverkey[AES_KEY_LEN_256];
 
     SENSITIVE_PUSH(&pinkeys, sizeof(pinkeys));
     SENSITIVE_PUSH(pin_privatekey, sizeof(pin_privatekey));
     SENSITIVE_PUSH(pinsecret, sizeof(pinsecret));
     SENSITIVE_PUSH(entropy, sizeof(entropy));
     SENSITIVE_PUSH(sig, sizeof(sig));
+    SENSITIVE_PUSH(serverkey, sizeof(serverkey));
 
     // Start the ecdh and derive the ephemeral encryption keys
     pinserver_result_t retval = generate_ephemeral_pinkeys(&pinkeys);
@@ -495,7 +505,6 @@ static pinserver_result_t pinserver_interaction(jade_process_t* process, const u
     send_http_request_reply(process, document, data);
 
     // Get the server's aes key for the given pin/key data
-    uint8_t serverkey[AES_KEY_LEN_256];
     retval = handle_pin(process, &pinkeys, serverkey, sizeof(serverkey));
     if (retval.result != PIN_SUCCESS) {
         goto cleanup;
@@ -509,6 +518,7 @@ static pinserver_result_t pinserver_interaction(jade_process_t* process, const u
     JADE_ASSERT(retval.result == PIN_SUCCESS);
 
 cleanup:
+    SENSITIVE_POP(serverkey);
     SENSITIVE_POP(sig);
     SENSITIVE_POP(entropy);
     SENSITIVE_POP(pinsecret);
@@ -541,6 +551,15 @@ static bool get_pinserver_aeskey(jade_process_t* process, const uint8_t* pin, co
                 const char* message[] = { "Retrying..." };
                 display_message_activity(message, 1);
                 continue;
+            }
+            // BBB-AIRGAP: KEY3 answers this question by leaving, and it consumed the event on the
+            // way.  The host still gets its answer, but the error screen below is skipped: the
+            // user asked for the dashboard, and opening one more screen they have to dismiss is
+            // exactly the second press the escape exists to remove.
+            if (gui_escape_pending()) {
+                JADE_LOGW("User abandoned pinserver interaction");
+                jade_process_reject_message(process, pir.errorcode, pir.message);
+                return false;
             }
         }
 #endif

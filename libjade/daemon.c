@@ -1,6 +1,10 @@
 #define _XOPEN_SOURCE 600
+// BBB-AIRGAP: explicit_bzero() is a glibc extension that _XOPEN_SOURCE alone hides.
+#define _DEFAULT_SOURCE
 
 #include "libjade.h"
+
+#include "../pijade/host/settings_store.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -13,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/ioctl.h>
 #include <sys/select.h>
 #include <sys/socket.h>
@@ -359,12 +364,43 @@ static void socket_bridge(const char* socket_path)
     printf("Socket bridge exiting.\n");
 }
 
+/*
+ * BBB-AIRGAP: the emulator can persist settings so the storage layer's failure paths become
+ * measurable. Without --settings libjade_settings_changed() has no handler and reports every write
+ * as successful by design (libjade/libjade.c:676-679), which puts main/storage.c's erase-failed
+ * branch out of reach here. The store itself is pijade-host's, linked rather than reimplemented,
+ * so the emulator exercises the same code the card runs.
+ */
+static bool on_settings_changed(const uint8_t* const data, const size_t len, void* const ctx)
+{
+    return len == 0 ? settings_store_erase(ctx) : settings_store_write(ctx, data, len);
+}
+
+static void load_settings(settings_store_t* const store)
+{
+    uint8_t* data = NULL;
+    size_t len = 0;
+    if (!settings_store_read(store, &data, &len)) {
+        return;
+    }
+
+    const bool loaded = libjade_load_settings(data, len);
+    // The slot holds the encrypted wallet and the pin key, so this buffer is wiped, not just freed.
+    explicit_bzero(data, len);
+    free(data);
+
+    if (!loaded) {
+        fprintf(stderr, "Stored settings rejected by libjade; starting with defaults.\n");
+    }
+}
+
 static int usage(const char* cmd, const char* error)
 {
     fprintf(stderr, "Error: %s.\n", error);
     fprintf(stderr,
         "Usage: %s [--serialport [SYMLINK_PATH] | --tcp PORT | --socketfile PATH]"
-        " [--log-level none|error|warn|info|debug|verbose]\n",
+        " [--settings PATH] [--log-level none|error|warn|info|debug|verbose]\n"
+        "--settings uses two slots: PATH.a and PATH.b. Without it nothing is persisted.\n",
         cmd);
     return EXIT_FAILURE;
 }
@@ -377,6 +413,7 @@ int main(int argc, char* argv[])
     int tcp_port = 0;
     int socket_mode = 0;
     char* socket_path = NULL;
+    const char* settings_path = NULL;
     int log_level = ESP_LOG_NONE;
 
     for (int i = 1; i < argc; ++i) {
@@ -407,6 +444,11 @@ int main(int argc, char* argv[])
             } else {
                 return usage(argv[0], "--socketfile requires a PATH argument");
             }
+        } else if (strcmp(argv[i], "--settings") == 0) {
+            if (++i >= argc) {
+                return usage(argv[0], "--settings requires a PATH argument");
+            }
+            settings_path = argv[i];
         } else if (strcmp(argv[i], "--log-level") == 0) {
             if (i + 1 >= argc) {
                 return usage(argv[0], "--log-level requires an argument");
@@ -436,6 +478,20 @@ int main(int argc, char* argv[])
         return usage(argv[0], "Exactly one of --serialport, --tcp, or --socketfile must be given");
     }
 
+    settings_store_t* settings_store = NULL;
+    if (settings_path) {
+        settings_store = settings_store_open(settings_path);
+        if (!settings_store) {
+            return usage(argv[0], "--settings PATH could not be opened");
+        }
+        /* Same order as pijade_host.c, and for the same reasons: the settings have to be in the
+         * store before startup reads them, and the handler registered before startup writes. */
+        load_settings(settings_store);
+        libjade_set_settings_handler(on_settings_changed, settings_store);
+    }
+
+    /* No clock handler here: the daemon is an emulator on a test machine, whose system clock must
+     * not be changed. Handler-free clock requests retain libjade's in-process no-op behaviour. */
     libjade_start();
     libjade_set_log_level(log_level);
 
@@ -451,6 +507,11 @@ int main(int argc, char* argv[])
 
     printf("Exiting libjade daemon.\n");
     libjade_stop();
+
+    if (settings_store) {
+        libjade_set_settings_handler(NULL, NULL);
+        settings_store_close(settings_store);
+    }
 
     return EXIT_SUCCESS;
 }

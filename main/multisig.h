@@ -2,6 +2,7 @@
 #define MULTISIG_H_
 
 #include "jade_assert.h"
+#include "registration_seal.h"
 #include "signer.h"
 #include "utils/cbor_rpc.h"
 #include "wallet.h"
@@ -20,15 +21,22 @@
     ((!master_blinding_key && !master_blinding_key_len)                                                                \
         || (master_blinding_key && master_blinding_key_len == MULTISIG_MASTER_BLINDING_KEY_SIZE))
 
-// The size of the byte-string required to store a multisig registration of the current 'version'
+// The size of the plaintext body of a multisig registration of the current 'version'
+// (everything between the version byte and the HMAC of the pre-sealing layout)
+#define MULTISIG_BODY_LEN(master_blinding_key_len, num_signers, total_num_path_elements)                               \
+    ((5 * sizeof(uint8_t)) + master_blinding_key_len + (num_signers * (6 + BIP32_SERIALIZED_LEN))                      \
+        + (total_num_path_elements * sizeof(uint32_t)))
+
+#define MAX_MULTISIG_BODY_LEN                                                                                          \
+    (MULTISIG_BODY_LEN(MULTISIG_MASTER_BLINDING_KEY_SIZE, MAX_ALLOWED_SIGNERS, MAX_ALLOWED_SIGNERS * 2 * MAX_PATH_LEN))
+
+// BBB-AIRGAP: the persisted record is the sealed body (main/registration_seal.h)
 #define MULTISIG_BYTES_LEN(master_blinding_key_len, num_signers, total_num_path_elements)                              \
-    ((6 * sizeof(uint8_t)) + master_blinding_key_len + (num_signers * (6 + BIP32_SERIALIZED_LEN))                      \
-        + (total_num_path_elements * sizeof(uint32_t)) + HMAC_SHA256_LEN)
+    REGISTRATION_SEALED_LEN(MULTISIG_BODY_LEN(master_blinding_key_len, num_signers, total_num_path_elements))
 
 // The largest supported multisig record
 // NOTE: beware of a later 'version' reducing this size as we may end up with larger records persisted in storage
-#define MAX_MULTISIG_BYTES_LEN                                                                                         \
-    (MULTISIG_BYTES_LEN(MULTISIG_MASTER_BLINDING_KEY_SIZE, MAX_ALLOWED_SIGNERS, MAX_ALLOWED_SIGNERS * 2 * MAX_PATH_LEN))
+#define MAX_MULTISIG_BYTES_LEN REGISTRATION_SEALED_LEN(MAX_MULTISIG_BODY_LEN)
 
 // Multisig registration file, field names
 #define MSIG_FILE_NAME "Name"
@@ -52,9 +60,14 @@ typedef struct _multisig_data {
     uint8_t xpubs[MAX_ALLOWED_SIGNERS * BIP32_SERIALIZED_LEN];
 } multisig_data_t;
 
-WARN_UNUSED_RESULT bool multisig_data_to_bytes(script_variant_t variant, bool sorted, uint8_t threshold,
+WARN_UNUSED_RESULT bool multisig_body_to_bytes(script_variant_t variant, bool sorted, uint8_t threshold,
     const uint8_t* master_blinding_key, size_t master_blinding_key_len, const signer_t* signers, size_t num_signers,
-    size_t total_num_path_elements, uint8_t* output_bytes, size_t output_len);
+    size_t total_num_path_elements, uint8_t* body, size_t body_len);
+
+WARN_UNUSED_RESULT bool multisig_seal_body(const uint8_t* body, size_t body_len, uint8_t* output, size_t output_len);
+
+WARN_UNUSED_RESULT bool multisig_open_registration(
+    const uint8_t* bytes, size_t bytes_len, uint8_t* body, size_t body_len, size_t* written);
 
 WARN_UNUSED_RESULT bool multisig_data_from_bytes(const uint8_t* bytes, size_t bytes_len, multisig_data_t* output,
     signer_t* signer_details, size_t signer_details_len, size_t* written);

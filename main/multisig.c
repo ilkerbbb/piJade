@@ -12,15 +12,31 @@
 // 1 - 0.1.31 - include the 'sorted' flag
 // 2 - 0.1.34 - include any liquid master blinding key
 // 3 - 1.0.22 - persist all metadata so can recreate original input
-static const uint8_t CURRENT_MULTISIG_RECORD_VERSION = 3;
+// BBB-AIRGAP: v4 seals the v3 body (main/registration_seal.c); the version byte moved out of the
+// body and the HMAC now covers the ciphertext.  Nothing older than v4 is read (spec B3).
+static const uint8_t CURRENT_MULTISIG_RECORD_VERSION = 4;
 
-// The smallest valid multisig record, for sanity checking
-// version 1, 1of1  (moving to v1 predated allowing just 1 signer)
-#define MIN_MULTISIG_BYTES_LEN (4 + 78 + 32)
+_Static_assert(MAX_MULTISIG_BODY_LEN == 3217, "multisig body size drifted; update spec B4 and pijade_settings.c");
+_Static_assert(MAX_MULTISIG_BYTES_LEN == 3281, "multisig record size drifted; update pijade_settings.c max_len");
 
-bool multisig_data_to_bytes(const script_variant_t variant, const bool sorted, const uint8_t threshold,
+// The smallest valid multisig record body, for sanity checking
+// variant, sorted, threshold, keylen, num_signers, then one signer with no paths
+#define MIN_MULTISIG_BODY_LEN (5 + BIP32_KEY_FINGERPRINT_LEN + 1 + BIP32_SERIALIZED_LEN + 1)
+
+bool multisig_seal_body(const uint8_t* body, const size_t body_len, uint8_t* output, const size_t output_len)
+{
+    return registration_seal(CURRENT_MULTISIG_RECORD_VERSION, body, body_len, output, output_len);
+}
+
+bool multisig_open_registration(
+    const uint8_t* bytes, const size_t bytes_len, uint8_t* body, const size_t body_len, size_t* written)
+{
+    return registration_open(CURRENT_MULTISIG_RECORD_VERSION, bytes, bytes_len, body, body_len, written);
+}
+
+bool multisig_body_to_bytes(const script_variant_t variant, const bool sorted, const uint8_t threshold,
     const uint8_t* master_blinding_key, const size_t master_blinding_key_len, const signer_t* signers,
-    const size_t num_signers, const size_t total_num_path_elements, uint8_t* output_bytes, const size_t output_len)
+    const size_t num_signers, const size_t total_num_path_elements, uint8_t* body, const size_t body_len)
 {
     JADE_ASSERT(threshold > 0);
     JADE_ASSERT(IS_VALID_BLINDING_KEY(master_blinding_key, master_blinding_key_len));
@@ -28,20 +44,16 @@ bool multisig_data_to_bytes(const script_variant_t variant, const bool sorted, c
     JADE_ASSERT(num_signers >= threshold);
     JADE_ASSERT(num_signers <= MAX_ALLOWED_SIGNERS);
     JADE_ASSERT(total_num_path_elements <= num_signers * 2 * MAX_PATH_LEN);
-    JADE_ASSERT(output_bytes);
-    JADE_ASSERT(output_len == MULTISIG_BYTES_LEN(master_blinding_key_len, num_signers, total_num_path_elements));
-
-    // Version byte
-    uint8_t* write_ptr = output_bytes;
-    memcpy(write_ptr, &CURRENT_MULTISIG_RECORD_VERSION, sizeof(CURRENT_MULTISIG_RECORD_VERSION));
-    write_ptr += sizeof(CURRENT_MULTISIG_RECORD_VERSION);
+    JADE_ASSERT(body);
+    JADE_ASSERT(body_len == MULTISIG_BODY_LEN(master_blinding_key_len, num_signers, total_num_path_elements));
 
     // Script variant
+    uint8_t* write_ptr = body;
     const uint8_t variant_byte = (uint8_t)variant;
     memcpy(write_ptr, &variant_byte, sizeof(variant_byte));
     write_ptr += sizeof(variant_byte);
 
-    // 'sorted' flag (new to version 1)
+    // 'sorted' flag
     const uint8_t sorted_byte = (uint8_t)sorted;
     memcpy(write_ptr, &sorted_byte, sizeof(sorted_byte));
     write_ptr += sizeof(sorted_byte);
@@ -50,7 +62,7 @@ bool multisig_data_to_bytes(const script_variant_t variant, const bool sorted, c
     memcpy(write_ptr, &threshold, sizeof(threshold));
     write_ptr += sizeof(threshold);
 
-    // Blinding key len, and data (new to version 2)
+    // Blinding key len, and data
     const uint8_t keylen = (uint8_t)master_blinding_key_len;
     memcpy(write_ptr, &keylen, sizeof(keylen));
     write_ptr += sizeof(keylen);
@@ -60,7 +72,7 @@ bool multisig_data_to_bytes(const script_variant_t variant, const bool sorted, c
         write_ptr += master_blinding_key_len;
     }
 
-    // Num signers (new to version 3)
+    // Num signers
     JADE_ASSERT(num_signers <= MAX_ALLOWED_SIGNERS);
     const uint8_t num_signers_byte = num_signers;
     memcpy(write_ptr, &num_signers_byte, sizeof(num_signers_byte));
@@ -76,7 +88,7 @@ bool multisig_data_to_bytes(const script_variant_t variant, const bool sorted, c
         counted_path_elements += signer->path_len;
         JADE_ASSERT(counted_path_elements <= total_num_path_elements);
 
-        // Key origin information (new to version 3)
+        // Key origin information
         memcpy(write_ptr, signer->fingerprint, sizeof(signer->fingerprint));
         write_ptr += sizeof(signer->fingerprint);
 
@@ -89,18 +101,22 @@ bool multisig_data_to_bytes(const script_variant_t variant, const bool sorted, c
         memcpy(write_ptr, signer->derivation, derivation_bytes_len);
         write_ptr += derivation_bytes_len;
 
-        // Xpub (changed in version 3 to be the xpub as passed, not the derived immediate parent xpub)
+        // Xpub as passed (not the derived immediate parent xpub)
+        // BBB-AIRGAP: decoded via a scratch buffer - wally needs room for the 4 checksum bytes it
+        // strips, and the last signer of a body has exactly 78 + 1 bytes left (the trailing HMAC
+        // that used to absorb this is now outside the body).
+        uint8_t xpub_bytes[BIP32_SERIALIZED_LEN + BASE58_CHECKSUM_LEN];
         size_t written = 0;
-        if (wally_base58_to_bytes(
-                signer->xpub, BASE58_FLAG_CHECKSUM, write_ptr, output_bytes + output_len - write_ptr, &written)
+        if (wally_base58_to_bytes(signer->xpub, BASE58_FLAG_CHECKSUM, xpub_bytes, sizeof(xpub_bytes), &written)
                 != WALLY_OK
             || written != BIP32_SERIALIZED_LEN) {
             JADE_LOGE("Failed to parse/write signer %u xpub: '%s'", i, signer->xpub);
             return false;
         }
-        write_ptr += written;
+        memcpy(write_ptr, xpub_bytes, BIP32_SERIALIZED_LEN);
+        write_ptr += BIP32_SERIALIZED_LEN;
 
-        // Additional path (new to version 3 - prior to that was included in the xpub persisted)
+        // Additional path
 
         // We do not support persisting path strings
         if (signer->path_is_string) {
@@ -118,47 +134,18 @@ bool multisig_data_to_bytes(const script_variant_t variant, const bool sorted, c
         write_ptr += path_bytes_len;
     }
     JADE_ASSERT(counted_path_elements == total_num_path_elements);
-
-    // Append hmac
-    JADE_ASSERT(write_ptr + HMAC_SHA256_LEN == output_bytes + output_len);
-    return wallet_hmac_with_master_key(output_bytes, output_len - HMAC_SHA256_LEN, write_ptr, HMAC_SHA256_LEN);
-}
-
-// Before v3 signer data was the simply the signers' immediate parent xpubs, concatentated
-// Not possible to read full signer metadata records, just the xpubs needed to make pubkeys/addresses
-static bool read_simple_signers(
-    const uint8_t* const signer_bytes, const size_t signer_bytes_len, const uint8_t version, multisig_data_t* output)
-{
-    JADE_ASSERT(signer_bytes);
-    JADE_ASSERT(signer_bytes_len);
-    JADE_ASSERT(version < 3);
-
-    const size_t num_xpubs = signer_bytes_len / BIP32_SERIALIZED_LEN;
-    if (!num_xpubs || num_xpubs > MAX_ALLOWED_SIGNERS) {
-        JADE_LOGE("Unexpected number of multisig signers %d", num_xpubs);
-        return false;
-    }
-
-    if (num_xpubs * BIP32_SERIALIZED_LEN != signer_bytes_len) {
-        JADE_LOGE("Unexpected multisig data length for %d signers", num_xpubs);
-        return false;
-    }
-
-    output->num_xpubs = (uint8_t)num_xpubs; // ok as less than MAX_ALLOWED_SIGNERS
-    memcpy(output->xpubs, signer_bytes, signer_bytes_len);
+    JADE_ASSERT(write_ptr == body + body_len);
     return true;
 }
 
-// In v3 signer data was changed to contain all the metadata from the original registration, such that
+// Since v3 signer data contains all the metadata from the original registration, such that
 // the original registration could be recreated if required (eg. to export from the device).
 // Can pass 'signer_t' structs to fetch that data now (in addition to the data needed for address generation)
 static bool read_complete_signers(const uint8_t* const signer_bytes, const size_t signer_bytes_len,
-    const uint8_t version, multisig_data_t* output, signer_t* signer_details, const size_t signer_details_len,
-    size_t* written)
+    multisig_data_t* output, signer_t* signer_details, const size_t signer_details_len, size_t* written)
 {
     JADE_ASSERT(signer_bytes);
     JADE_ASSERT(signer_bytes_len);
-    JADE_ASSERT(version >= 3);
 
     // signer_details (incl written) is optional (passed for more detailed data)
     JADE_ASSERT(signer_details || !signer_details_len);
@@ -169,7 +156,7 @@ static bool read_complete_signers(const uint8_t* const signer_bytes, const size_
 
     const uint8_t* read_ptr = signer_bytes;
 
-    // Num signers (new to version 3)
+    // Num signers
     const uint8_t num_signers = *read_ptr;
     if (!num_signers || num_signers > MAX_ALLOWED_SIGNERS) {
         JADE_LOGE("Bad number of signers read from registered multisig data");
@@ -183,7 +170,7 @@ static bool read_complete_signers(const uint8_t* const signer_bytes, const size_
         signer_t* const signer = (signer_details && i < signer_details_len) ? signer_details + i : NULL;
 
         if (signer) {
-            // Key origin information (new to version 3)
+            // Key origin information
             memcpy(signer->fingerprint, read_ptr, sizeof(signer->fingerprint));
         }
         read_ptr += sizeof(signer->fingerprint);
@@ -203,7 +190,7 @@ static bool read_complete_signers(const uint8_t* const signer_bytes, const size_
         }
         read_ptr += derivation_bytes_len;
 
-        // Xpub (changed in version 3 to be the xpub as passed, not the derived immediate parent xpub)
+        // Xpub as passed (not the derived immediate parent xpub)
         // Copy it into the output position now - it may get overwritten later if there is additional path
         uint8_t* const xpub = output->xpubs + (i * BIP32_SERIALIZED_LEN);
         memcpy(xpub, read_ptr, BIP32_SERIALIZED_LEN);
@@ -229,7 +216,7 @@ static bool read_complete_signers(const uint8_t* const signer_bytes, const size_
             JADE_WALLY_VERIFY(wally_free_string(pstr));
         }
 
-        // Additional path (new to version 3 - prior to that was included in the xpub persisted)
+        // Additional path
         // NOTE: path strings not supported - explicit numeric array only
         uint8_t path_len = 0;
         memcpy(&path_len, read_ptr, sizeof(path_len));
@@ -277,11 +264,54 @@ static bool read_complete_signers(const uint8_t* const signer_bytes, const size_
     return true;
 }
 
+static bool multisig_body_from_bytes(const uint8_t* body, const size_t body_len, multisig_data_t* output,
+    signer_t* signer_details, const size_t signer_details_len, size_t* written)
+{
+    JADE_ASSERT(body);
+    JADE_ASSERT(output);
+
+    if (body_len < MIN_MULTISIG_BODY_LEN) {
+        JADE_LOGE("Multisig record body too short: %u", body_len);
+        return false;
+    }
+
+    const uint8_t* read_ptr = body;
+    const uint8_t* const end = body + body_len;
+
+    // Script variant
+    output->variant = (script_variant_t)*read_ptr;
+    read_ptr += sizeof(uint8_t);
+
+    // 'sorted' flag
+    output->sorted = (bool)*read_ptr;
+    read_ptr += sizeof(uint8_t);
+
+    // Threshold
+    output->threshold = *read_ptr;
+    read_ptr += sizeof(uint8_t);
+
+    // Blinding key len, and data
+    output->master_blinding_key_len = 0;
+    const uint8_t keylen = *read_ptr;
+    read_ptr += sizeof(keylen);
+    if (keylen) {
+        if (keylen != sizeof(output->master_blinding_key) || read_ptr + keylen > end) {
+            JADE_LOGE("Unexpected blinding key length %d", keylen);
+            return false;
+        }
+        output->master_blinding_key_len = keylen;
+        memcpy(output->master_blinding_key, read_ptr, keylen);
+        read_ptr += keylen;
+    }
+
+    // All bytes remaining are the signer data (num_signers byte, then signers)
+    return read_complete_signers(read_ptr, end - read_ptr, output, signer_details, signer_details_len, written);
+}
+
 bool multisig_data_from_bytes(const uint8_t* bytes, const size_t bytes_len, multisig_data_t* output,
     signer_t* signer_details, const size_t signer_details_len, size_t* written)
 {
     JADE_ASSERT(bytes);
-    JADE_ASSERT(bytes_len >= MIN_MULTISIG_BYTES_LEN);
     JADE_ASSERT(output);
 
     // signer_details (incl written) is optional (passed for more detailed data)
@@ -291,75 +321,15 @@ bool multisig_data_from_bytes(const uint8_t* bytes, const size_t bytes_len, mult
         *written = 0;
     }
 
-    // Check hmac first
-    uint8_t hmac_calculated[HMAC_SHA256_LEN];
-    if (!wallet_hmac_with_master_key(bytes, bytes_len - HMAC_SHA256_LEN, hmac_calculated, sizeof(hmac_calculated))
-        || sodium_memcmp(bytes + bytes_len - HMAC_SHA256_LEN, hmac_calculated, sizeof(hmac_calculated)) != 0) {
-        JADE_LOGW("Multisig data HMAC error/mismatch");
-        return false;
-    }
-
-    // Version byte
-    const uint8_t* read_ptr = bytes;
-    const uint8_t version = *read_ptr;
-    if (version > CURRENT_MULTISIG_RECORD_VERSION) {
-        JADE_LOGE("Bad version byte in stored registered multisig data");
-        return false;
-    }
-    read_ptr += sizeof(version);
-
-    // Script variant
-    uint8_t variant_byte;
-    memcpy(&variant_byte, read_ptr, sizeof(variant_byte));
-    output->variant = variant_byte;
-    read_ptr += sizeof(variant_byte);
-
-    // Version 1 adds the 'sorted' flag (which otherwise defaults to false)
-    output->sorted = false;
-    if (version > 0) {
-        uint8_t sorted_byte;
-        memcpy(&sorted_byte, read_ptr, sizeof(sorted_byte));
-        output->sorted = (bool)sorted_byte;
-        read_ptr += sizeof(sorted_byte);
-    }
-
-    // Threshold
-    output->threshold = *read_ptr;
-    read_ptr += sizeof(uint8_t);
-
-    // Version 2 adds the 'blinding key' data, which otherwise defaults to null/none
-    output->master_blinding_key_len = 0;
-    if (version > 1) {
-        const uint8_t keylen = *read_ptr;
-        read_ptr += sizeof(keylen);
-
-        if (keylen) {
-            if (keylen != sizeof(output->master_blinding_key)) {
-                JADE_LOGE("Unexpected blinding key length %d", keylen);
-                return false;
-            }
-
-            output->master_blinding_key_len = keylen;
-            memcpy(output->master_blinding_key, read_ptr, keylen);
-            read_ptr += keylen;
-        }
-    }
-
-    // What was saved per signer changed in v3 (so that we can re-consistite the original input data)
-    // All bytes remaining in buffer, up to the hmac, are the signer data.
-    const size_t signer_bytes_len = bytes + bytes_len - HMAC_SHA256_LEN - read_ptr;
-    if (version < 3) {
-        // Not able to produce signer details from legacy records
-        if (written) {
-            JADE_LOGW("Unable to recover signer details from v%u multisig record", version);
-            *written = 0;
-        }
-        // Legacy record
-        return read_simple_signers(read_ptr, signer_bytes_len, version, output);
-    }
-
-    return read_complete_signers(
-        read_ptr, signer_bytes_len, version, output, signer_details, signer_details_len, written);
+    // BBB-AIRGAP: open the sealed record onto the heap (up to 3217 bytes) and parse the plaintext
+    // body; the body is wiped before the buffer is released.
+    size_t body_len = 0;
+    uint8_t* const body = JADE_MALLOC(MAX_MULTISIG_BODY_LEN);
+    const bool ret = multisig_open_registration(bytes, bytes_len, body, MAX_MULTISIG_BODY_LEN, &body_len)
+        && multisig_body_from_bytes(body, body_len, output, signer_details, signer_details_len, written);
+    JADE_WALLY_VERIFY(wally_bzero(body, MAX_MULTISIG_BODY_LEN));
+    free(body);
+    return ret;
 }
 
 bool multisig_load_from_storage(const char* multisig_name, multisig_data_t* output, signer_t* signer_details,

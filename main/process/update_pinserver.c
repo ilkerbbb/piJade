@@ -57,6 +57,11 @@ void show_pinserver_details(void)
         if (pubkey_hex) {
             JADE_WALLY_VERIFY(wally_free_string(pubkey_hex));
         }
+        // BBB-AIRGAP: the details screen consumed KEY3; free its hex string, then leave
+        // without opening the certificate screen and waiting for a second escape.
+        if (gui_escape_pending()) {
+            return;
+        }
     }
 
     // Show certificate details if present

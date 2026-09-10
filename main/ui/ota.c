@@ -130,8 +130,14 @@ bool show_ota_versions_activity(
 
         case BTN_HELP:
             await_qr_help_activity("blkstrm.com/fwupgrade");
+            // BBB-AIRGAP: help consumed KEY3; do not wait for a second press on the OTA screen.
+            if (gui_escape_pending()) {
+                return false;
+            }
             break;
 
+        // BBB-AIRGAP: KEY3 leaves through the screen's own decline, never its accept.
+        case BTN_ESCAPE_HOME:
         case BTN_OTA_REJECT:
             return false;
 

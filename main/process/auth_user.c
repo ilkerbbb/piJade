@@ -33,11 +33,15 @@ static void check_wallet_erase_pin(jade_process_t* process, const uint8_t* pin_e
 {
     JADE_ASSERT(pin_entered);
 
-    uint8_t pin_erase[DIGIT_ENTRY_SIZE];
-    if (pin_len == sizeof(pin_erase) && storage_get_wallet_erase_pin(pin_erase, sizeof(pin_erase))
-        && !sodium_memcmp(pin_erase, pin_entered, pin_len)) {
+    if (pin_len == DIGIT_ENTRY_SIZE && storage_verify_wallet_erase_pin(pin_entered, pin_len)) {
         // 'Wallet erase' PIN entered.  Erase wallet keys and reset passphrase setting
-        keychain_erase_encrypted();
+        // BBB-AIRGAP: the erase can fail (main/keychain.c keychain_erase_encrypted()).  The message
+        // and the shutdown below stay exactly the same either way - this PIN's whole purpose is to
+        // be indistinguishable from a real internal error, and any 'erase failed' signal would tell
+        // an onlooker which PIN was entered.  The failure goes to the log and nowhere else.
+        if (!keychain_erase_encrypted()) {
+            JADE_LOGE("Failed to erase encrypted keys for wallet-erase pin");
+        }
         keychain_set_passphrase_frequency(PASSPHRASE_NEVER);
         keychain_persist_key_flags();
 
@@ -130,6 +134,12 @@ static bool set_pin_get_aeskey(jade_process_t* process, const char* title, uint8
     SENSITIVE_PUSH(&digit_entry, sizeof(digit_entry_t));
 
     while (true) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            jade_process_reject_message(process, CBOR_RPC_USER_CANCELLED, "User abandoned setting new PIN");
+            SENSITIVE_POP(&digit_entry);
+            return false;
+        }
         reset_digit_entry(&digit_entry, title);
 
         // If getting PIN via QRs, free gui memory before attempting QR roundtrip
@@ -236,6 +246,20 @@ static bool get_pin_load_keys(jade_process_t* process, const bool suppress_pin_c
         // Get any passphrase that may be required
         get_passphrase(passphrase, sizeof(passphrase));
 
+        // BBB-AIRGAP: the passphrase question answers 'Skip' and a KEY3 escape with the same
+        // false, and Skip completes the derivation with the empty passphrase.  Leaving must not
+        // unlock a wallet, so the escape is reported as the user declining.
+        if (gui_escape_pending()) {
+            SENSITIVE_POP(passphrase);
+            // The PIN has already decrypted the wallet, so the entropy is cached even though
+            // keychain_get() is still NULL until the passphrase completes the derivation.
+            // Leaving without clearing that would break the NEXT unlock: keychain_load() refuses
+            // to load over cached entropy and a correct PIN would be reported as incorrect.
+            keychain_clear();
+            jade_process_reject_message(process, CBOR_RPC_USER_CANCELLED, "User declined to enter passphrase");
+            goto cleanup;
+        }
+
         display_processing_message_activity();
 
         if (!keychain_complete_derivation_with_passphrase(passphrase)) {
@@ -258,7 +282,14 @@ static bool get_pin_load_keys(jade_process_t* process, const bool suppress_pin_c
     // Optionally change PIN
     if (change_pin_requested) {
         const char* question[] = { "Do you want to", "change your PIN?" };
-        if (suppress_pin_change_confirmation || await_yesno_activity("Change PIN", question, 2, true, NULL)) {
+        const bool change_pin
+            = suppress_pin_change_confirmation || await_yesno_activity("Change PIN", question, 2, true, NULL);
+        // BBB-AIRGAP: KEY3 is not the 'No' answer that clears the request and replies success.
+        if (gui_escape_pending()) {
+            jade_process_reject_message(process, CBOR_RPC_USER_CANCELLED, "User abandoned changing PIN");
+            goto cleanup;
+        }
+        if (change_pin) {
             uint8_t aeskey_new[AES_KEY_LEN_256];
             SENSITIVE_PUSH(aeskey_new, sizeof(aeskey_new));
 
@@ -269,11 +300,18 @@ static bool get_pin_load_keys(jade_process_t* process, const bool suppress_pin_c
                 } else {
                     JADE_LOGE("Failed to re-encrypt with changed PIN data");
                     await_error("Failed to re-encrypt key data!");
+                    // BBB-AIRGAP: the outer cleanup pops aeskey, so its inner key must go first.
+                    SENSITIVE_POP(aeskey_new);
                     goto cleanup;
                 }
             } else {
                 JADE_LOGW("Abandoned change-PIN");
-                await_error("Change-PIN abandoned");
+                // BBB-AIRGAP: KEY3 already sent user-cancelled; do not stop at another screen
+                // or leave aeskey_new on the sensitive stack when outer cleanup pops aeskey.
+                SENSITIVE_POP(aeskey_new);
+                if (!gui_escape_pending()) {
+                    await_error("Change-PIN abandoned");
+                }
                 goto cleanup;
             }
             SENSITIVE_POP(aeskey_new);

@@ -3,6 +3,7 @@
 #include "../button_events.h"
 #include "../descriptor.h"
 #include "../display.h"
+#include "../idletimer.h"
 #include "../input.h"
 #include "../jade_assert.h"
 #include "../jade_wally_verify.h"
@@ -24,6 +25,12 @@
 #include "../utils/util.h"
 #include "../utils/wally_ext.h"
 #include "../wallet.h"
+
+#include <string.h>
+
+#ifdef CONFIG_HAS_CAMERA
+#include "../camera.h"
+#endif
 #ifdef CONFIG_IDF_TARGET_ESP32S3
 #include "usbhmsc/usbhmsc.h"
 #include "usbhmsc/usbmode.h"
@@ -176,18 +183,18 @@ gui_activity_t* make_connect_qrmode_activity(const char* device_name);
 gui_activity_t* make_confirm_qrmode_activity(void);
 
 gui_activity_t* make_startup_options_activity(void);
-gui_activity_t* make_uninitialised_settings_activity(void);
-gui_activity_t* make_locked_settings_activity(void);
-gui_activity_t* make_unlocked_settings_activity(void);
-
-gui_activity_t* make_wallet_settings_activity(void);
-gui_activity_t* make_device_settings_activity(void);
-gui_activity_t* make_usbstorage_settings_activity(bool unlocked);
-gui_activity_t* make_authentication_activity(bool initialised_and_pin_unlocked);
-gui_activity_t* make_prefs_settings_activity(bool initialised_and_locked, gui_view_node_t** qr_mode_network_item);
+gui_activity_t* make_usbstorage_settings_activity(bool wallet_loaded, bool firmware_upgrade_allowed);
 gui_activity_t* make_display_settings_activity(void);
 gui_activity_t* make_info_activity(const char* fw_version);
-gui_activity_t* make_device_info_activity(void);
+gui_activity_t* make_io_test_activity(void);
+gui_activity_t* make_io_test_screen_activity(gui_view_node_t** colour_fill);
+gui_activity_t* make_io_test_buttons_activity(gui_view_node_t** marks);
+gui_activity_t* make_device_info_activity(bool show_ble);
+
+#ifdef CONFIG_HAS_CAMERA
+// BBB-AIRGAP: main/process/mnemonic.c - scans a recovery phrase and rejects any other qr.
+WARN_UNUSED_RESULT bool mnemonic_qr(char* mnemonic, size_t mnemonic_len);
+#endif
 
 #ifdef CONFIG_BOARD_TYPE_JADE_ANY
 gui_activity_t* make_legal_certifications_activity(void);
@@ -195,7 +202,7 @@ gui_activity_t* make_legal_certifications_activity(void);
 gui_activity_t* make_storage_stats_activity(size_t entries_used, size_t entries_free);
 
 gui_activity_t* make_wallet_erase_pin_info_activity(void);
-gui_activity_t* make_wallet_erase_pin_options_activity(gui_view_node_t** pin_text);
+gui_activity_t* make_wallet_erase_pin_options_activity(void);
 
 gui_activity_t* make_bip39_passphrase_prefs_activity(
     gui_view_node_t** frequency_textbox, gui_view_node_t** method_textbox);
@@ -203,7 +210,7 @@ gui_activity_t* make_bip39_passphrase_prefs_activity(
 gui_activity_t* make_otp_activity(void);
 gui_activity_t* make_new_otp_activity(void);
 
-gui_activity_t* make_view_export_otp_activity(const char* name);
+gui_activity_t* make_view_export_otp_activity(const char* name, bool is_valid);
 
 bool show_otp_details_activity(
     const otpauth_ctx_t* ctx, bool initial_confirmation, bool is_valid, bool show_delete_btn);
@@ -214,8 +221,8 @@ gui_activity_t* make_show_totp_code_activity(const char* name, const char* times
 gui_activity_t* make_pinserver_activity(void);
 
 bool select_registered_wallet(const char multisig_names[][NVS_KEY_NAME_MAX_SIZE], size_t num_multisigs,
-    const char descriptor_names[][NVS_KEY_NAME_MAX_SIZE], size_t num_descriptors, const char** wallet_name_out,
-    bool* is_multisig);
+    const bool* owned_multisigs, const char descriptor_names[][NVS_KEY_NAME_MAX_SIZE], size_t num_descriptors,
+    const bool* owned_descriptors, const char** wallet_name_out, bool* is_multisig);
 gui_activity_t* make_view_delete_wallet_activity(const char* wallet_name, bool allow_export);
 bool show_multisig_activity(const char* multisig_name, bool is_sorted, size_t threshold, size_t num_signers,
     const signer_t* signer_details, size_t num_signer_details, const char* master_blinding_key_hex,
@@ -226,11 +233,10 @@ bool show_descriptor_activity(const char* descriptor_name, const descriptor_data
     const uint8_t* wallet_fingerprint, size_t wallet_fingerprint_len, network_t network_id, bool initial_confirmation,
     bool overwriting, bool is_valid);
 
-gui_activity_t* make_session_activity(void);
 gui_activity_t* make_ble_activity(gui_view_node_t** ble_status_item);
 
 // Wallet initialisation functions
-bool derive_keychain(bool temporary_restore, const char* mnemonic);
+derive_keychain_result_t derive_keychain(bool temporary_restore, const char* mnemonic, bool into_free_slot);
 void initialise_with_mnemonic(bool temporary_restore, bool force_qr_scan, bool* offer_qr_temporary);
 
 // Register a new otp code
@@ -244,6 +250,10 @@ bool reset_pinserver(void);
 
 // Bip85
 void handle_bip85_mnemonic();
+#ifdef CONFIG_HAS_CAMERA
+// BBB-AIRGAP: the backup screens of the wallet in use - see main/process/mnemonic.c
+void handle_wallet_backup(void);
+#endif
 
 // Version info reply
 void build_version_info_reply(const void* ctx, CborEncoder* container);
@@ -676,7 +686,8 @@ static void offer_jade_reset(void)
     char pinstr[sizeof(num) + 1];
     format_pin(pinstr, sizeof(pinstr), num, sizeof(num));
 
-    JADE_LOGI("User must enter: %s to reset all data", pinstr);
+    // BBB-AIRGAP: the confirmation code is shown on screen only; logging it would weaken the gate.
+    JADE_LOGI("Awaiting reset confirmation code entry");
 
     char confirm_msg[64];
     const int ret = snprintf(confirm_msg, sizeof(confirm_msg), "Confirm reset: %s", pinstr);
@@ -694,13 +705,23 @@ static void offer_jade_reset(void)
         return;
     }
 
-    format_pin(pinstr, sizeof(pinstr), digit_entry.digit, sizeof(digit_entry.digit));
-    JADE_LOGI("User entered: %s", pinstr);
+    // BBB-AIRGAP: upstream formatted the entered digits into pinstr only to log them; the value
+    // equals the on-screen confirmation code when correct, so neither the formatting nor the log
+    // remains. The two branches below already record the outcome.
+    JADE_LOGI("Reset confirmation code entered");
 
     if (!sodium_memcmp(num, digit_entry.digit, sizeof(num))) {
         // Correct - erase all jade non-volatile storage
         JADE_LOGI("User confirmed - erasing Jade data");
         if (storage_erase()) {
+            // BBB-AIRGAP: the wallets in memory go with it.  This menu is reachable with a wallet
+            // loaded (the 'Factory Reset' row of the Options list), and on this port a
+            // restart does not clear DRAM by itself - so without this, "erase all Jade data"
+            // would leave the wallet, now including the entropy its words can be rebuilt from,
+            // sitting in memory.  Storage first, memory second, for the reason the same order is
+            // used elsewhere: an interruption between the two must not leave the durable copy.
+            keychain_clear();
+
             // Erase succeeded, better reboot to re-initialise
             esp_restart();
         } else {
@@ -777,8 +798,20 @@ static void select_initial_connection(const bool offer_qr_temporary)
     // If no BLE and no camera/QR-scan (ie. no selection screen created) then assume USB
     initialisation_source = act_select ? SOURCE_NONE : SOURCE_SERIAL;
     show_connect_screen = initialisation_source != SOURCE_NONE;
+    bool cancelled = false;
 
-    while (initialisation_source == SOURCE_NONE) {
+    while (initialisation_source == SOURCE_NONE && !cancelled) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            // BBB-AIRGAP: use the same cleanup as BTN_CONNECT_SELECT_BACK. A newly derived
+            // SOURCE_NONE wallet left here violates the dashboard's authenticated-wallet assertion.
+            if (keychain_get() && keychain_get_userdata() == SOURCE_NONE) {
+                keychain_clear();
+            }
+            cancelled = true;
+            break;
+        }
+
         gui_set_current_activity(act);
 
         const int32_t ev_id = gui_activity_wait_button(act, BTN_CONNECT_VIA_USB);
@@ -824,6 +857,17 @@ static void select_initial_connection(const bool offer_qr_temporary)
             act = act_select;
         } else if (ev_id == BTN_CONNECT_QR_HELP) {
             await_qr_help_activity("blkstrm.com/qrmode");
+        } else if (ev_id == BTN_CONNECT_SELECT_BACK) {
+            // BBB-AIRGAP: Upstream has no exit here.  initialise_wallet() always holds a new
+            // SOURCE_NONE wallet, while the Connect-To caller can hold either a sourced wallet or
+            // a newly derived SOURCE_NONE wallet.  Forgetting only the latter avoids the dashboard
+            // assertion, using the same keychain_clear() operation as BTN_SESSION_LOGOUT.  Both
+            // callers hold exactly one wallet by the time they reach this screen, so clearing the
+            // table takes nothing else with it.
+            if (keychain_get() && keychain_get_userdata() == SOURCE_NONE) {
+                keychain_clear();
+            }
+            cancelled = true;
         }
     }
 }
@@ -833,27 +877,43 @@ bool handle_mnemonic_qr(const char* mnemonic)
 {
     JADE_ASSERT(mnemonic);
 
-    const char* question[] = { "Wallet QR identified.", "Log out and switch", "wallets?" };
-    if (!await_yesno_activity("Switch Wallet", question, 3, true, "blkstrm.com/temporary")) {
-        // User opted against - return true to show qr handled without processing error
+    // BBB-AIRGAP: upstream logs the current wallet out and switches to the scanned one, because
+    // only one wallet fits in memory.  With the slot table the scanned wallet is loaded next to
+    // the ones already there, so nothing is logged out.  A full table is refused inside
+    // derive_keychain(), which is the first place that knows whether a slot is needed: the words
+    // scanned may be a wallet already held, and switching to that one needs no slot.
+    // Load the new wallet alongside the ones already held, and switch to it
+    // BBB-AIRGAP: the confirmation used to be asked here, before the words had been worked
+    // through, and so could only ask about "this wallet".  derive_keychain() asks it once the
+    // fingerprint is known, which also lets it recognise a wallet already held; both of those
+    // endings leave nothing loaded and are not errors, hence the three-way result.
+    const uint8_t prev_userdata = keychain_get_userdata();
+    const bool assume_qr_mode = (prev_userdata == SOURCE_INTERNAL);
+    JADE_LOGI("Loading wallet into free slot - qrmode: %u", assume_qr_mode);
+
+    const bool temporary_restore = true;
+    const bool into_free_slot = true;
+    const derive_keychain_result_t derived = derive_keychain(temporary_restore, mnemonic, into_free_slot);
+    if (derived == DERIVE_KEYCHAIN_FAILED) {
+        JADE_LOGE("Failed to derive new wallet to load");
+        return false;
+    }
+    if (derived == DERIVE_KEYCHAIN_ABORTED) {
+        // Nothing was loaded, and nothing went wrong: the user declined, or the wallet was one
+        // already held and has been made the wallet in use.  Either way the carrier handover
+        // below would be wrong - it belongs to a wallet that has just arrived.
+        // Return true - the qr was handled, this is not a processing error
         return true;
     }
 
-    // Log-out and switch to new wallet
-    const bool assume_qr_mode = (keychain_get_userdata() == SOURCE_INTERNAL);
-    JADE_LOGI("Switching wallets - qrmode: %u", assume_qr_mode);
-
-    const bool temporary_restore = true;
-    if (!derive_keychain(temporary_restore, mnemonic)) {
-        JADE_LOGE("Failed to derive new wallet to switch into");
-        return false;
-    }
-
-    // If the original wallet was in qrmode, remain in qr-mode, otherwise ask user
+    // If the original wallet was in qrmode, remain in qr-mode.  Otherwise inherit the carrier used
+    // by the already-connected session; no new connection selection is needed.
     if (assume_qr_mode) {
         auth_qr_mode();
     } else {
-        select_initial_connection(!temporary_restore);
+        // BBB-AIRGAP: the scanned wallet is loaded alongside an active wallet, so associate it with
+        // that wallet's carrier without entering the blocking connection-selection screen.
+        keychain_set(keychain_get(), prev_userdata, true);
     }
 
     return true;
@@ -939,6 +999,11 @@ static void handle_ble(void)
     update_ble_carousel_label(status_textbox, enabled);
 
     while (true) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            return;
+        }
+
         // Show, and await button click
         gui_set_current_activity(act);
 
@@ -946,6 +1011,11 @@ static void handle_ble(void)
         if (ev_id == BTN_BLE_STATUS) {
             gui_set_current_activity(act_status);
             while (true) {
+                // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+                if (gui_escape_pending()) {
+                    return;
+                }
+
                 update_ble_carousel_label(status_textbox, enabled);
                 if (gui_activity_wait_event(act_status, GUI_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0)) {
                     if (ev_id == GUI_WHEEL_LEFT_EVENT || ev_id == GUI_WHEEL_RIGHT_EVENT) {
@@ -997,6 +1067,12 @@ static void handle_change_pin(void)
     // Set flag to change pin on next successful auth/unlock
     const char* message[] = { "Change your PIN", "after unlocking Jade?" };
     const bool change_pin = await_yesno_activity("Change PIN", message, 2, true, NULL);
+
+    // BBB-AIRGAP: 'No' and a KEY3 escape both arrive as false, and 'No' is an answer: it clears
+    // a change already requested.  Leaving is not an answer, so the request is left as it was.
+    if (gui_escape_pending()) {
+        return;
+    }
     set_request_change_pin(change_pin);
 }
 
@@ -1029,6 +1105,15 @@ static bool handle_change_pin_qr(void)
 // Helper to delete a wallet registration record after user confirms
 static bool offer_delete_registered_wallet(const char* name, const bool is_multisig)
 {
+    // BBB-AIRGAP: this is offered when the viewer screen comes back with 'back', and a KEY3
+    // escape returns the same 'back'.  Opening a Delete question there would stop the escape at
+    // a screen the user did not ask for, so the pending flag ends the wallet loop instead; the
+    // caller's own check then carries the escape home.  A real BTN_DELETE_WALLET press cannot
+    // reach here with the flag set, because every non-KEY3 input clears it.
+    if (gui_escape_pending()) {
+        return true;
+    }
+
     JADE_ASSERT(name);
 
     if (!await_yesno_activity("Delete Wallet", &name, 1, false, "blkstrm.com/wallets")) {
@@ -1044,6 +1129,22 @@ static bool offer_delete_registered_wallet(const char* name, const bool is_multi
 
     await_message_2("Registered Wallet", "Deleted");
     return true;
+}
+
+// BBB-AIRGAP: membership test for the valid-record-name lists gathered below.  Registration names
+// are NUL-terminated and bounded by the storage key size, which is what makes both lists the same
+// shape.
+static bool name_in_list(const char* name, const char names[][NVS_KEY_NAME_MAX_SIZE], const size_t num_names)
+{
+    JADE_ASSERT(name);
+    JADE_ASSERT(names || !num_names);
+
+    for (size_t i = 0; i < num_names; ++i) {
+        if (!strcmp(name, names[i])) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static void handle_registered_wallets(void)
@@ -1066,10 +1167,44 @@ static void handle_registered_wallets(void)
         return;
     }
 
+    // BBB-AIRGAP: which of these names the wallet in use can actually read.  Upstream leaves that
+    // to be discovered by opening a record, which then says "Not valid for current wallet"
+    // (main/ui/multisig.c:47-56, main/ui/descriptor.c:50-60); on a device holding several wallets
+    // at once that is one press too late to be useful while choosing.  Ownership is the HMAC these
+    // two helpers already check (main/wallet.c:1340-1352), so the answer costs one pass over the
+    // records the names came from.  The lists are deliberately not narrowed to the owned ones: a
+    // record left behind by a wallet that is not loaded can only be deleted through this carousel.
+    JADE_STATIC_ASSERT(MAX_MULTISIG_NAME_SIZE == NVS_KEY_NAME_MAX_SIZE);
+    JADE_STATIC_ASSERT(MAX_DESCRIPTOR_NAME_SIZE == NVS_KEY_NAME_MAX_SIZE);
+    JADE_STATIC_ASSERT(MAX_DESCRIPTOR_REGISTRATIONS <= MAX_MULTISIG_REGISTRATIONS);
+
+    // Scratch for the two helpers, used once each and large enough for either.  This adds 288
+    // bytes to the frame (256 of names plus two 16-byte flag arrays) on top of the 512 bytes of
+    // names already held above, so this frame holds 800 bytes.  The peak is not set here though:
+    // both helpers keep a whole record in their own frame on the same stack - multisig_data_t is
+    // about 1.2KB (multisig.c:551) and descriptor_data_t about 3.2KB (descriptor.c:755) - and the
+    // deeper of those two calls is what has to fit.
+    char owned_names[MAX_MULTISIG_REGISTRATIONS][NVS_KEY_NAME_MAX_SIZE];
+    size_t num_owned = 0;
+
+    bool multisig_owned[MAX_MULTISIG_REGISTRATIONS] = { false };
+    const size_t* const any_script_type = NULL;
+    multisig_get_valid_record_names(any_script_type, owned_names, num_multisig_names, &num_owned);
+    for (size_t i = 0; i < num_multisigs; ++i) {
+        multisig_owned[i] = name_in_list(multisig_names[i], owned_names, num_owned);
+    }
+
+    bool descriptor_owned[MAX_DESCRIPTOR_REGISTRATIONS] = { false };
+    num_owned = 0;
+    descriptor_get_valid_record_names(owned_names, num_descriptor_names, &num_owned);
+    for (size_t i = 0; i < num_descriptors; ++i) {
+        descriptor_owned[i] = name_in_list(descriptor_names[i], owned_names, num_owned);
+    }
+
     bool is_multisig = false;
     const char* wallet_name = NULL;
-    if (!select_registered_wallet(
-            multisig_names, num_multisigs, descriptor_names, num_descriptors, &wallet_name, &is_multisig)
+    if (!select_registered_wallet(multisig_names, num_multisigs, multisig_owned, descriptor_names, num_descriptors,
+            descriptor_owned, &wallet_name, &is_multisig)
         || !wallet_name) {
         // No wallet selected
         return;
@@ -1082,6 +1217,12 @@ static void handle_registered_wallets(void)
 
     done = false;
     while (!done) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            done = true;
+            continue;
+        }
+
         // View/export/delete wallet
         int32_t ev_id;
         gui_activity_t* const act_wallet = make_view_delete_wallet_activity(wallet_name, is_multisig);
@@ -1240,6 +1381,10 @@ static void set_wallet_erase_pin(void)
     JADE_ASSERT(digit_entry.activity);
 
     while (true) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            break;
+        }
         reset_digit_entry(&digit_entry, "Wallet-Erase PIN");
         gui_set_current_activity(digit_entry.activity);
 
@@ -1281,22 +1426,18 @@ static void handle_wallet_erase_pin(void)
 {
     gui_activity_t* act_info = make_wallet_erase_pin_info_activity();
 
-    gui_view_node_t* pin_text = NULL;
-    gui_activity_t* act_options = make_wallet_erase_pin_options_activity(&pin_text);
-    JADE_ASSERT(pin_text);
+    gui_activity_t* act_options = make_wallet_erase_pin_options_activity();
 
     while (true) {
-        // Add wallet erase pin confirmation screens
-        uint8_t pin_erase[DIGIT_ENTRY_SIZE];
-        gui_activity_t* act = NULL;
-        if (storage_get_wallet_erase_pin(pin_erase, sizeof(pin_erase))) {
-            char pinstr[sizeof(pin_erase) + 1];
-            format_pin(pinstr, sizeof(pinstr), pin_erase, sizeof(pin_erase));
-            gui_update_text(pin_text, pinstr);
-            act = act_options;
-        } else {
-            act = act_info;
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            break;
         }
+
+        // BBB-AIRGAP: this screen used to print the stored PIN, which is why the PIN had to be
+        // readable back off the card.  It is a salted verifier now (main/storage.c), so the screen
+        // says whether one is set and nothing more; Change and Disable work exactly as before.
+        gui_activity_t* act = storage_wallet_erase_pin_exists() ? act_options : act_info;
         gui_set_current_activity(act);
 
         int32_t ev_id;
@@ -1357,6 +1498,11 @@ static void handle_passphrase_prefs()
     gui_update_text(method_textbox, passphrase_method_desc_from_flags(type));
 
     while (true) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            return;
+        }
+
         // Show, and await button click
         gui_set_current_activity(act);
 
@@ -1365,6 +1511,11 @@ static void handle_passphrase_prefs()
             // Never -> Once -> Always -> Once ...
             gui_set_current_activity(act_freq);
             while (true) {
+                // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+                if (gui_escape_pending()) {
+                    return;
+                }
+
                 gui_update_text(frequency_textbox, passphrase_frequency_desc_from_flags(freq, carousel_freq_shortname));
                 if (gui_activity_wait_event(act_freq, GUI_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0)) {
                     if (ev_id == GUI_WHEEL_LEFT_EVENT) {
@@ -1386,6 +1537,11 @@ static void handle_passphrase_prefs()
         } else if (ev_id == BTN_PASSPHRASE_METHOD) {
             gui_set_current_activity(act_method);
             while (true) {
+                // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+                if (gui_escape_pending()) {
+                    return;
+                }
+
                 gui_update_text(method_textbox, passphrase_method_desc_from_flags(type));
                 if (gui_activity_wait_event(act_method, GUI_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0)) {
                     if (ev_id == GUI_WHEEL_LEFT_EVENT || ev_id == GUI_WHEEL_RIGHT_EVENT) {
@@ -1437,17 +1593,30 @@ static bool show_otp_detail_options_activity(
     JADE_ASSERT(otp_ctx);
     JADE_ASSERT(otp_ctx->name);
 
-    gui_activity_t* const act = make_view_export_otp_activity(otp_ctx->name);
+    gui_activity_t* const act = make_view_export_otp_activity(otp_ctx->name, is_valid);
     int32_t ev_id;
 
     while (true) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            return true;
+        }
+
         gui_set_current_activity(act);
 
         if (gui_activity_wait_event(act, GUI_BUTTON_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0)) {
             if (ev_id == BTN_BACK) {
                 return true;
             } else if (ev_id == BTN_OTP_DETAILS_VIEW) {
-                show_otp_details_activity(otp_ctx, initial_confirmation, is_valid, show_delete_btn);
+                // BBB-AIRGAP: the details screen returns false when the user asks to delete the
+                // record, and that answer was being dropped here, which made the 'X' on that
+                // screen a button that does nothing: the discard branch in handle_view_otps
+                // could never run.  The intermediate screen arrived upstream in 8af72c79 and the
+                // return value was lost in the move.  Callers that pass show_delete_btn = false
+                // are unaffected - without the button the screen cannot produce that answer.
+                if (!show_otp_details_activity(otp_ctx, initial_confirmation, is_valid, show_delete_btn)) {
+                    return false;
+                }
             } else if (ev_id == BTN_OTP_DETAILS_EXPORT) {
                 show_otp_uri_qr_activity(otp_ctx);
             }
@@ -1464,6 +1633,11 @@ static bool display_hotp_screen(const otpauth_ctx_t* otp_ctx, const char* token,
     gui_activity_t* const act = make_show_hotp_code_activity(otp_ctx->name, token, confirm_only);
 
     while (true) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            return false;
+        }
+
         gui_set_current_activity(act);
 
         const int32_t ev_id = gui_activity_wait_button(act, BTN_OTP_RETAIN_CONFIRM);
@@ -1516,13 +1690,18 @@ static bool display_totp_screen(otpauth_ctx_t* otp_ctx, uint64_t epoch_value, ch
     uint8_t count = epoch_value % otp_ctx->period;
     uint8_t last_count = count;
     while (true) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            return false;
+        }
+
         gui_set_current_activity(act);
 
         // Update values
         if (auto_update) {
             switch (otp_set_default_value(otp_ctx, &epoch_value)) {
             case OTP_ERR_TOTP_TIME: {
-                await_error_3("Failed to fetch time.", "Unlock with the", "Blockstream app.");
+                await_error_3("Clock not set.", "Scan a time QR", "to set it.");
                 return false;
             }
             case OTP_ERR_HOTP_COUNTER: {
@@ -1604,7 +1783,12 @@ static bool show_otp_code(otpauth_ctx_t* otp_ctx)
     uint64_t value = 0;
     switch (otp_set_default_value(otp_ctx, &value)) {
     case OTP_ERR_TOTP_TIME: {
-        await_error_3("Failed to fetch time.", "Unlock with the", "Blockstream app.");
+        // BBB-AIRGAP: upstream sends the user to the Blockstream companion app over USB or
+        // Bluetooth.  Neither exists here - the radio is physically cut and the port is QR only -
+        // so the message named a route this device does not have.  The route it does have is the
+        // epoch message over a scanned QR (main/qrmode.c:2341, ur:jade-epoch; the host side is
+        // pijade/tools/epoch_qr.py).
+        await_error_3("Clock not set.", "Scan a time QR", "to set it.");
         return false;
     }
     case OTP_ERR_HOTP_COUNTER: {
@@ -1644,7 +1828,27 @@ static void handle_view_otps(void)
 
     size_t selected = 0;
     gui_view_node_t* otpname = NULL;
-    gui_activity_t* const act = make_carousel_activity("View OTP", NULL, &otpname);
+
+    // BBB-AIRGAP: the title names the wallet that is loaded, because that is what decides which of
+    // these records can be opened at all.  The record name is a storage key in one device-wide
+    // namespace (main/storage.c) while the uri is encrypted under a key derived from the loaded
+    // wallet's seed (get_otp_encryption_key, main/otpauth.c), so the same list looks identical
+    // under every wallet while most of it may be unreadable.  Showing the fingerprint is what
+    // turns "cannot be read" from a fault into an answer.
+    //
+    // The row that reaches here is offered only with a wallet loaded that carries a seed
+    // (run_options_list), and wallet_get_fingerprint() asserts the same thing itself.
+    uint8_t fingerprint[BIP32_KEY_FINGERPRINT_LEN];
+    wallet_get_fingerprint(fingerprint, sizeof(fingerprint));
+    char* fphex = NULL;
+    JADE_WALLY_VERIFY(wally_hex_from_bytes(fingerprint, sizeof(fingerprint), &fphex));
+    map_string(fphex, toupper);
+    char otp_title[16];
+    const int title_ret = snprintf(otp_title, sizeof(otp_title), "OTP %s", fphex);
+    JADE_ASSERT(title_ret > 0 && title_ret < sizeof(otp_title));
+    JADE_WALLY_VERIFY(wally_free_string(fphex));
+
+    gui_activity_t* const act = make_carousel_activity(otp_title, NULL, &otpname);
     gui_update_text(otpname, names[selected]);
     gui_set_current_activity(act);
     int32_t ev_id;
@@ -1652,6 +1856,13 @@ static void handle_view_otps(void)
     const size_t limit = num_otp_records + 1;
     done = false;
     while (!done) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            // BBB-AIRGAP: ending only the selection loop still decrypts the highlighted OTP
+            // below, and an unset clock opens an error screen. Nothing was selected on escape.
+            return;
+        }
+
         JADE_ASSERT(selected <= limit);
         gui_update_text(otpname, selected < num_otp_records ? names[selected] : "[Cancel]");
 
@@ -1688,23 +1899,40 @@ static void handle_view_otps(void)
     const bool is_valid = otp_load_uri(names[selected], otp_uri, sizeof(otp_uri), &written) && written
         && otp_uri_to_ctx(otp_uri, written, &otp_ctx) && otp_is_valid(&otp_ctx);
 
-    // We will display the names of invalid entries and allow the user to delete
-    if (!is_valid || !show_otp_code(&otp_ctx)) {
-        JADE_LOGE("Error loading or executing otp record: %s", names[selected]);
+    // BBB-AIRGAP: an honest store.  These are two different failures and they were being
+    // handled as one - both landed here and both were offered deletion.
+    //
+    // A record that will not decrypt was most likely written by another wallet: the name is the
+    // storage key in one device-wide namespace (main/storage.c) while the uri is encrypted under
+    // a key derived from the seed of whichever wallet is loaded (get_otp_encryption_key,
+    // main/otpauth.c).  Loading a different wallet therefore makes every record unreadable
+    // without anything being wrong with it.  Corruption looks exactly the same from here, because
+    // the ciphertext carries no authentication tag, so the device cannot tell the two apart.
+    // Deleting on that guess destroys another wallet's secret, so deletion is not offered.  The
+    // accepted cost: a genuinely corrupt record now goes only with a Factory Reset.
+    //
+    // A record that reads fine but whose code cannot be produced (the clock is unset - see
+    // show_otp_code) says nothing about the record at all.  The error has been shown already; the
+    // record is not brought up for deletion over a device-state problem.
+    if (!is_valid) {
+        JADE_LOGW("OTP record cannot be read with the loaded wallet: %s", names[selected]);
         const bool initial_confirmation = false;
-        const bool show_delete_btn = true;
-        if (!show_otp_detail_options_activity(&otp_ctx, initial_confirmation, is_valid, show_delete_btn)) {
-            // Delete invalid record
-            delete_otp_record(otp_ctx.name);
-        }
+        const bool show_delete_btn = false;
+        // The return value says whether the user asked to delete the record, and without the
+        // button there is no way for the screen to say yes, so there is nothing to act on here.
+        show_otp_detail_options_activity(&otp_ctx, initial_confirmation, is_valid, show_delete_btn);
+    } else if (!show_otp_code(&otp_ctx)) {
+        JADE_LOGW("Could not display code for otp record: %s", names[selected]);
     }
     SENSITIVE_POP(otp_uri);
 }
 
 // NOTE: Only boards listed here have brightness controls
+// BBB-AIRGAP: HAVE_DISPLAY_BRIGHTNESS_SETTING added - piJade drives the backlight from the host
+// rather than a PMU, see main/gui.h for why the board type itself is not defined.
 #if defined(CONFIG_BOARD_TYPE_JADE_V1_1) || defined(CONFIG_BOARD_TYPE_JADE_V2_ANY)                                     \
     || defined(CONFIG_BOARD_TYPE_WS_TOUCH_LCD2) || defined(CONFIG_BOARD_TYPE_TTGO_TDISPLAY)                            \
-    || defined(CONFIG_BOARD_TYPE_M5_STICKC_PLUS_2)
+    || defined(CONFIG_BOARD_TYPE_M5_STICKC_PLUS_2) || defined(HAVE_DISPLAY_BRIGHTNESS_SETTING)
 static void handle_screen_brightness(void)
 {
     static const char* LABELS[] = { "Min(1)", "Low(2)", "Medium(3)", "High(4)", "Max(5)" };
@@ -1727,6 +1955,14 @@ static void handle_screen_brightness(void)
     int32_t ev_id;
     bool done = false;
     while (!done) {
+        // BBB-AIRGAP: KEY3 leaves this screen.  The wheel has already dimmed or brightened the
+        // panel as a preview, so leaving without saving puts the stored level back; storage was
+        // not written, and the screens drawn on the way home would otherwise keep the preview.
+        if (gui_escape_pending()) {
+            power_backlight_on(storage_get_brightness());
+            return;
+        }
+
         // wait for a GUI event
         gui_activity_wait_event(act, GUI_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0);
 
@@ -1766,7 +2002,7 @@ static void handle_screen_brightness(void)
 }
 #endif
 
-static void update_idle_timeout_text(gui_view_node_t* timeout_text, const uint16_t timeout)
+static void update_timeout_text(gui_view_node_t* timeout_text, const uint16_t timeout)
 {
     JADE_ASSERT(timeout_text);
     char txt[16];
@@ -1809,12 +2045,17 @@ static void handle_idle_timeout(void)
     gui_view_node_t* item_text = NULL;
     gui_activity_t* const act = make_carousel_activity("Idle Timeout", NULL, &item_text);
     JADE_ASSERT(item_text);
-    update_idle_timeout_text(item_text, new_timeout);
+    update_timeout_text(item_text, new_timeout);
     gui_set_current_activity(act);
 
     int32_t ev_id;
     bool done = false;
     while (!done) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            return;
+        }
+
         // wait for a GUI event
         gui_activity_wait_event(act, GUI_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0);
 
@@ -1822,13 +2063,13 @@ static void handle_idle_timeout(void)
         case GUI_WHEEL_LEFT_EVENT:
             pos = (pos + num_values - 1) % num_values;
             new_timeout = VALUES[pos];
-            update_idle_timeout_text(item_text, new_timeout);
+            update_timeout_text(item_text, new_timeout);
             break;
 
         case GUI_WHEEL_RIGHT_EVENT:
             pos = (pos + 1) % num_values;
             new_timeout = VALUES[pos];
-            update_idle_timeout_text(item_text, new_timeout);
+            update_timeout_text(item_text, new_timeout);
             break;
 
         default:
@@ -1839,6 +2080,75 @@ static void handle_idle_timeout(void)
     // Persist updated preferences
     if (new_timeout != initial_timeout) {
         storage_set_idle_timeout(new_timeout);
+        // BBB-AIRGAP: the idle task may be part way through a sleep sized for the old value, and
+        // would not read the new one until that sleep ended.
+        idletimer_recheck();
+    }
+}
+
+// BBB-AIRGAP: the dimming threshold used to be a compile-time constant.  It is a separate setting
+// from the idle timeout above: this one only blanks the screen, that one locks or powers off the
+// device.  A dimming value longer than the idle timeout is harmless - the device simply locks
+// first and the dimming is never reached.
+static void handle_screen_timeout(void)
+{
+    static const uint16_t VALUES[] = {
+        30, 60, 120, 180, 300, 600, UINT16_MAX // UINT16_MAX == OFF
+    };
+    static const uint16_t num_values = sizeof(VALUES) / sizeof(VALUES[0]);
+
+    // Get/track the screen timeout
+    const uint16_t initial_timeout = storage_get_screen_timeout();
+    uint16_t new_timeout = initial_timeout;
+
+    // Find the position in the list of allowed values
+    // (NOTE: UINT16_MAX as final value prevents off-the-end)
+    uint8_t pos = 0;
+    while (VALUES[pos] < new_timeout) {
+        ++pos;
+    }
+
+    gui_view_node_t* item_text = NULL;
+    gui_activity_t* const act = make_carousel_activity("Screen Timeout", NULL, &item_text);
+    JADE_ASSERT(item_text);
+    update_timeout_text(item_text, new_timeout);
+    gui_set_current_activity(act);
+
+    int32_t ev_id;
+    bool done = false;
+    while (!done) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            return;
+        }
+
+        // wait for a GUI event
+        gui_activity_wait_event(act, GUI_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0);
+
+        switch (ev_id) {
+        case GUI_WHEEL_LEFT_EVENT:
+            pos = (pos + num_values - 1) % num_values;
+            new_timeout = VALUES[pos];
+            update_timeout_text(item_text, new_timeout);
+            break;
+
+        case GUI_WHEEL_RIGHT_EVENT:
+            pos = (pos + 1) % num_values;
+            new_timeout = VALUES[pos];
+            update_timeout_text(item_text, new_timeout);
+            break;
+
+        default:
+            done = (ev_id == gui_get_click_event());
+        }
+    }
+
+    // Persist updated preferences
+    if (new_timeout != initial_timeout) {
+        storage_set_screen_timeout(new_timeout);
+        // BBB-AIRGAP: same as the idle timeout above - wake the task so a shortened threshold
+        // takes effect from this click rather than from the end of the current sleep.
+        idletimer_recheck();
     }
 }
 
@@ -1869,7 +2179,16 @@ static void handle_display_theme(void)
 
     int32_t ev_id;
     bool done = false;
+    const uint8_t entry_theme = new_theme;
     while (!done) {
+        // BBB-AIRGAP: KEY3 leaves this screen.  The wheel changes the highlight colour live, so
+        // leaving without saving puts it back; storage still holds the old theme, and every
+        // screen drawn on the way home would otherwise use a colour that was never chosen.
+        if (gui_escape_pending()) {
+            gui_set_highlight_color(entry_theme);
+            return;
+        }
+
         // wait for a GUI event
         gui_activity_wait_event(act, GUI_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0);
 
@@ -1906,6 +2225,31 @@ static void handle_display_theme(void)
     }
 }
 
+#ifdef HAVE_CAMERA_ROTATION_SETTING
+// BBB-AIRGAP: camera mounting angle, as degrees clockwise for the owner rather than the quarter
+// turns stored.
+static const char* const CAMERA_ROTATION_LABELS[CAMERA_ROTATION_NUM_VALUES] = { "0", "90", "180", "270" };
+
+// The angle is chosen on a screen of its own, as Jade sets its brightness and theme.
+static void handle_camera_rotation(void)
+{
+    const uint8_t initial = gui_get_camera_rotation();
+    const size_t chosen
+        = await_carousel_activity("Camera Rotation", CAMERA_ROTATION_LABELS, CAMERA_ROTATION_NUM_VALUES, initial);
+    if (chosen == initial) {
+        return;
+    }
+    gui_set_camera_rotation((uint8_t)chosen);
+
+    const uint8_t initial_gui_flags = storage_get_gui_flags();
+    const uint8_t new_gui_flags = gui_camera_rotation_to_flags(initial_gui_flags, (uint8_t)chosen);
+    if (new_gui_flags != initial_gui_flags) {
+        storage_set_gui_flags(new_gui_flags);
+    }
+    // Nothing to repaint: the setting is read when the camera next opens.
+}
+#endif // HAVE_CAMERA_ROTATION_SETTING
+
 static void handle_flip_orientation(void)
 {
     const uint8_t initial_gui_flags = storage_get_gui_flags();
@@ -1937,7 +2281,7 @@ static void handle_pinserver_scan(void)
     char* type;
     uint8_t* data = NULL;
     size_t data_len = 0;
-    if (!bcur_scan_qr(NULL, &type, &data, &data_len, 0, "blkstrm.com/oracle")) {
+    if (!bcur_scan_qr("Oracle QR", &type, &data, &data_len, 0, "blkstrm.com/oracle")) {
         // Scan aborted
         JADE_ASSERT(!type);
         JADE_ASSERT(!data);
@@ -2071,14 +2415,6 @@ static void handle_display_battery_volts(void)
 }
 #endif // CONFIG_HAS_BATTERY
 
-static void update_network_menu_label(gui_view_node_t* network_type_item)
-{
-    JADE_ASSERT(network_type_item);
-    const network_type_t type = keychain_get_network_type_restriction();
-    const char* label = type == NETWORK_TYPE_TEST ? "Network: Testnet" : "Network: Mainnet";
-    gui_update_text(network_type_item, label);
-}
-
 static void update_network_carousel_item(gui_view_node_t* network_type_item, const network_type_t type)
 {
     JADE_ASSERT(network_type_item);
@@ -2086,10 +2422,8 @@ static void update_network_carousel_item(gui_view_node_t* network_type_item, con
     gui_update_text(network_type_item, label);
 }
 
-static void handle_network_type(gui_view_node_t* network_type_item)
+static void handle_network_type(void)
 {
-    JADE_ASSERT(network_type_item);
-
     // Only expected for QR Mode atm
     JADE_ASSERT(keychain_get() && keychain_get_userdata() == SOURCE_INTERNAL);
 
@@ -2104,6 +2438,11 @@ static void handle_network_type(gui_view_node_t* network_type_item)
 
     int32_t ev_id;
     while (true) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            return;
+        }
+
         if (gui_activity_wait_event(act_network, GUI_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0)) {
             if (ev_id == GUI_WHEEL_LEFT_EVENT || ev_id == GUI_WHEEL_RIGHT_EVENT) {
                 type = type == NETWORK_TYPE_TEST ? NETWORK_TYPE_MAIN
@@ -2118,55 +2457,503 @@ static void handle_network_type(gui_view_node_t* network_type_item)
 
     keychain_clear_network_type_restriction();
     keychain_set_network_type_restriction(type);
-    update_network_menu_label(network_type_item);
+}
+
+// BBB-AIRGAP: the optional features, in the order the screen lists them.  A row names the feature
+// and nothing more, as Jade's own settings menus do (Display, Preferences); the value in use shows
+// on the feature's own screen.  A row carries both value labels rather than an on/off pair, because
+// a row like the denomination has two states with no 'off' reading ('BTC' is not 'units turned
+// off').  See storage.h for the flags.
+typedef struct {
+    const char* name;
+    const char* on;
+    const char* off;
+    uint8_t flag;
+} feature_row_t;
+
+static const feature_row_t FEATURE_ROWS[] = {
+    { .name = "BIP85", .on = "On", .off = "Off", .flag = FEATURE_FLAGS_BIP85 },
+    { .name = "Sign Msg", .on = "On", .off = "Off", .flag = FEATURE_FLAGS_SIGN_MESSAGE },
+    { .name = "Warnings", .on = "On", .off = "Off", .flag = FEATURE_FLAGS_HARSH_WARNINGS },
+    { .name = "Xpub Info", .on = "On", .off = "Off", .flag = FEATURE_FLAGS_XPUB_DETAILS },
+    { .name = "Singlesig", .on = "On", .off = "Off", .flag = FEATURE_FLAGS_SINGLESIG },
+    { .name = "Multisig", .on = "On", .off = "Off", .flag = FEATURE_FLAGS_MULTISIG },
+    { .name = "Units", .on = "sats", .off = "BTC", .flag = FEATURE_FLAGS_DENOMINATION_SATS },
+};
+
+#define NUM_FEATURE_ROWS (sizeof(FEATURE_ROWS) / sizeof(FEATURE_ROWS[0]))
+
+// BBB-AIRGAP: which optional features this device offers.  Every flag here only removes a way in -
+// a menu row, an extra screen - so a device that has them all off signs exactly what one with them
+// all on signs.  A row opens the feature's own screen, where the value in use sits between the
+// arrows and the click keeps the one shown; the flag changes only then.
+static void handle_wallet_options(void)
+{
+    uint8_t flags = storage_get_feature_flags();
+    size_t selected = 0;
+
+    list_item_t items[NUM_FEATURE_ROWS];
+    for (size_t i = 0; i < NUM_FEATURE_ROWS; ++i) {
+        items[i] = (list_item_t){ .txt = FEATURE_ROWS[i].name, .ev_id = BTN_FEATURE_ROW_0 + i };
+    }
+
+    while (true) {
+        // BBB-AIRGAP: an escape started on a screen this menu opened has to keep going; the list
+        // itself only sees KEY3 while it is the one waiting.
+        if (gui_escape_pending()) {
+            return;
+        }
+        const int32_t ev_id
+            = run_list_activity("Features", BTN_SETTINGS_FEATURES_EXIT, items, NUM_FEATURE_ROWS, &selected);
+        if (ev_id == BTN_SETTINGS_FEATURES_EXIT) {
+            return;
+        }
+
+        const size_t row = (size_t)(ev_id - BTN_FEATURE_ROW_0);
+        JADE_ASSERT(row < NUM_FEATURE_ROWS);
+        const feature_row_t* const feature = &FEATURE_ROWS[row];
+
+        const char* const labels[] = { feature->on, feature->off };
+        const bool was_on = flags & feature->flag;
+        const bool on = await_carousel_activity(feature->name, labels, 2, was_on ? 0 : 1) == 0;
+        if (on == was_on) {
+            continue;
+        }
+
+        // The xpub and address screens offer a wallet type from these two, so turning the last one
+        // off would leave them with nothing to list.  Refused here, where the user can see what
+        // was refused, rather than second-guessed at the point that reads the flags.
+        if (!on && (feature->flag == FEATURE_FLAGS_SINGLESIG || feature->flag == FEATURE_FLAGS_MULTISIG)) {
+            const uint8_t other
+                = feature->flag == FEATURE_FLAGS_SINGLESIG ? FEATURE_FLAGS_MULTISIG : FEATURE_FLAGS_SINGLESIG;
+            if (!(flags & other)) {
+                await_error_2("One wallet type", "must stay on");
+                continue;
+            }
+        }
+
+        const uint8_t updated = on ? (flags | feature->flag) : (flags & ~feature->flag);
+        if (!storage_set_feature_flags(updated)) {
+            await_error_2("Failed to save", "wallet options");
+            continue;
+        }
+        flags = updated;
+    }
+}
+
+// BBB-AIRGAP: paints the panel one flat colour at a time.  A pixel that is stuck shows as a dot
+// that does not follow the field; a colour channel that is not reaching the display shows as a
+// frame that comes up wrong or black.  Neither is visible against a normal screen, which is why
+// this is a screen of its own rather than something read off the menus.
+static void handle_io_test_screen(void)
+{
+    const color_t colours[] = { TFT_RED, TFT_GREEN, TFT_BLUE, TFT_WHITE, TFT_BLACK };
+
+    gui_view_node_t* colour_fill = NULL;
+    gui_activity_t* const act = make_io_test_screen_activity(&colour_fill);
+    gui_set_color(colour_fill, colours[0]);
+
+    wait_event_data_t* const event_data = gui_activity_make_wait_event_data(act);
+    JADE_ASSERT(event_data);
+    gui_activity_register_event(act, GUI_EVENT, ESP_EVENT_ANY_ID, sync_wait_event_handler, event_data);
+
+    gui_set_current_activity_sync(act, false);
+
+    // BBB-AIRGAP: discard the menu click's trailing raw event before it can skip red; this is the
+    // screen-specific instance of the switch-then-drain race documented in main/ui/dialogs.c:565.
+    while (sync_wait_event(event_data, NULL, NULL, NULL, 10 / portTICK_PERIOD_MS) == ESP_OK) {
+        // discard; see comment above
+    }
+
+    for (size_t i = 0; i < sizeof(colours) / sizeof(colours[0]); ++i) {
+        if (i) {
+            gui_set_color(colour_fill, colours[i]);
+            gui_repaint(colour_fill);
+        }
+
+        // Both clicks advance.  The button header on this port was wired by hand, so a check that
+        // listened to only one of them would leave the user unable to tell a screen that is not
+        // painting from a button that is not reaching the firmware.
+        int32_t ev_id = 0;
+        bool advance = false;
+        while (!advance) {
+            // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+            if (gui_escape_pending()) {
+                return;
+            }
+
+            if (sync_wait_event(event_data, NULL, &ev_id, NULL, 0) == ESP_OK) {
+                advance = (ev_id == GUI_WHEEL_CLICK_EVENT || ev_id == GUI_FRONT_CLICK_EVENT);
+            }
+        }
+    }
+}
+
+// BBB-AIRGAP: a mark stays green once it is lit, so the screen ends up showing the whole set
+// rather than only the last press.
+static void mark_io_test_button(gui_view_node_t* const mark)
+{
+    JADE_ASSERT(mark);
+    gui_set_color(mark, TFT_GREEN);
+    gui_repaint(mark);
+}
+
+// BBB-AIRGAP: the buttons check.  Every mark starts grey and turns green when the event naming
+// its input arrives; KEY3 ends the screen instead of marking, so leaving is its test.  The echo
+// is what makes the vertical joystick pair and KEY1 name themselves here (gui_set_input_echo(),
+// main/gui.h), and it is turned off on the way out whichever way the screen ends.
+static void handle_io_test_buttons(void)
+{
+    gui_view_node_t* marks[IO_TEST_NUM_MARKS] = {};
+    gui_activity_t* const act = make_io_test_buttons_activity(marks);
+
+    wait_event_data_t* const event_data = gui_activity_make_wait_event_data(act);
+    JADE_ASSERT(event_data);
+    gui_activity_register_event(act, GUI_EVENT, ESP_EVENT_ANY_ID, sync_wait_event_handler, event_data);
+
+    gui_set_current_activity_sync(act, false);
+
+    // Drop the menu click's trailing event before it can mark the centre press for free; the
+    // screen check above documents the same switch-then-drain race.
+    while (sync_wait_event(event_data, NULL, NULL, NULL, 10 / portTICK_PERIOD_MS) == ESP_OK) {
+        // discard; see comment above
+    }
+
+    gui_set_input_echo(true);
+
+    bool done = false;
+    while (!done) {
+        int32_t ev_id = 0;
+        if (sync_wait_event(event_data, NULL, &ev_id, NULL, 0) != ESP_OK) {
+            continue;
+        }
+
+        switch (ev_id) {
+        case GUI_WHEEL_UP_EVENT:
+            mark_io_test_button(marks[IO_TEST_MARK_UP]);
+            break;
+        case GUI_WHEEL_DOWN_EVENT:
+            mark_io_test_button(marks[IO_TEST_MARK_DOWN]);
+            break;
+        case GUI_WHEEL_LEFT_EVENT:
+            mark_io_test_button(marks[IO_TEST_MARK_LEFT]);
+            break;
+        case GUI_WHEEL_RIGHT_EVENT:
+            mark_io_test_button(marks[IO_TEST_MARK_RIGHT]);
+            break;
+        case GUI_SELECT_FIRST_EVENT:
+            mark_io_test_button(marks[IO_TEST_MARK_KEY1]);
+            break;
+        // Only the front click: libjade_input() maps LIBJADE_INPUT_CLICK to gui_front_click() and
+        // nothing on this board reaches gui_wheel_click(), so the wheel event cannot arrive here.
+        case GUI_FRONT_CLICK_EVENT:
+            // One input, two keys: both marks light and the screen says which two they are.
+            mark_io_test_button(marks[IO_TEST_MARK_CLICK]);
+            mark_io_test_button(marks[IO_TEST_MARK_KEY2]);
+            break;
+        case GUI_ALT_EVENT:
+            done = true;
+            break;
+        }
+    }
+
+    gui_set_input_echo(false);
+}
+
+#ifdef CONFIG_HAS_CAMERA
+// BBB-AIRGAP: a camera that opens but delivers nothing and a camera that is delivering look the
+// same on a preview you are watching for the first time, so the frames are counted.  A frame with
+// no dimensions or no data is not evidence the sensor is alive and is not counted.  The callback
+// never claims to have consumed an image, so the camera screen stays up until the user leaves it.
+static bool io_test_camera_cb(
+    const size_t width, const size_t height, const uint8_t* data, const size_t len, void* ctx_data)
+{
+    JADE_ASSERT(ctx_data);
+    size_t* const frames = (size_t*)ctx_data;
+
+    if (width && height && data && len) {
+        ++*frames;
+    }
+    return false;
+}
+
+static void handle_io_test_camera(void)
+{
+    size_t frames = 0;
+    jade_camera_process_images(
+        io_test_camera_cb, &frames, true, "Camera test", false, QR_GUIDE_HIDE, NULL, NULL, NULL, NULL);
+
+    // BBB-AIRGAP: a camera escape must reach the menu's head check without a result-screen wait.
+    if (gui_escape_pending()) {
+        return;
+    }
+
+    char count[16];
+    const int ret = snprintf(count, sizeof(count), "%u", (unsigned)frames);
+    JADE_ASSERT(ret > 0 && ret < sizeof(count));
+    await_message_2("Frames seen:", count);
+}
+#endif // CONFIG_HAS_CAMERA
+
+// BBB-AIRGAP: reached from Info.  Runs its own loop, like the other option screens, and leaves the
+// rebuilding of the menu it came from to the caller.
+static void handle_io_test(void)
+{
+    gui_activity_t* const act = make_io_test_activity();
+
+    while (true) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            return;
+        }
+
+        // BBB-AIRGAP: the checks below build their own activities, and coming back to the menu is
+        // where those are let go - the same menu pattern handle_settings() uses, and what the
+        // comment at the call site promises.  The menu is the new current activity here, so it is
+        // the one thing retained (main/gui.c gui_set_current_activity_impl()).
+        gui_set_current_activity_ex(act, true);
+
+        int32_t ev_id = 0;
+        if (!gui_activity_wait_event(act, GUI_BUTTON_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0)) {
+            continue;
+        }
+
+        switch (ev_id) {
+        case BTN_IO_TEST_SCREEN:
+            handle_io_test_screen();
+            break;
+
+        case BTN_IO_TEST_BUTTONS:
+            handle_io_test_buttons();
+            break;
+
+#ifdef CONFIG_HAS_CAMERA
+        case BTN_IO_TEST_CAMERA:
+            handle_io_test_camera();
+            break;
+#endif
+
+        case BTN_IO_TEST_EXIT:
+            return;
+        }
+    }
 }
 
 // Create the appropriate 'Settings' menu
-static gui_activity_t* create_settings_menu(const bool startup_menu)
+// BBB-AIRGAP: one Options screen for every device state, replacing the three menu activities
+// upstream chose between (uninitialised / locked / unlocked).  Those three disagreed about where a
+// screen lived: 'Settings' sat at Options > Settings on an uninitialised device and at
+// Options > Device > Settings on every other, and the exit branch had to pick between the two to
+// know where to go back to.  Here a row is laid out only where it can act, so every screen keeps
+// one address whatever the device is doing.  It is a list rather than a menu because
+// make_menu_activity() asserts on a fifth row (main/ui/dialogs.c:265) and this holds up to ten;
+// see pijade/ROADMAP.md for the state-by-state measurements behind each condition.
+static int32_t run_options_list(size_t* selected)
 {
-    gui_activity_t* act = NULL;
-    if (startup_menu) {
-        // Startup (click on spalsh screen) menu
-        act = make_startup_options_activity();
-    } else if (keychain_get()) {
-        // Unlocked Jade - main settings
-        act = make_unlocked_settings_activity();
-    } else if (keychain_has_pin()) {
-        // Locked Jade - before pin entry when saved wallet exists
-        act = make_locked_settings_activity();
-    } else {
-        // Uninitilised Jade - no wallet set
-        act = make_uninitialised_settings_activity();
+    JADE_ASSERT(selected);
+
+    const bool wallet_loaded = keychain_get();
+
+    // OTP records are encrypted under a key derived from the seed of the wallet in use
+    // (get_otp_encryption_key(), main/otpauth.c), and a wallet read back from the blob as a
+    // serialised xpriv carries no seed - so with one of those loaded every record would fail to
+    // decrypt and be offered for deletion.  The row follows what the screen can actually do.
+    const bool otp_usable = wallet_loaded && keychain_get()->seed_len;
+
+    list_item_t items[10];
+    size_t num_items = 0;
+    // BBB-AIRGAP: rows in the order they are reached, the way the wallet menu under Session is
+    // laid out: what a session does first, most wanted at the top, then the groups that are set
+    // once, and last the one row that cannot be undone.  Upstream opened the wallet-less menu
+    // with Temporary Signer as well (make_uninitialised_settings_activity).  Which rows appear
+    // did not change with the order; each condition is still the one described where it stands.
+#ifdef CONFIG_HAS_CAMERA
+    // BBB-AIRGAP: with the slot table a scanned wallet is loaded beside the ones already held
+    // rather than replacing them, but until now the only way to reach that was to point the
+    // generic scanner at a SeedQR and hope.  This row names the operation and takes the scanner
+    // that accepts nothing else (mnemonic_qr(), main/process/mnemonic.c).
+    //
+    // It is offered only with a wallet already open, because with none there is nothing to add to:
+    // that is the Temporary Signer row in its place, which runs the full first-wallet flow and
+    // settles the message source the dashboard then works from.  handle_mnemonic_qr() instead
+    // inherits the source of the wallet in use, so it needs one to inherit from.
+    if (wallet_loaded) {
+        items[num_items++] = (list_item_t){ .txt = "Add Wallet", .ev_id = BTN_SETTINGS_ADD_WALLET };
     }
-    return act;
+#endif
+    if (!wallet_loaded) {
+        items[num_items++] = (list_item_t){ .txt = "Temporary Signer", .ev_id = BTN_SETTINGS_TEMPORARY_WALLET_LOGIN };
+    }
+    if (otp_usable) {
+        items[num_items++] = (list_item_t){ .txt = "OTP", .ev_id = BTN_SETTINGS_OTP };
+    }
+#ifdef CONFIG_HAS_CAMERA
+    // Mining needs a camera to scan its template, but no wallet: the reward address comes from the
+    // template unless the user asked for their own (apply_reward_address_preference(),
+    // main/qrmode.c).  Upstream kept it in the device menu, which an uninitialised device does not
+    // have, so it was unreachable in exactly the state that needs no wallet.
+    items[num_items++] = (list_item_t){ .txt = "Mining", .ev_id = BTN_SETTINGS_MINING };
+#endif
+#if defined(CONFIG_IDF_TARGET_ESP32S3) && defined(CONFIG_HAS_BATTERY)
+    // BBB-AIRGAP: a locked device has neither an eligible firmware upgrade nor a wallet to sign or
+    // export from, so the entire screen would be a dead end.  A temporary wallet over a PIN blob is
+    // different: it can sign and export its own xpub, while the screen builder omits only Firmware
+    // Upgrade because ota_allowed() correctly requires the PIN wallet itself to be open.
+    if (wallet_loaded || !keychain_has_pin()) {
+        items[num_items++] = (list_item_t){ .txt = "USB Storage", .ev_id = BTN_SETTINGS_USBSTORAGE };
+    }
+#endif
+    items[num_items++] = (list_item_t){ .txt = "Preferences", .ev_id = BTN_SETTINGS_PREFS };
+    items[num_items++] = (list_item_t){ .txt = "Features", .ev_id = BTN_SETTINGS_FEATURES };
+    items[num_items++] = (list_item_t){ .txt = "Display", .ev_id = BTN_SETTINGS_DISPLAY };
+    items[num_items++] = (list_item_t){ .txt = "Security", .ev_id = BTN_SETTINGS_SECURITY };
+    items[num_items++] = (list_item_t){ .txt = "Info", .ev_id = BTN_SETTINGS_INFO };
+    // Last, and after a gap of ordinary rows, because it is the one entry here that cannot be
+    // undone.  Upstream had it between 'Settings' and 'Info' in the device menu.
+    //
+    // Offered in every state on purpose, which is also what upstream did: the locked device
+    // reached it through Options > Device (make_locked_settings_activity ->
+    // make_device_settings_activity).  Putting it behind the PIN would protect nothing - three
+    // wrong PINs already erase the wallet blob (main/process/auth_user.c) - while taking away the
+    // only way someone who has forgotten their PIN can clear the card, since this port never
+    // reaches the Boot Menu that upstream offers instead (pijade-host starts its input loop after
+    // libjade_start(), and the whole click window lives inside that call).  A wipe triggered by
+    // wrong PINs also leaves the duress record, the OTP records and the preferences behind; this
+    // row is what clears them.  offer_jade_reset() gates the action behind a yes/no screen and a
+    // random confirmation code.
+    items[num_items++] = (list_item_t){ .txt = "Factory Reset", .ev_id = BTN_SETTINGS_RESET };
+    JADE_ASSERT(num_items <= sizeof(items) / sizeof(items[0]));
+
+    return run_list_activity("Options", BTN_SETTINGS_EXIT, items, num_items, selected);
 }
 
-static void handle_settings(const bool startup_menu)
+// BBB-AIRGAP: the device preferences.  Laid out on every pass, not once, because the network row
+// is labelled with the network it is set to.
+static int32_t run_preferences_list(size_t* selected)
 {
-    // Create the appropriate 'Settings' menu
-    gui_activity_t* act = create_settings_menu(startup_menu);
-
-    // hw initialised but not unlocked/no wallet loaded
-    const bool hw_locked_initialised = !keychain_get() && keychain_has_pin();
-
-    // hw uninitialised and not unlocked/no wallet loaded (ie. no temporary signer)
-    const bool hw_locked_uninitialised = !keychain_get() && !keychain_has_pin();
-
-    // hw initialised and that wallet has been unlocked with PIN (ie not a temporary signer)
-    const bool hw_pin_unlocked = keychain_get() && keychain_has_pin() && !keychain_has_temporary();
+    JADE_ASSERT(selected);
 
     // hw initialised with internal message source (ie. QR-mode)
     const bool hw_qr_mode = keychain_get() && keychain_get_userdata() == SOURCE_INTERNAL;
-    gui_view_node_t* network_type_item = NULL;
+
+    list_item_t items[4];
+    size_t num_items = 0;
+    // BBB-AIRGAP: upstream offered this only outside QR mode, swapping it for the network row.  On
+    // this port every unlock path sets SOURCE_INTERNAL (auth_qr_mode_ex() above), so that swap hid
+    // it from the moment a wallet was loaded - the timeout that dims the screen could not be
+    // changed in the only mode the device runs in.  handle_idle_timeout() reads and writes storage
+    // and nothing else, so it is offered throughout and the network row is added beside it.
+    items[num_items++] = (list_item_t){ .txt = "Idle Timeout", .ev_id = BTN_SETTINGS_IDLE_TIMEOUT };
+    // The dimming threshold sits next to the timeout it is most easily confused with.
+    items[num_items++] = (list_item_t){ .txt = "Screen Timeout", .ev_id = BTN_SETTINGS_SCREEN_TIMEOUT };
+    if (hw_qr_mode) {
+        // handle_network_type() asserts a wallet in QR mode, so the row carries that condition.
+        items[num_items++] = (list_item_t){ .txt
+            = keychain_get_network_type_restriction() == NETWORK_TYPE_TEST ? "Network: Testnet" : "Network: Mainnet",
+            .ev_id = BTN_SETTINGS_NETWORK_TYPE };
+    }
+    // qr density and speed drive every wallet code the device shows, so they are a device
+    // preference rather than something reached only from inside the flows that display a code.
+    items[num_items++] = (list_item_t){ .txt = "QR Settings", .ev_id = BTN_SETTINGS_QR };
+    JADE_ASSERT(num_items <= sizeof(items) / sizeof(items[0]));
+
+    return run_list_activity("Preferences", BTN_SETTINGS_PREFS_EXIT, items, num_items, selected);
+}
+
+// BBB-AIRGAP: the PIN and passphrase screens.  Upstream split these between an 'Authentication'
+// menu that existed only while unlocked and the preferences list, which put 'Change PIN' and
+// 'Change PIN (QR)' in different places for what the user sees as the same job.
+static int32_t run_security_list(size_t* selected)
+{
+    JADE_ASSERT(selected);
+
+    const bool hw_locked_initialised = !keychain_get() && keychain_has_pin();
+    const bool hw_pin_unlocked = keychain_get() && keychain_has_pin() && !keychain_has_temporary();
+
+    list_item_t items[4];
+    size_t num_items = 0;
+    if (hw_locked_initialised) {
+        items[num_items++] = (list_item_t){ .txt = "Change PIN", .ev_id = BTN_SETTINGS_CHANGE_PIN };
+    }
+#ifdef CONFIG_HAS_CAMERA
+    if (hw_pin_unlocked) {
+        items[num_items++] = (list_item_t){ .txt = "Change PIN (QR)", .ev_id = BTN_SETTINGS_CHANGE_PIN_QR };
+    }
+#endif
+    // The duress record is read at one place only, while a PIN is being entered
+    // (main/process/auth_user.c), so a device with no PIN could store the setting but never fire
+    // it.  The stronger condition is the one that matters though: handle_wallet_erase_pin() offers
+    // to change or delete the duress PIN, and whoever can do that can disarm the protection the
+    // stored wallet relies on, so it must sit behind the PIN it protects.  A locked device and a
+    // temporary wallet loaded over the PIN wallet both fail that test, which is why 'has a PIN'
+    // is not enough.  (Until phase 3 the screen also printed the PIN in clear; that reason is
+    // gone, this one is not.)
+    if (hw_pin_unlocked) {
+        items[num_items++] = (list_item_t){ .txt = "Duress PIN", .ev_id = BTN_SETTINGS_WALLET_ERASE_PIN };
+    }
+    // A preference for wallets loaded later, so it holds in every state, including with one
+    // already loaded - upstream showed it only before a wallet was there.
+    items[num_items++] = (list_item_t){ .txt = "BIP39 Passphrase", .ev_id = BTN_SETTINGS_BIP39_PASSPHRASE };
+    JADE_ASSERT(num_items <= sizeof(items) / sizeof(items[0]));
+
+    return run_list_activity("Security", BTN_SETTINGS_SECURITY_EXIT, items, num_items, selected);
+}
+
+// BBB-AIRGAP: which scrolling list is on screen, or NONE while a menu activity is.  Upstream had a
+// single bool for the one list it had; three screens are lists now, so the flag names which.  Every
+// branch below either names another list, or clears the flag AND rebuilds 'act' - never one without
+// the other, because run_list_activity() takes the screen over and frees what was there.
+typedef enum {
+    SETTINGS_LIST_NONE,
+    SETTINGS_LIST_OPTIONS,
+    SETTINGS_LIST_PREFERENCES,
+    SETTINGS_LIST_SECURITY,
+} settings_list_t;
+
+static void handle_settings(const bool startup_menu)
+{
+    // The startup menu is a menu activity of its own; every other entry opens the Options list.
+    // (On this port the startup menu is unreachable - the splash-screen click window closes inside
+    // libjade_start() - but it is left intact for hardware that does reach it.)
+    gui_activity_t* act = startup_menu ? make_startup_options_activity() : NULL;
+    settings_list_t open_list = startup_menu ? SETTINGS_LIST_NONE : SETTINGS_LIST_OPTIONS;
+
+
+    // Selection is remembered per list, so coming back from a sub-screen lands where it was left.
+    size_t options_selected = 0;
+    size_t prefs_selected = 0;
+    size_t security_selected = 0;
 
     // NOTE: menu navigation frees prior screens, as the navigation is
     // potentially unbound with all the back and forward buttons.
     bool done = false;
     while (!done) {
-        gui_set_current_activity_ex(act, true);
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            done = true;
+            continue;
+        }
 
         int32_t ev_id;
-        gui_activity_wait_event(act, GUI_BUTTON_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0);
+        switch (open_list) {
+        case SETTINGS_LIST_OPTIONS:
+            ev_id = run_options_list(&options_selected);
+            break;
+
+        case SETTINGS_LIST_PREFERENCES:
+            ev_id = run_preferences_list(&prefs_selected);
+            break;
+
+        case SETTINGS_LIST_SECURITY:
+            ev_id = run_security_list(&security_selected);
+            break;
+
+        default:
+            JADE_ASSERT(act);
+            gui_set_current_activity_ex(act, true);
+            gui_activity_wait_event(act, GUI_BUTTON_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0);
+            break;
+        }
 
         switch (ev_id) {
 
@@ -2174,67 +2961,119 @@ static void handle_settings(const bool startup_menu)
             done = true;
             break;
 
-        case BTN_SETTINGS_DEVICE_EXIT:
-        case BTN_SETTINGS_WALLET_EXIT:
-        case BTN_SETTINGS_AUTHENTICATION_EXIT:
         case BTN_SETTINGS_PINSERVER_EXIT:
+            // BBB-AIRGAP: the Blind Oracle screen hangs off the Boot Menu and nothing else
+            // (BTN_SETTINGS_PINSERVER appears only in make_startup_options_activity()), so its
+            // exit goes back there.  Sending it to the Options list would open the ordinary
+            // settings tree in the middle of the boot flow, which never asked for it.
+            JADE_ASSERT(startup_menu);
+            open_list = SETTINGS_LIST_NONE;
+            act = make_startup_options_activity();
+            break;
+
 #if defined(CONFIG_IDF_TARGET_ESP32S3) && defined(CONFIG_HAS_BATTERY)
         case BTN_SETTINGS_USBSTORAGE_EXIT:
 #endif
-            // Change to base 'Settings' menu
-            act = create_settings_menu(startup_menu);
-            break;
-        case BTN_SETTINGS_WALLET:
-            // Change to 'Wallet' menu
-            act = make_wallet_settings_activity();
-            break;
-
-        case BTN_SETTINGS_DEVICE:
         case BTN_SETTINGS_INFO_EXIT:
-            // Change to 'Device' menu
-            act = make_device_settings_activity();
-            break;
-
         case BTN_SETTINGS_PREFS_EXIT:
-            // Change to 'Device' menu (or 'uninitialised options' menu)
-            act = hw_locked_uninitialised ? make_uninitialised_settings_activity() : make_device_settings_activity();
+        case BTN_SETTINGS_SECURITY_EXIT:
+            // Back to the Options list, from wherever this was
+            open_list = SETTINGS_LIST_OPTIONS;
             break;
 
         case BTN_SETTINGS_INFO:
         case BTN_SETTINGS_DEVICE_INFO_EXIT:
             // Change to 'Info' menu
+            open_list = SETTINGS_LIST_NONE;
             act = make_info_activity(running_app_info.version);
             break;
 
         case BTN_SETTINGS_DEVICE_INFO:
-            // Change to 'Device' menu
-            act = make_device_info_activity();
+            // BBB-AIRGAP: a loaded wallet is not sufficient authentication because a temporary
+            // SeedQR wallet can sit over a locked PIN blob.  On radio builds the row can persist the
+            // Bluetooth state and delete pairings, so expose it only with no device PIN or with the
+            // PIN wallet itself open.
+            act = make_device_info_activity(!keychain_has_pin() || (keychain_get() && !keychain_has_temporary()));
+            break;
+
+#ifdef CONFIG_HAS_CAMERA
+        case BTN_SETTINGS_ADD_WALLET: {
+            // BBB-AIRGAP: the free-slot load, reached by name rather than by pointing the generic
+            // scanner at a SeedQR.  handle_mnemonic_qr() owns everything that follows the scan -
+            // the confirmation, derive_keychain() into a free slot, and inheriting the carrier of
+            // the wallet in use - so this only supplies the phrase.  A full table is not checked
+            // before the camera opens: the wallet scanned may be one already held, which this row
+            // then switches to, and refusing that scan for want of a slot it does not need was the
+            // bug.  The refusal lives where the wallet is known, in derive_keychain().
+            char mnemonic[MNEMONIC_BUFLEN];
+            SENSITIVE_PUSH(mnemonic, sizeof(mnemonic));
+            if (mnemonic_qr(mnemonic, sizeof(mnemonic))) {
+                handle_mnemonic_qr(mnemonic);
+            }
+            SENSITIVE_POP(mnemonic);
+            break;
+        }
+
+        case BTN_SETTINGS_MINING:
+            // BBB-AIRGAP: mining runs its own menu and screens and returns here when it is done,
+            // the way the qr settings entry below does. It neither loads nor drops a wallet, so
+            // there is nothing to rebuild; the loop is still in its Options branch and draws that
+            // list afresh.
+            handle_mining_settings();
+            break;
+#endif
+
+        // BBB-AIRGAP: the checks run their own screens and free the managed activities behind them
+        // on the way through, so the Info menu this returns to is built again rather than the
+        // pointer being reused.
+        case BTN_SETTINGS_IO_TEST:
+            handle_io_test();
+            act = make_info_activity(running_app_info.version);
             break;
 
         case BTN_SETTINGS_PREFS:
+            // Change to the 'Preferences' list
+            open_list = SETTINGS_LIST_PREFERENCES;
+            break;
+
+        case BTN_SETTINGS_SECURITY:
+            // Change to the 'Security' list
+            open_list = SETTINGS_LIST_SECURITY;
+            break;
+
         case BTN_SETTINGS_DISPLAY_EXIT:
-            // Change to 'Preferences' menu (Settings)
-            // Only pass the qr_mode_network_item if we're in QR mode
-            act = make_prefs_settings_activity(hw_locked_initialised, hw_qr_mode ? &network_type_item : NULL);
-            if (network_type_item) {
-                update_network_menu_label(network_type_item);
-            }
+            // 'Display' is entered from the Options list, so that is where its back button goes
+            open_list = SETTINGS_LIST_OPTIONS;
+            break;
+
+        case BTN_SETTINGS_QR:
+            // BBB-AIRGAP: this screen runs its own loop and writes the choice out when it exits,
+            // so when it returns there is nothing to save and nothing to rebuild - the list it was
+            // entered from is drawn afresh by the loop above, which is still in that branch.
+            handle_qr_settings();
+            break;
+
+        // BBB-AIRGAP: which optional features this device offers.  Runs its own loop, like the
+        // screen above, and comes back to the same list.
+        case BTN_SETTINGS_FEATURES:
+            handle_wallet_options();
             break;
 
         case BTN_SETTINGS_DISPLAY:
-            // Change to 'Device' menu
+            // Change to the 'Display' menu
+            open_list = SETTINGS_LIST_NONE;
             act = make_display_settings_activity();
             break;
 
-        case BTN_SETTINGS_AUTHENTICATION:
         case BTN_SETTINGS_OTP_EXIT:
-            // Change to 'Authentication' menu
-            act = make_authentication_activity(hw_pin_unlocked);
+            // 'OTP' is entered from the Options list, so that is where its back button goes
+            open_list = SETTINGS_LIST_OPTIONS;
             break;
 
         case BTN_SETTINGS_OTP:
         case BTN_SETTINGS_OTP_NEW_EXIT:
             // Change to 'OTP' menu
+            open_list = SETTINGS_LIST_NONE;
             act = make_otp_activity();
             break;
 
@@ -2271,8 +3110,12 @@ static void handle_settings(const bool startup_menu)
             handle_idle_timeout();
             break;
 
+        case BTN_SETTINGS_SCREEN_TIMEOUT:
+            handle_screen_timeout();
+            break;
+
         case BTN_SETTINGS_NETWORK_TYPE:
-            handle_network_type(network_type_item);
+            handle_network_type();
             break;
 
         case BTN_SETTINGS_BLE:
@@ -2290,11 +3133,19 @@ static void handle_settings(const bool startup_menu)
 #endif
 
 // NOTE: Only boards listed here have brightness controls
+// BBB-AIRGAP: HAVE_DISPLAY_BRIGHTNESS_SETTING added - piJade drives the backlight from the host
+// rather than a PMU, see main/gui.h for why the board type itself is not defined.
 #if defined(CONFIG_BOARD_TYPE_JADE_V1_1) || defined(CONFIG_BOARD_TYPE_JADE_V2_ANY)                                     \
     || defined(CONFIG_BOARD_TYPE_WS_TOUCH_LCD2) || defined(CONFIG_BOARD_TYPE_TTGO_TDISPLAY)                            \
-    || defined(CONFIG_BOARD_TYPE_M5_STICKC_PLUS_2)
+    || defined(CONFIG_BOARD_TYPE_M5_STICKC_PLUS_2) || defined(HAVE_DISPLAY_BRIGHTNESS_SETTING)
         case BTN_SETTINGS_DISPLAY_BRIGHTNESS:
             handle_screen_brightness();
+            break;
+#endif
+
+#ifdef HAVE_CAMERA_ROTATION_SETTING
+        case BTN_SETTINGS_DISPLAY_CAMERA_ROTATION:
+            handle_camera_rotation();
             break;
 #endif
 
@@ -2313,26 +3164,12 @@ static void handle_settings(const bool startup_menu)
             handle_passphrase_prefs();
             break;
 
-        case BTN_SETTINGS_REGISTERED_WALLETS:
-            // Potentialy shows so many screens, menu screen will have been freed
-            handle_registered_wallets();
-            act = make_wallet_settings_activity();
-            break;
-
         case BTN_SETTINGS_WALLET_ERASE_PIN:
             handle_wallet_erase_pin();
             break;
 
         case BTN_SETTINGS_RESET:
             offer_jade_reset();
-            break;
-
-        case BTN_SETTINGS_XPUB_EXPORT:
-            display_xpub_qr();
-            break;
-
-        case BTN_SETTINGS_BIP85:
-            handle_bip85_mnemonic();
             break;
 
         case BTN_SETTINGS_QR_PINSERVER:
@@ -2353,7 +3190,8 @@ static void handle_settings(const bool startup_menu)
 
 #if defined(CONFIG_IDF_TARGET_ESP32S3) && defined(CONFIG_HAS_BATTERY)
         case BTN_SETTINGS_USBSTORAGE:
-            act = make_usbstorage_settings_activity(keychain_get()); // create menu
+            open_list = SETTINGS_LIST_NONE;
+            act = make_usbstorage_settings_activity(keychain_get(), ota_allowed(SOURCE_INTERNAL)); // create menu
             break;
 
         case BTN_SETTINGS_USBSTORAGE_FW:
@@ -2372,13 +3210,13 @@ static void handle_settings(const bool startup_menu)
         case BTN_SETTINGS_USBSTORAGE_SIGN:
             JADE_ASSERT(keychain_get());
             usbstorage_sign_psbt(NULL);
-            act = make_usbstorage_settings_activity(keychain_get()); // re-create menu
+            act = make_usbstorage_settings_activity(keychain_get(), ota_allowed(SOURCE_INTERNAL)); // re-create menu
             break;
 
         case BTN_SETTINGS_USBSTORAGE_EXPORT_XPUB:
             JADE_ASSERT(keychain_get());
             usbstorage_export_xpub(NULL);
-            act = make_usbstorage_settings_activity(keychain_get()); // re-create menu
+            act = make_usbstorage_settings_activity(keychain_get(), ota_allowed(SOURCE_INTERNAL)); // re-create menu
             break;
 #endif
         case BTN_SETTINGS_OTP_VIEW:
@@ -2386,6 +3224,41 @@ static void handle_settings(const bool startup_menu)
             break;
 
 #ifdef CONFIG_HAS_CAMERA
+        // BBB-AIRGAP: reuses the existing scan flow rather than adding a second dispatcher; an
+        // epoch QR lands in handle_epoch_qr() (main/qrmode.c:2549) which reports the time it set.
+        // Sets 'done' for the same reason the pinserver QR case above does: the scan is generic, so
+        // a psbt or a wallet QR can also arrive here, and those screens free the managed activities
+        // this loop is holding in 'act' - coming back to the OTP menu would use freed memory.  The
+        // home screen rebuilds whatever is needed, and the time it set is reported before we leave.
+        case BTN_SETTINGS_OTP_SET_CLOCK: {
+            // BBB-AIRGAP: the address comes first, before the camera.  Every other help screen on
+            // the device explains a flow the user could still complete without it; this one is the
+            // flow - there is no time QR to scan until the page that draws it is open on a phone,
+            // and the device said only "scan a time QR" without saying where from (Ilker, device
+            // round 6).  The page is ours rather than blkstrm.com because Blockstream has no page
+            // that draws a ur:jade-epoch code; source in docs/saat/index.html, served by this
+            // repository's own Pages site.  The device itself never reaches it: the QR is for
+            // the phone, which is the only side of this that touches a network.
+            //
+            // The screen is the back/continue one rather than the help one (Ilker, 2026-09-08):
+            // the help screen's label reads "Learn more:", which sounds optional, and its only
+            // button was a back arrow that opened the camera anyway - the arrow promised the menu
+            // and delivered the scanner.  Here 'Continue' opens the camera and the arrow really
+            // goes back, leaving 'done' false so the loop redraws the menu.  Nothing new is drawn
+            // for this: the same screen already carries the pinserver-unlock address (line 754).
+            // All three rows are the address; a label row was tried and measured, and it clipped
+            // ("Open on phone:" came out as "Open on pho"), so the rows carry the address alone.
+            const char* message[]
+                = { PIJADE_HELP_HOST_1, PIJADE_HELP_HOST_2, PIJADE_HELP_CLOCK_PATH };
+            if (!await_qr_back_continue_activity(message, 3, PIJADE_HELP_CLOCK_URL, true)) {
+                // Declined before the camera opened, so the menu activities are still valid
+                break;
+            }
+            handle_scan_qr("Clock QR", PIJADE_HELP_CLOCK_URL);
+            done = true;
+            break;
+        }
+
         case BTN_SETTINGS_OTP_NEW_QR:
             register_otp_qr();
             break;
@@ -2437,32 +3310,292 @@ void offer_startup_options(void)
     handle_settings(is_startup_menu);
 }
 
-// Session logout or sleep/power-off
+// Session menu: the loaded wallet under its fingerprint, logout, or sleep/power-off
 static void handle_session(void)
 {
-    gui_activity_t* const act = make_session_activity();
-    int32_t ev_id;
+    // Only reachable with a wallet loaded: 'Session' is the Active/Unlocked home tile
+    // (home_menu_items above), so the fingerprint can always be read here.
+    JADE_ASSERT(keychain_get());
+
+    // BBB-AIRGAP: one row per wallet held, not just the one in use. Every label is worked out up
+    // front, so switching wallets does not leave the screen showing a stale fingerprint and this
+    // loop does not have to be restarted. The list cannot go out of date while it is open: the two
+    // paths that change what is held both leave immediately - Log Out returns, and Forget returns
+    // rather than drawing a list that no longer describes the wallets there are.
+    const size_t num_slots = keychain_slot_count();
+    JADE_ASSERT(num_slots);
+    JADE_ASSERT(num_slots <= MAX_SEED_SLOTS);
+    // The reserved id range has to cover every wallet the table can hold
+    JADE_ASSERT(MAX_SEED_SLOTS <= BTN_SESSION_SEED_LAST - BTN_SESSION_SEED_0 + 1);
+
+    // Fingerprints in uppercase hex, the same form the home screen shows, so the user can match
+    // the two screens. Copied into local buffers because the label text is copied by the builder
+    // anyway (main/gui.c:1170).
+    char slot_labels[MAX_SEED_SLOTS][2 * BIP32_KEY_FINGERPRINT_LEN + 1];
+    list_item_t session_items[MAX_SEED_SLOTS + 2];
+    size_t num_session_items = 0;
+
+    for (size_t i = 0; i < num_slots; ++i) {
+        uint8_t fingerprint[BIP32_KEY_FINGERPRINT_LEN];
+        keychain_slot_fingerprint(i, fingerprint, sizeof(fingerprint));
+        char* fphex = NULL;
+        JADE_WALLY_VERIFY(wally_hex_from_bytes(fingerprint, sizeof(fingerprint), &fphex));
+        map_string(fphex, toupper);
+        const int ret = snprintf(slot_labels[i], sizeof(slot_labels[i]), "%s", fphex);
+        JADE_ASSERT(ret > 0 && ret < sizeof(slot_labels[i]));
+        JADE_WALLY_VERIFY(wally_free_string(fphex));
+
+        // A filled circle for the wallet that survives Log Out, a hollow one for the wallets that
+        // do not - see the symbols font (main/fonts/jade_symbols_16x16.c)
+        session_items[num_session_items].txt = slot_labels[i];
+        session_items[num_session_items].symbol = keychain_slot_is_temporary(i) ? "M" : "J";
+        session_items[num_session_items].ev_id = BTN_SESSION_SEED_0 + i;
+        ++num_session_items;
+    }
+
+    session_items[num_session_items++] = (list_item_t){ .txt = "Log Out", .ev_id = BTN_SESSION_LOGOUT };
+#ifndef CONFIG_ETH_USE_OPENETH
+    session_items[num_session_items++] = (list_item_t){ .txt = "Sleep", .ev_id = BTN_SESSION_SLEEP };
+#endif
+
+    // Two menus share this loop: the session list, and the wallet list that opens under a
+    // fingerprint. Both are drawn by run_list_activity(), which rebuilds its screen on every call
+    // and scrolls when a list outgrows the four rows the display fits.
+    // The wallet menu is titled with the wallet it belongs to, which is the one just activated.
+    const char* wallet_title = NULL;
+    // BBB-AIRGAP: four of these rows are offered per wallet rather than always - two are optional
+    // features (BIP85, Sign Message), 'Backup' needs a wallet that still has the entropy it was
+    // built from, and 'Forget' a temporary one - so the rows are laid out when a wallet is picked
+    // rather than trimmed from a fixed list.  See there for every condition.  Four rows always,
+    // four conditional, which is what the size says.  A device built without a camera drops three
+    // of the eight at compile time, so the size is the upper bound rather than the count.
+    list_item_t wallet_items[4 + 4];
+    size_t num_wallet_items = 0;
+
+    // Selection is remembered per menu, so coming back from a sub-screen lands where it was left.
+    bool in_wallet_menu = false;
+    size_t session_selected = 0;
+    size_t wallet_selected = 0;
 
     while (true) {
-        gui_set_current_activity(act);
-        if (gui_activity_wait_event(act, GUI_BUTTON_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0)) {
-            switch (ev_id) {
-            case BTN_SESSION_LOGOUT:
-                // Logout of current wallet, delete keychain
-                keychain_clear();
-                return;
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            return;
+        }
+        if (in_wallet_menu && !keychain_get()) {
+            return; // no wallet left to draw a menu for
+        }
 
-            case BTN_SESSION_SLEEP:
-                // Shutdown Jade
-                power_shutdown();
-                return;
+        const int32_t ev_id = in_wallet_menu
+            ? run_list_activity(
+                  wallet_title, BTN_SETTINGS_WALLET_EXIT, wallet_items, num_wallet_items, &wallet_selected)
+            : run_list_activity("Session", BTN_SESSION_EXIT, session_items, num_session_items, &session_selected);
 
-            case BTN_SESSION_EXIT:
-                return;
+        if (ev_id >= BTN_SESSION_SEED_0 && ev_id < (int32_t)(BTN_SESSION_SEED_0 + num_slots)) {
+            // Make that wallet the one in use and open its menu. Only which wallet keychain_get()
+            // returns changes here; nothing is loaded or dropped. The dashboard loop this was
+            // called from tests keychain_get() and so redraws itself once this returns.
+            const size_t position = (size_t)(ev_id - BTN_SESSION_SEED_0);
+            keychain_slot_activate(position);
+            wallet_title = slot_labels[position];
+            num_wallet_items = 0;
 
-            default:
+            // BBB-AIRGAP: two of the rows below are optional features the device can be set to
+            // leave out (Options > Features).  Read here, where the rows
+            // are laid out, rather than once per session: that screen can have changed them since
+            // this menu was last opened.  Leaving a row out only removes a way in - the wallet
+            // itself is untouched, and a device with both turned off signs what one with both
+            // turned on signs.
+            const uint8_t feature_flags = storage_get_feature_flags();
+
+            // BBB-AIRGAP: the order is the one asked for on 2026-09-03: the two rows reached most
+            // often first, then the rest by how often they are wanted, with the two that change
+            // what is held (Backup, Forget) last.  Nothing about when a row appears changed with
+            // the order; each condition is still the one described where it stands.
+#ifdef CONFIG_HAS_CAMERA
+            // BBB-AIRGAP: the same scan the home screen offers, reached from a wallet so the one
+            // being scanned for is the one already in use.  sign_psbt() still checks ownership and
+            // offers to switch wallets, so entering here is a convenience, not the guard.
+            wallet_items[num_wallet_items++] = (list_item_t){ .txt = "Scan QR", .ev_id = BTN_SETTINGS_WALLET_SCAN_QR };
+#endif
+            // BBB-AIRGAP: the wallet's own addresses, derived rather than scanned, so this row
+            // needs neither a camera nor the entropy the backup row below requires.
+            wallet_items[num_wallet_items++]
+                = (list_item_t){ .txt = "Address Explorer", .ev_id = BTN_SETTINGS_WALLET_ADDRESSES };
+            wallet_items[num_wallet_items++] = (list_item_t){ .txt = "Export Xpub", .ev_id = BTN_SETTINGS_XPUB_EXPORT };
+#ifdef CONFIG_HAS_CAMERA
+            // BBB-AIRGAP: the same camera as the Scan QR row, narrowed to one format.  That row
+            // accepts anything and decides what it was; this one signs a message with the wallet
+            // whose menu it is and says so when the code is something else (handle_sign_message()).
+            if (feature_flags & FEATURE_FLAGS_SIGN_MESSAGE) {
+                wallet_items[num_wallet_items++]
+                    = (list_item_t){ .txt = "Sign Message", .ev_id = BTN_SETTINGS_WALLET_SIGN_MSG };
+            }
+#endif
+            wallet_items[num_wallet_items++]
+                = (list_item_t){ .txt = "Registered Wallets", .ev_id = BTN_SETTINGS_REGISTERED_WALLETS };
+            if (feature_flags & FEATURE_FLAGS_BIP85) {
+                wallet_items[num_wallet_items++] = (list_item_t){ .txt = "BIP85", .ev_id = BTN_SETTINGS_BIP85 };
+            }
+#ifdef CONFIG_HAS_CAMERA
+            // Every backup screen shows the words, and only a wallet whose words were presented in
+            // this session can have them drawn again.  A PIN-unlocked wallet is read back from the
+            // blob as a serialised key, so its words are not recoverable and the row is not offered
+            // rather than failing when pressed.
+            if (keychain_slot_has_entropy(position)) {
+                wallet_items[num_wallet_items++]
+                    = (list_item_t){ .txt = "Backup", .ev_id = BTN_SETTINGS_WALLET_BACKUP };
+            }
+#endif
+            // Forget is offered for a temporary wallet only. Dropping the persisted one cannot be
+            // undone while other wallets are held - keychain_load() refuses to read the blob back
+            // while any wallet is in memory - so the way to drop that one is Log Out, which drops
+            // them all together.
+            if (keychain_slot_is_temporary(position)) {
+                wallet_items[num_wallet_items++]
+                    = (list_item_t){ .txt = "Forget", .ev_id = BTN_SETTINGS_WALLET_FORGET };
+            }
+            JADE_ASSERT(num_wallet_items <= sizeof(wallet_items) / sizeof(list_item_t));
+            wallet_selected = 0;
+            in_wallet_menu = true;
+            continue;
+        }
+
+        switch (ev_id) {
+
+        case BTN_SETTINGS_WALLET_EXIT:
+            // Back to the session menu
+            in_wallet_menu = false;
+            break;
+
+        case BTN_SETTINGS_XPUB_EXPORT:
+            display_xpub_qr();
+            break;
+
+        case BTN_SETTINGS_REGISTERED_WALLETS:
+            handle_registered_wallets();
+            break;
+
+        case BTN_SETTINGS_BIP85:
+            handle_bip85_mnemonic();
+            break;
+
+        case BTN_SETTINGS_WALLET_ADDRESSES:
+            // Listing addresses neither loads nor drops a wallet, so the two lists laid out at the
+            // top of this function stay valid and the menu is simply redrawn on return.
+            handle_address_explorer();
+            break;
+
+#ifdef CONFIG_HAS_CAMERA
+        case BTN_SETTINGS_WALLET_BACKUP:
+            handle_wallet_backup();
+            break;
+
+        case BTN_SETTINGS_WALLET_SIGN_MSG:
+            // Signing neither loads nor drops a wallet, so unlike 'Scan QR' below the two lists
+            // laid out at the top of this function stay valid and the menu is simply redrawn.
+            handle_sign_message();
+            break;
+
+        case BTN_SETTINGS_WALLET_SCAN_QR:
+            // BBB-AIRGAP: a scan can load a wallet into a free slot or, when the psbt names
+            // another wallet, switch the one in use (main/process/sign_psbt.c).  Either invalidates
+            // the two lists laid out at the top of this function - the session list would be
+            // missing a wallet, and the wallet rows would name one wallet while 'Forget' and
+            // 'Backup' acted on another.  Neither list can be patched up from here, so
+            // return and let the home screen rebuild them, the way 'Forget' already does.
+            handle_scan_qr("Scan QR", "blkstrm.com/jadescan");
+            return;
+#endif
+
+        case BTN_SETTINGS_WALLET_FORGET: {
+            // The wallet is named on the screen that asks, and that screen opens on 'No': within
+            // this session the wallet cannot be brought back, it would have to be scanned again.
+            const char* question[] = { "Forget wallet", wallet_title };
+            if (!await_yesno_activity("Forget Wallet", question, 2, false, NULL)) {
                 break;
             }
+            keychain_slot_forget_active();
+            // The list built at the top of this function no longer says what is held, so it is not
+            // drawn again - the home screen redraws itself because the wallet in use changed.
+            return;
+        }
+
+        case BTN_SESSION_LOGOUT:
+            // Logout of current wallet, delete keychain
+            keychain_clear();
+            return;
+
+        case BTN_SESSION_SLEEP:
+            // BBB-AIRGAP: drop the wallets before powering down, the way the idle timer already
+            // does (main/idletimer.c:267).  Upstream leaves it to the hardware: an ESP32 that
+            // cuts its own supply loses SRAM, so a wipe would be belt and braces.  This port has
+            // no PMU - poweroff halts the SoC but the board stays powered (see the note below) -
+            // so DRAM keeps whatever was in it, and since a slot now holds the entropy the words
+            // can be rebuilt from, not just the derived keys, "the device is off" would otherwise
+            // be a weaker statement than it looks.
+            keychain_clear();
+#ifdef CONFIG_LIBJADE
+            // BBB-AIRGAP: Jade hardware cuts its own power, so a dark screen is the device
+            // switching off. A Pi Zero has no PMU: poweroff halts the SoC but cannot drop the
+            // board's supply, and the only outward sign is the backlight going out when
+            // pijade-host exits and its GPIO line is released. Without a message the user
+            // cannot tell "off" from "frozen" - the confusion reported on 2026-08-28.
+            //
+            // Drawn through gui_destroy_current_activity() rather than
+            // display_message_activity(): the latter posts the switch to the gui task and
+            // returns, while power_shutdown() does not return on this port (_power_request is
+            // noreturn and the host _exit()s), so the frame could die with the process. This
+            // is the only public entry point that waits for the gui task, and the job signals
+            // its semaphore after render_activity() (main/gui.c:2417-2439); the flush reaches
+            // the panel synchronously from that same task (main/display.c:1018 ->
+            // display_hw_flush() -> libjade_display_flushed()). Nothing is destroyed
+            // here (first argument NULL): the menu screen belongs to run_list_activity(), and
+            // nothing runs after the shutdown anyway, so only the synchronous switch is
+            // wanted. Guarded because on real hardware the device powers itself off and the
+            // message would be wrong.
+            //
+            // The message deliberately does not say when the power may be cut. A dark screen
+            // is not a completed halt: on_power_request() queues poweroff.target with
+            // --no-block and _exit()s as soon as systemctl accepts the job
+            // (pijade/host/pijade_host.c:346-367), so the backlight goes out while systemd is
+            // still stopping services and unmounting the card; the failure path aborts and
+            // darkens the screen without any shutdown at all. Telling the user to cut power at
+            // that point would invite a corrupted card. Producing an honest "power can be cut"
+            // signal needs a unit that paints the panel after umount.target, which is a
+            // separate piece of work (ROADMAP T3.9).
+            //
+            // A failed request does not leave this notice standing as a false "it is off":
+            // on_power_request() returns, _power_request() aborts (libjade/libjade.c:196), and
+            // jade_abort() paints "Internal error" over this screen and holds it for five
+            // seconds before the real abort (main/jade_abort.c:20-34). Measured in the
+            // emulator, where no power handler is registered: the abort screen replaced this
+            // one, which is why capturing the notice needed a wait-added twin build.
+            {
+                const char* message[] = { "Shutting down", "", "The screen goes dark", "before shutdown ends" };
+                gui_activity_t* const shutdown_act = make_show_message_activity(message, 4, NULL, NULL, 0, NULL, 0);
+                gui_destroy_current_activity(NULL, shutdown_act);
+
+                // Held on screen before the shutdown is asked for, because the request takes
+                // the frame away almost at once: on_power_request() runs systemctl --no-block
+                // and _exit()s as soon as the job is queued, and the backlight goes out with
+                // it. Without this pause the notice would only last as long as systemctl takes
+                // to start, which is not a readable interval and is not bounded by anything we
+                // control. Same purpose and the same mechanism as jade_abort()'s own wait
+                // before it aborts (main/jade_abort.c:31-33), shorter because nothing has gone
+                // wrong here.
+                vTaskDelay(3000 / portTICK_PERIOD_MS);
+            }
+#endif
+            // Shutdown Jade
+            power_shutdown();
+            return;
+
+        case BTN_SESSION_EXIT:
+            return;
+
+        default:
+            break;
         }
     }
 }
@@ -2489,6 +3622,12 @@ static void handle_qr_mode(void)
 
     bool done = false;
     while (!done) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            done = true;
+            continue;
+        }
+
         gui_set_current_activity(act);
         if (gui_activity_wait_event(act, GUI_BUTTON_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0)) {
             switch (ev_id) {
@@ -2541,7 +3680,7 @@ static void handle_btn(const int32_t btn)
         break;
 
     case BTN_SCAN_QR:
-        handle_scan_qr();
+        handle_scan_qr("Scan QR", "blkstrm.com/jadescan");
         break;
 
     // The 'connect' screen
@@ -2615,6 +3754,11 @@ static void do_dashboard(jade_process_t* process, const keychain_t* const initia
         // Fresh iteration
         acted = false;
 
+        // BBB-AIRGAP: the escape has arrived where it was going, so it stops here.  Cleared every
+        // time round rather than once, because the loop is re-entered from every screen the
+        // dashboard opens and the flag has to be down before the next one is shown.
+        gui_escape_clear();
+
         // 1. Process any message if available (do not block if no message available)
         jade_process_load_in_message(process, false);
         if (process->ctx.cbor) {
@@ -2680,9 +3824,16 @@ static void do_dashboard(jade_process_t* process, const keychain_t* const initia
         // and cause this function to return.
         // NOTE: only applies to a *peristed* keychain - ie if we have a pin set, and *NOT*
         // if this is a temporary/emergency-restore wallet.
-        if (initial_has_pin && initial_keychain && !keychain_has_temporary()) {
-            if ((initial_userdata == SOURCE_SERIAL && !tolerate_usb_disconnection && !usb_is_powered())
-                || (initial_userdata == SOURCE_BLE && !ble_connected())) {
+        // BBB-AIRGAP: upstream puts this question to the wallet in use, because only one wallet
+        // could be held.  With the slot table a temporary wallet loaded on top would answer in
+        // place of the persisted one and this guard would stop firing, leaving a PIN-unlocked seed
+        // in memory after the connection that unlocked it went away.  The question is about the
+        // table, so it is put to the table.  The action stays keychain_clear(): once the session
+        // the PIN opened is over, no wallet may remain.
+        const uint8_t persisted_userdata = keychain_get_persisted_userdata();
+        if (initial_has_pin) {
+            if ((persisted_userdata == SOURCE_SERIAL && !tolerate_usb_disconnection && !usb_is_powered())
+                || (persisted_userdata == SOURCE_BLE && !ble_connected())) {
                 JADE_LOGI("Connection lost - clearing keychain");
                 keychain_clear();
             }

@@ -102,14 +102,37 @@ void debug_set_mnemonic_process(void* process_ptr)
 
     // Pop up a notification that the wallet has been injected
     // (In a 'real' scenario the wallet is not set without some gui activity)
-    await_message("Warning: debug wallet");
+    // BBB-AIRGAP: KEY3 on the notification must not install the debug wallet; use the
+    // existing cleanup to wipe the derived keys, passphrase and mnemonic buffers.  Taken at the
+    // press for the same reason as the debug wipe: the quarter-second delay below would give a
+    // stray direction time to clear gui_escape_pending() and read the escape as consent.
+    const char* warning[] = { "Warning: debug wallet" };
+    const bool escaped = await_message_escaped(warning, 1);
     vTaskDelay(250 / portTICK_PERIOD_MS);
+
+    if (escaped) {
+        jade_process_reject_message(process, CBOR_RPC_USER_CANCELLED, "User abandoned debug wallet");
+        goto cleanup;
+    }
 
     // Copy temporary keychain into a new global keychain
     // and remove the restriction on network-types.
     keychain_set(&keydata, (uint8_t)process->ctx.source, temporary_wallet);
     keychain_clear_network_type_restriction();
     keychain_set_confirm_export_blinding_key(true);
+
+#ifdef CONFIG_HAS_CAMERA
+    // BBB-AIRGAP: hold the entropy with the wallet, the way derive_keychain() does for a wallet
+    // the user loads, so this path reaches the same session menu the device shows - without it
+    // the SeedQR row could not be exercised in the emulator at all.  The two exclusions are the
+    // ones derive_keychain() makes, for the same reasons: a wallet injected from a seed has no
+    // mnemonic behind it, and a passphrase wallet must not offer a code that opens a different
+    // wallet.  Keeping them identical is the point - an emulator that answered differently would
+    // be measuring something the device does not do.
+    if (!seed && !p_passphrase) {
+        keychain_set_entropy((const char*)qr_data.data);
+    }
+#endif
 
     // To be consistent with normal wallet setup in mnemonic.c ...
     if (!temporary_wallet) {

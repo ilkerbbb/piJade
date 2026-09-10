@@ -44,6 +44,16 @@ extern uint8_t GUI_DEFAULT_FONT;
 // Whether to use a deep status bar on the home screen, better suited to larger displays
 #define HOME_SCREEN_DEEP_STATUS_BAR (CONFIG_DISPLAY_HEIGHT >= 170)
 
+// BBB-AIRGAP: share of the home screen given to the selected tile. Upstream splits 65/35, which on
+// the 320x170 panel leaves 196 px for the DEJAVU24 label. On a 240 px wide panel the same split
+// leaves 156 - 4 (border) - 8 (padding) = 144 px, so labels were painted clipped ("Set Up Jad").
+// The font stays upstream's: Jade only ever scrolls user data (xpubs, wallet names), never its own
+// chrome, so the fix is to fit the layout to the label. The widest home label is "Scan SeedQR" at
+// 169 px (measured with display_get_string_width in DEJAVU24), so the tile needs 169 + 12 = 181 px;
+// 78% of 240 gives 187 px, ie. 175 px of label with 6 px to spare. The neighbouring tile is a
+// clipped preview upstream as well, on the 320 px panel too.
+#define HOME_SCREEN_SELECTED_TILE_PCT (CONFIG_DISPLAY_WIDTH < 320 ? 78 : 65)
+
 // Fill all the remaining space in an {h,v}split
 #define GUI_SPLIT_FILL_REMAINING 0xFF
 
@@ -84,13 +94,22 @@ ESP_EVENT_DECLARE_BASE(GUI_EVENT);
 // Button-click special events
 #define GUI_BUTTON_EVENT_NONE 0xFFFFFFFE
 
-// GUI_EVENTS
+// BBB-AIRGAP: The HAT joystick has two navigation axes while Jade hardware has one.  Separate
+// vertical events let aware screens distinguish the axes without changing screens that ignore them.
 typedef enum {
     GUI_WHEEL_LEFT_EVENT,
     GUI_WHEEL_RIGHT_EVENT,
 
     GUI_WHEEL_CLICK_EVENT,
-    GUI_FRONT_CLICK_EVENT
+    GUI_FRONT_CLICK_EVENT,
+
+    GUI_WHEEL_UP_EVENT,
+    GUI_WHEEL_DOWN_EVENT,
+    GUI_ALT_EVENT,
+    // BBB-AIRGAP: posted by gui_select_first() (KEY1) after it moves the selection, so that a
+    // screen tracking the selection across presses (main/ui/dialogs.c run_list_activity) sees
+    // the jump; without it the next wheel press is judged against a stale position.
+    GUI_SELECT_FIRST_EVENT
 } gui_event_t;
 
 // How should split values be interpreted
@@ -338,6 +357,11 @@ struct gui_activity_t {
 
     // should that cursor "wrap around" when you reach one end?
     bool selectables_wrap;
+
+    // BBB-AIRGAP: set to opt this screen out of the KEY3 escape (main/gui.c gui_escape_request()).
+    // Zero means the escape applies, so a screen has to ask to be exempt; the keyboard is the one
+    // that does, because there KEY3 is the shift key.
+    bool escape_disabled;
 };
 
 // Optional callback called when a view_node is destructed. Basically a custom destructor
@@ -390,6 +414,12 @@ struct gui_view_node_t {
 
     // is this node active (highlitable)?
     bool is_active;
+
+    // BBB-AIRGAP: directional navigation must not target this node, but KEY1 still can. The
+    // scrolling list uses it on the title bar while the window is shifted, so that 'up' from the
+    // top row scrolls instead of jumping out of the list; is_active cannot express this because
+    // gui_select_first() honours it too, which would cost KEY1 its shortcut to the exit.
+    bool nav_skip;
 };
 
 // Structs to facilitate chaining screens
@@ -416,6 +446,56 @@ void gui_next_qrcode_color(void);
 
 bool gui_get_flipped_orientation(void);
 bool gui_set_flipped_orientation(bool flipped_orientation);
+
+// BBB-AIRGAP: camera mounting angle, in quarter turns clockwise (0-3). Upstream fixes this per
+// board at build time (CONFIG_CAMERA_ROTATE_*); a DIY unit is assembled by hand, so here it is
+// something the owner sets. Read when the camera opens, so a change applies to the next scan.
+// The setting only exists where a real camera delivers frames: a libjade build defines
+// CONFIG_HAS_CAMERA even when built without one (see main/entropy_sources.h), and upstream boards
+// have the angle fixed by CONFIG_CAMERA_ROTATE_* instead.
+//
+// It also needs a screen where all four rotations produce the same image, because they draw into
+// one buffer of one size. Whether they do falls out of the scaling in main/camera.c, which takes
+// the gentler of the two axes' scale factors: at 240x240 every rotation fills the screen at 1:1
+// and differs only in which axis it crops, while at 128x128 - equally square - the straight
+// rotations give 128x120 and the quarter turns 120x128.
+//
+// So this names the panel it was written for rather than trying to describe the family of sizes
+// that happen to work. Any other build, libjade's own 320x200 default included, keeps upstream's
+// fixed-angle behaviour and compiles unchanged. main/camera.c asserts that the sizes really do
+// agree, so a change to the camera frame size fails the build rather than drawing out of bounds.
+#if defined(CONFIG_LIBJADE) && defined(CONFIG_LIBJADE_CAMERA) && (CONFIG_DISPLAY_WIDTH == 240)                       \
+    && (CONFIG_DISPLAY_HEIGHT == 240)
+#define HAVE_CAMERA_ROTATION_SETTING 1
+#endif
+
+// BBB-AIRGAP: upstream gates the 'Display Brightness' menu entry on a list of board types, because
+// on those boards brightness means writing a level to a power management chip. piJade has no PMU;
+// the panel's backlight is a plain gpio line the host drives, so the entry is gated on libjade
+// having a host to hand the level to instead. Defining CONFIG_BOARD_TYPE_JADE_V2 to get the same
+// menu would also drag in secure boot, attestation, PMU code and the esp32 ota partition layout,
+// none of which have hardware behind them here. With no backlight handler installed the level is
+// simply dropped, the same way the power handler behaves.
+#ifdef CONFIG_LIBJADE
+#define HAVE_DISPLAY_BRIGHTNESS_SETTING 1
+#endif
+
+#define CAMERA_ROTATION_NUM_VALUES 4
+
+/* Quarter turns needed on the reference build, where the camera sits rotated against the panel.
+ * HAVE_CAMERA_ROTATION_SETTING above already names that exact hardware, so the mounting angle
+ * belongs with it: a card written from the published image comes up the right way round without
+ * anyone visiting the menu. Someone who mounts their camera differently changes it there. */
+#define CAMERA_ROTATION_DEFAULT 1
+
+uint8_t gui_get_camera_rotation(void);
+uint8_t gui_set_camera_rotation(uint8_t quarter_turns);
+
+/* The stored form of the setting, which counts turns away from CAMERA_ROTATION_DEFAULT so that
+ * never-configured (all bits zero) means the default rather than zero degrees. Everything else
+ * works in absolute quarter turns; this pair is the only place the two forms meet. */
+uint8_t gui_camera_rotation_from_flags(uint8_t gui_flags);
+uint8_t gui_camera_rotation_to_flags(uint8_t gui_flags, uint8_t quarter_turns);
 
 void gui_init(TaskHandle_t* gui_h, bool create_event_loop);
 void gui_stop(void);
@@ -460,6 +540,10 @@ void gui_update_picture(gui_view_node_t* node, const Picture* picture, bool repa
 void gui_repaint(gui_view_node_t* node);
 
 void gui_set_current_activity_ex(gui_activity_t* new_current, bool free_managed_activities);
+// BBB-AIRGAP: synchronous variant of gui_set_current_activity_ex() - blocks until the switch has
+// actually run on the gui task and the new activity's handlers are registered; do not call this
+// from the gui task itself (see main/gui.c).
+void gui_set_current_activity_sync(gui_activity_t* new_current, bool free_managed_activities);
 void gui_set_current_activity(gui_activity_t* new_current);
 
 // Destroy an activity we are finished displaying and switch to prev_act.
@@ -473,6 +557,23 @@ bool gui_activity_wait_event(gui_activity_t* activity, const char* event_base, u
     esp_event_base_t* trigger_event_base, int32_t* trigger_event_id, void** trigger_event_data, TickType_t max_wait);
 int32_t gui_activity_wait_button(gui_activity_t* activity, int32_t default_event_id);
 
+// BBB-AIRGAP: KEY3 as a way out of any screen, back to the dashboard.  The press raises a flag
+// rather than being carried as an event id, for two reasons: an inner loop that has already
+// returned cannot be woken a second time by the same press, so the loop outside it has to be able
+// to ASK whether an escape is in progress; and the flag is what makes the cancel cascade outward
+// instead of stopping at the first screen that handles it.
+//
+// gui_alt_click() raises it, every other physical input clears it (the user changed their mind),
+// and dashboard_process() clears it when the escape has arrived where it was going.  A wait site
+// that does not check it simply blocks again, so a screen missed in the conversion is a screen
+// that does not leave - never a screen that does the wrong thing.
+void gui_escape_request(void);
+bool gui_escape_pending(void);
+void gui_escape_clear(void);
+
+// Opt an activity out of the escape above; see escape_disabled in struct gui_activity_t.
+void gui_activity_set_escape(gui_activity_t* activity, bool enabled);
+
 void gui_set_activity_initial_selection(gui_view_node_t* node);
 void gui_set_active(gui_view_node_t* node, bool value);
 void gui_activity_set_active_selection(
@@ -485,7 +586,26 @@ gui_activity_t* gui_display_splash(void);
 
 void gui_wheel_click(void);
 void gui_front_click(void);
+// BBB-AIRGAP: does this text fit the given width in this font?  Serialises with the gui task,
+// which owns the display's selected-font state; see the definition in main/gui.c.
+bool gui_text_fits_width(const char* text, uint32_t font, uint16_t width);
+
 void gui_next(void);
 void gui_prev(void);
+void gui_up(void);
+void gui_down(void);
+void gui_select_first(void);
+// BBB-AIRGAP: select a node of the current activity from outside the engine's own navigation;
+// see main/gui.c.
+void gui_select_node(gui_view_node_t* node);
+void gui_alt_click(void);
+
+// BBB-AIRGAP: while the echo is on, gui_up(), gui_down() and gui_select_first() post the event
+// that names the button pressed and move no selection.  The buttons check (handle_io_test_buttons(),
+// main/process/dashboard.c) needs that because those three do not otherwise name themselves on a
+// screen with nothing selectable on it: the vertical pair falls back to a horizontal event and
+// gui_select_first() posts nothing at all.  The other four inputs already post one event each and
+// are left alone.  See the definition in main/gui.c.
+void gui_set_input_echo(bool value);
 
 #endif /* GUI_H_ */

@@ -18,25 +18,30 @@ typedef enum {
 extern esp_log_level_t _libjade_log_level;
 #endif
 
+/* BBB-AIRGAP: the comma is swallowed when no variadic argument is given (a GNU extension both gcc
+ * and clang implement). Without it these macros diverged from the API they emulate: ESP-IDF accepts
+ * a bare message with no format arguments, and this shim turned the same call into a syntax error
+ * from the trailing comma. Nothing in the unity build happened to make such a call, so the gap sat
+ * unseen; components/esp32-rotary-encoder/rotary_encoder.c is full of them and is not built here. */
 #define ESP_LOGD(f, fmt, ...)                                                                                          \
     do {                                                                                                               \
         if (_libjade_log_level <= ESP_LOG_DEBUG)                                                                       \
-            fprintf(stderr, "DEBUG:%s:" fmt "\n", f, __VA_ARGS__);                                                     \
+            fprintf(stderr, "DEBUG:%s:" fmt "\n", f, ##__VA_ARGS__);                                                   \
     } while (0)
 #define ESP_LOGI(f, fmt, ...)                                                                                          \
     do {                                                                                                               \
         if (_libjade_log_level <= ESP_LOG_INFO)                                                                        \
-            fprintf(stderr, "INFO:%s:" fmt "\n", f, __VA_ARGS__);                                                      \
+            fprintf(stderr, "INFO:%s:" fmt "\n", f, ##__VA_ARGS__);                                                    \
     } while (0)
 #define ESP_LOGW(f, fmt, ...)                                                                                          \
     do {                                                                                                               \
         if (_libjade_log_level <= ESP_LOG_WARN)                                                                        \
-            fprintf(stderr, "WARN:%s:" fmt "\n", f, __VA_ARGS__);                                                      \
+            fprintf(stderr, "WARN:%s:" fmt "\n", f, ##__VA_ARGS__);                                                    \
     } while (0)
 #define ESP_LOGE(f, fmt, ...)                                                                                          \
     do {                                                                                                               \
         if (_libjade_log_level <= ESP_LOG_ERROR)                                                                       \
-            fprintf(stderr, "ERROR:%s:" fmt "\n", f, __VA_ARGS__);                                                     \
+            fprintf(stderr, "ERROR:%s:" fmt "\n", f, ##__VA_ARGS__);                                                   \
     } while (0)
 
 #ifndef CONFIG_LOG_DEFAULT_LEVEL_NONE

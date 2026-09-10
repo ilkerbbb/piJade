@@ -64,4 +64,11 @@ void key_iter_get_fingerprint_at(const key_iter* iter, size_t key_index, uint8_t
 WARN_UNUSED_RESULT bool key_iter_get_path_at(
     const key_iter* iter, size_t key_index, uint32_t* path, size_t path_len, size_t* written);
 
+// BBB-AIRGAP: true if any input keypath names `fingerprint` as its master key.  This is a HINT
+// used to offer the user a different wallet, never to select one: the fingerprint is written by
+// whoever built the psbt, so it is attacker-controlled.  Ownership is still decided by deriving
+// the key (key_iter_next), which this does not touch.
+WARN_UNUSED_RESULT bool psbt_inputs_name_fingerprint(
+    const struct wally_psbt* psbt, const uint8_t* fingerprint, size_t fingerprint_len);
+
 #endif /* PSBT_H_ */

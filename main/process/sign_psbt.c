@@ -717,11 +717,64 @@ network_t network_from_psbt_type(struct wally_psbt* psbt)
 // Sign a psbt/pset - the passed wally psbt struct is updated with any signatures.
 // Returns 0 if no errors occurred - does not necessarily indicate that signatures were added.
 // Returns an rpc/message error code on error, and the error string should be populated.
+// BBB-AIRGAP: ownership is decided by deriving keys, and that only happens for the wallet in use
+// (main/utils/psbt.c:162).  Upstream holds one wallet, so "the wallet in use" and "the wallet the
+// psbt belongs to" were the same thing; with several wallets held at once they are not, and
+// scanning a psbt that belongs to another one would otherwise walk the user through every output
+// and the fee before saying nothing could be signed.  So before any of that work, offer the wallet
+// the psbt names.  The fingerprint is written by whoever built the psbt and proves nothing, hence:
+// a question rather than an automatic switch, and only asked when the wallet in use is not named
+// at all.  Declining leaves everything as it was.
+static void offer_wallet_named_by_psbt(const struct wally_psbt* psbt)
+{
+    JADE_ASSERT(psbt);
+
+    uint8_t fingerprint[BIP32_KEY_FINGERPRINT_LEN];
+    wallet_get_fingerprint(fingerprint, sizeof(fingerprint));
+    if (psbt_inputs_name_fingerprint(psbt, fingerprint, sizeof(fingerprint))) {
+        // The wallet in use is named - the normal case, and nothing to offer
+        return;
+    }
+
+    const size_t num_slots = keychain_slot_count();
+    for (size_t position = 0; position < num_slots; ++position) {
+        // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            return;
+        }
+        uint8_t slot_fingerprint[BIP32_KEY_FINGERPRINT_LEN];
+        keychain_slot_fingerprint(position, slot_fingerprint, sizeof(slot_fingerprint));
+        if (!psbt_inputs_name_fingerprint(psbt, slot_fingerprint, sizeof(slot_fingerprint))) {
+            continue;
+        }
+
+        // Asked one wallet at a time: a four-byte fingerprint can be shared by more than one
+        // slot, and the user is the one who knows which wallet was meant.  The position is shown
+        // alongside it because the fingerprint alone does not distinguish two slots that share
+        // one - the number is the row this wallet occupies in the Session list.
+        char label[2 * BIP32_KEY_FINGERPRINT_LEN + sizeof(" (8/8)")];
+        char* fphex = NULL;
+        JADE_WALLY_VERIFY(wally_hex_from_bytes(slot_fingerprint, sizeof(slot_fingerprint), &fphex));
+        map_string(fphex, toupper);
+        const int ret = snprintf(
+            label, sizeof(label), "%s (%u/%u)", fphex, (unsigned)(position + 1), (unsigned)num_slots);
+        JADE_ASSERT(ret > 0 && ret < sizeof(label));
+        JADE_WALLY_VERIFY(wally_free_string(fphex));
+
+        const char* question[] = { "This transaction names", label, "Switch to that wallet?" };
+        if (await_yesno_activity("Switch Wallet", question, 3, true, NULL)) {
+            keychain_slot_activate(position);
+            return;
+        }
+    }
+}
+
 int sign_psbt(jade_process_t* process, CborValue* params, const network_t network_id, struct wally_psbt* psbt,
     const char** errmsg)
 {
     JADE_ASSERT(psbt);
     JADE_INIT_OUT_PPTR(errmsg);
+
     JADE_ASSERT(network_id != NETWORK_NONE);
     int retval = 0;
 
@@ -774,6 +827,32 @@ int sign_psbt(jade_process_t* process, CborValue* params, const network_t networ
         // Note in_sums/out_sums are cleared automatically at process exit
         retval = CBOR_RPC_BAD_PARAMETERS;
         goto cleanup_tx;
+    }
+
+    // BBB-AIRGAP: the psbt has been validated but nothing has been derived yet, so this is where
+    // the user gets offered the wallet the psbt names (when it is not the one in use).  Placed
+    // after validation so a malformed psbt is rejected on its own terms rather than after a
+    // wallet question, and before derivation so the input loop runs against the chosen wallet the
+    // first time.  Nothing computed above depends on which wallet is in use: the network comes
+    // from the psbt and the device-wide network restriction (network_from_psbt_type), which
+    // slot activation does not touch (main/keychain.c:52) - if that restriction ever becomes
+    // per-wallet, this ordering has to be revisited.
+    //
+    // A NULL process means the psbt came from a scan (main/qrmode.c:1224) or from usb storage
+    // (main/usbhmsc/usbmode.c:831), ie. the user is at the device.  The rpc entry point has
+    // already asserted that its own interface unlocked the wallet in use
+    // (ASSERT_KEYCHAIN_UNLOCKED_BY_MESSAGE_SOURCE, main/process/process_utils.h:100); switching
+    // underneath that assertion would let a serial or ble client sign with a wallet its
+    // connection never unlocked, so no offer is made there.
+    if (!process) {
+        offer_wallet_named_by_psbt(psbt);
+        // BBB-AIRGAP: declining a wallet switch normally continues with the current wallet,
+        // but KEY3 must end signing before key derivation or another confirmation screen.
+        if (gui_escape_pending()) {
+            *errmsg = "User declined to sign psbt";
+            retval = CBOR_RPC_USER_CANCELLED;
+            goto cleanup_tx;
+        }
     }
 
     key_iter iter; // Holds any public/private key in use
@@ -956,6 +1035,20 @@ int sign_psbt(jade_process_t* process, CborValue* params, const network_t networ
         }
     } // iterate keys
 
+    // BBB-AIRGAP: upstream asks this after the user has approved every output and the fee, which
+    // on a multi-wallet device means stepping through a whole transaction only to be told at the
+    // end that none of it could be signed.  Asked here instead, before that work.  'Continue' is
+    // kept because sign_psbt also serves the USB/serial rpc, where returning an unsigned psbt is a
+    // valid answer rather than an error.
+    if (!signing_flags) {
+        const char* question[] = { "No inputs here can be", "signed by this wallet.", "Continue anyway?" };
+        if (!await_yesno_activity("Nothing to Sign", question, 3, false, NULL)) {
+            *errmsg = "User declined to sign psbt";
+            retval = CBOR_RPC_USER_CANCELLED;
+            goto cleanup;
+        }
+    }
+
     // Examine outputs for liquid unblinded info and fees, and for change we can automatically validate
     if (!psbt_update_outputs(
             network_id, psbt, signing_flags, wallet_name, multisig_data, descriptor, output_info, errmsg)) {
@@ -1047,11 +1140,6 @@ int sign_psbt(jade_process_t* process, CborValue* params, const network_t networ
             goto cleanup;
         }
         JADE_LOGD("User accepted fee");
-    }
-
-    // Show warning if nothing to sign
-    if (!signing_flags) {
-        await_message_2("There are no relevant", "inputs to be signed");
     }
 
     display_processing_message_activity();

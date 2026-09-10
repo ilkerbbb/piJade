@@ -118,6 +118,11 @@ bool check_extended_data_fields(CborValue* params, const char* expected_origid, 
 // Common parameter extraction/handling
 int params_set_epoch_time(CborValue* params, const char** errmsg);
 
+// BBB-AIRGAP: true once params_set_epoch_time() has successfully set the clock this boot.
+// Time-based OTP needs this because the port boots with a plausible-looking but wrong clock;
+// see the comment on the definition in process_utils.c.
+bool clock_has_been_set(void);
+
 WARN_UNUSED_RESULT bool params_identity_curve_index(CborValue* params, const char** identity, size_t* identity_len,
     const char** curve, size_t* curve_len, size_t* index, const char** errmsg);
 
@@ -147,6 +152,20 @@ WARN_UNUSED_RESULT bool params_get_bip85_rsa_key(
 // Track the types of the input prevout scripts
 script_flavour_t get_script_flavour(const uint8_t* script, const size_t script_len, bool* is_p2tr);
 void update_aggregate_scripts_flavour(script_flavour_t new_script_flavour, script_flavour_t* aggregate_scripts_flavour);
+
+// BBB-AIRGAP: what derive_keychain() did with the mnemonic it was given.  A plain bool used to be
+// enough because every ending other than success was a failure; loading a scanned wallet can now
+// end without one being loaded and without anything having gone wrong - the user declined at the
+// confirmation, or the wallet turned out to be one already held.  The caller has to tell those
+// apart, because it shows an error screen for a failure and hands the new wallet the carrier of
+// the old one for a success, and neither belongs to an aborted load.  Declared here rather than
+// beside the function because the two files that need it (dashboard.c, mnemonic.c) share only this
+// header.
+typedef enum {
+    DERIVE_KEYCHAIN_OK, // a wallet was derived and loaded
+    DERIVE_KEYCHAIN_ABORTED, // nothing loaded, nothing wrong: declined, or already held
+    DERIVE_KEYCHAIN_FAILED, // the derivation itself failed
+} derive_keychain_result_t;
 
 // A message reply which is actually a request for more data from the client
 // 'ctx' should be a 'client_data_request_t' struct as above

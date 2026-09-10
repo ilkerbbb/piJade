@@ -61,7 +61,9 @@ void sync_wait_event_handler(void* handler_arg, esp_event_base_t base, int32_t i
 
 #ifdef CONFIG_LIBJADE
 extern volatile bool _libjade_stop_requested;
-// Handle of the semaphore currently being waited on, so libjade_stop() can unblock the wait.
+extern bool _libjade_is_firmware_thread(void);
+// BBB-AIRGAP: this slot belongs to the firmware thread because its only consumer is the wakeup in
+// libjade_stop(); no other task depends on that wakeup, and camera_stop() runs before it.
 static volatile SemaphoreHandle_t _last_wait_handle = NULL;
 void _trigger_last_wait_handle(void)
 {
@@ -82,10 +84,14 @@ esp_err_t sync_wait_event(wait_event_data_t* wait_event_data, esp_event_base_t* 
     JADE_ASSERT(wait_event_data);
 
 #ifdef CONFIG_LIBJADE
+    // BBB-AIRGAP: stop-request exits remain active for helper tasks too; restricting them to the
+    // firmware thread could leave a camera or QR authentication task alive during teardown.
     if (_libjade_stop_requested) {
         pthread_exit(NULL);
     }
-    _last_wait_handle = wait_event_data->triggered;
+    if (_libjade_is_firmware_thread()) {
+        _last_wait_handle = wait_event_data->triggered;
+    }
 #endif
 
     JADE_LOGD("Awaiting event %p (timeout = %lu)", wait_event_data, max_wait);
@@ -96,7 +102,9 @@ esp_err_t sync_wait_event(wait_event_data_t* wait_event_data, esp_event_base_t* 
     } else {
         if (xSemaphoreTake(wait_event_data->triggered, max_wait) != pdTRUE) {
 #ifdef CONFIG_LIBJADE
-            _last_wait_handle = NULL;
+            if (_libjade_is_firmware_thread()) {
+                _last_wait_handle = NULL;
+            }
 #endif
             JADE_LOGD("Event %p timed-out", wait_event_data);
             return ESP_NO_EVENT;
@@ -104,7 +112,9 @@ esp_err_t sync_wait_event(wait_event_data_t* wait_event_data, esp_event_base_t* 
     }
 
 #ifdef CONFIG_LIBJADE
-    _last_wait_handle = NULL;
+    if (_libjade_is_firmware_thread()) {
+        _last_wait_handle = NULL;
+    }
     if (_libjade_stop_requested) {
         pthread_exit(NULL);
     }

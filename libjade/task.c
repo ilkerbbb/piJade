@@ -3,7 +3,6 @@
 #include "jade_assert.h"
 #include <limits.h>
 #include <pthread.h>
-#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
@@ -93,12 +92,19 @@ BaseType_t xTaskCreatePinnedToCore(TaskFunction_t func, const char* name, uint32
 {
     BaseType_t result = pdTRUE;
     pthread_attr_t attr = { 0 };
+    bool attr_initialized = false;
     pthread_t thread_id = 0;
-    *output = NULL;
+    // BBB-AIRGAP: FreeRTOS lets a caller that does not want the handle pass NULL here, and Jade's own
+    // code does - main/idletimer.c and main/input/touchscreen.inc both start a task they never talk
+    // to again. Writing through it unconditionally segfaulted before the first log line was printed.
+    if (output) {
+        *output = NULL;
+    }
     if (pthread_attr_init(&attr) != 0) {
         JADE_LOGE("pthread_attr_init failed for task %s", name);
         return pdFALSE;
     }
+    attr_initialized = true;
     if (stack_size < PTHREAD_STACK_MIN) {
         stack_size = PTHREAD_STACK_MIN;
     }
@@ -108,6 +114,21 @@ BaseType_t xTaskCreatePinnedToCore(TaskFunction_t func, const char* name, uint32
     }
     if (pthread_attr_setstacksize(&attr, stack_size) != 0) {
         JADE_LOGE("pthread_attr_setstacksize failed for task %s", name);
+        result = pdFALSE;
+        goto cleanup;
+    }
+    // BBB-AIRGAP: every task is detached, whether or not the caller kept its handle. FreeRTOS
+    // reclaims a task's stack and TCB when it exits and the caller's handle goes stale at that
+    // moment; a joinable pthread instead holds its stack and metadata until somebody joins it, and
+    // this API has no join to offer. Detaching only the handle-less tasks therefore leaked one
+    // thread per handle-keeping task: main/qrmode.c starts auth_qr_client_task with a handle it
+    // never touches again, so every pinserver-over-QR unlock leaked a 4 KiB stack for the life of
+    // the process. The handle stays exactly as useful as FreeRTOS's: vTaskDelete() looks a thread
+    // up in the waiter table, and a thread is only ever in that table while it is alive - it adds
+    // itself before waiting and removes itself after waking, just before it exits (vTaskDelay
+    // below) - so a stale handle finds nothing to signal.
+    if (pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED) != 0) {
+        JADE_LOGE("pthread_attr_setdetachstate failed for task %s", name);
         result = pdFALSE;
         goto cleanup;
     }
@@ -123,20 +144,34 @@ BaseType_t xTaskCreatePinnedToCore(TaskFunction_t func, const char* name, uint32
         result = pdFALSE;
         goto cleanup;
     }
-    *output = (TaskHandle_t)thread_id;
-    if (pthread_setname_np(thread_id, name) != 0) {
-        JADE_LOGE("pthread_setname_np failed for task %s", name);
-        result = pdFALSE;
-        goto cleanup;
+    if (output) {
+        *output = (TaskHandle_t)thread_id;
+    }
+    // BBB-AIRGAP: Linux caps a thread name at 16 bytes including the terminator, so
+    // pthread_setname_np() answers ERANGE for anything longer - "auth_qr_client_task" (19
+    // characters, main/qrmode.c) is one such name, and it is the only one in the firmware. The API
+    // this shim emulates never fails a task creation over its name: FreeRTOS copies
+    // configMAX_TASK_NAME_LEN bytes into the TCB and truncates the rest. Returning pdFALSE here
+    // diverged from that contract, so handle_qr_auth() tripped its own assert (main/qrmode.c) on
+    // every pinserver-over-QR unlock. Truncate the way FreeRTOS does, and treat a naming failure as
+    // cosmetic - the task is created and running either way, only its debugger label is missing.
+    char tname[16];
+    const int namelen = snprintf(tname, sizeof(tname), "%s", name);
+    JADE_ASSERT(namelen > 0);
+    if (pthread_setname_np(thread_id, tname) != 0) {
+        JADE_LOGW("pthread_setname_np failed for task %s", name);
     }
 cleanup:
-    if (thread_id != 0) {
+    // BBB-AIRGAP: initialized attributes own resources on every later failure path, even when no
+    // thread was created.
+    if (attr_initialized) {
         pthread_attr_destroy(&attr);
     }
-    if (result != pdTRUE && thread_id != 0) {
-        pthread_kill(thread_id, SIGTERM);
-        *output = NULL;
-    }
+    // BBB-AIRGAP: there used to be a pthread_kill(thread_id, SIGTERM) tear-down here for the
+    // failure-after-create case. No such case is left - naming is the only step after
+    // pthread_create() and it no longer fails the call - and the signal was wrong regardless:
+    // a SIGTERM disposition is process-wide, so it took the whole daemon down rather than the one
+    // thread it named. Measured 2026-08-27: the pinserver-over-QR unlock killed the daemon here.
     return result;
 }
 
@@ -216,13 +251,49 @@ void vTaskDelete(void* task)
 
 void vTaskDeleteWithCaps(void* task) { vTaskDelete(task); }
 
+// BBB-AIRGAP: FreeRTOS counts ticks from when the scheduler started, so on a Jade the count is a
+// few hundred at the point the firmware first reads it. CLOCK_MONOTONIC counts from when the
+// machine booted, which is the same thing only when libjade happens to start with it. It does not:
+// pijade-host is a service that can be restarted, and the emulator runs on a workstation that has
+// been up for days. main/idletimer.c compares 'last activity' - zero until something happens -
+// against this, so a large first reading made the device idle the moment it powered on: with a
+// wallet loaded that is a restart, and it repeats. The count is therefore taken from the first
+// call after libjade_start(), which is the closest thing this process has to a scheduler start.
+// The epoch is cleared again on every start rather than fixed for the life of the process: libjade
+// may be stopped and started repeatedly in the same process (see libjade.h), and the time spent
+// stopped is not time the new scheduler has been running. Left in, an hour parked between two
+// sessions would arrive as an hour of idleness the moment the second one opened.
+static struct timespec _tick_epoch;
+static bool _tick_epoch_set = false;
+static pthread_mutex_t _tick_epoch_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+void libjade_tick_epoch_reset(void)
+{
+    pthread_mutex_lock(&_tick_epoch_mutex);
+    _tick_epoch_set = false;
+    pthread_mutex_unlock(&_tick_epoch_mutex);
+}
+
 TickType_t xTaskGetTickCount(void)
 {
     struct timespec ts;
     if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
         abort();
     }
-    return ((TickType_t)ts.tv_sec * 1000) + (ts.tv_nsec / 1000000);
+
+    pthread_mutex_lock(&_tick_epoch_mutex);
+    if (!_tick_epoch_set) {
+        _tick_epoch = ts;
+        _tick_epoch_set = true;
+    }
+    const struct timespec epoch = _tick_epoch;
+    pthread_mutex_unlock(&_tick_epoch_mutex);
+
+    // Signed while subtracting: the nanosecond halves are not ordered, and TickType_t is unsigned,
+    // so a borrow computed in the return type would come out as an enormous number of ticks.
+    const long long ms = (((long long)ts.tv_sec - epoch.tv_sec) * 1000)
+        + (((long long)ts.tv_nsec - epoch.tv_nsec) / 1000000);
+    return ms > 0 ? (TickType_t)ms : 0;
 }
 
 int xTaskNotify(TaskHandle_t task, unsigned int v, int action)

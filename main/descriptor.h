@@ -2,6 +2,7 @@
 #define DESCRIPTOR_H_
 
 #include "jade_assert.h"
+#include "registration_seal.h"
 #include "signer.h"
 #include "utils/network.h"
 
@@ -16,17 +17,22 @@ struct wally_map;
 // The maximum length of the descriptor script
 #define MAX_DESCRIPTOR_SCRIPT_LEN 512
 
-// The size of the byte-string required to store a descriptor registration of the current 'version'
-#define DESCRIPTOR_BYTES_LEN(descriptor)                                                                               \
-    ((2 * sizeof(uint8_t)) + sizeof(descriptor->script_len) + descriptor->script_len + sizeof(uint8_t)                 \
-        + (descriptor->num_values * 2 * sizeof(uint16_t))                                                              \
-        + string_values_len(descriptor->values, descriptor->num_values) + HMAC_SHA256_LEN)
+// The size of the plaintext body of a descriptor registration of the current 'version'
+// (everything between the version byte and the HMAC of the pre-sealing layout)
+#define DESCRIPTOR_BODY_LEN(descriptor)                                                                                \
+    (sizeof(uint8_t) + sizeof((descriptor)->script_len) + (descriptor)->script_len + sizeof(uint8_t)                   \
+        + ((descriptor)->num_values * 2 * sizeof(uint16_t))                                                            \
+        + string_values_len((descriptor)->values, (descriptor)->num_values))
+
+#define MAX_DESCRIPTOR_BODY_LEN                                                                                        \
+    (1 + 2 + MAX_DESCRIPTOR_SCRIPT_LEN + 1 + (MAX_ALLOWED_SIGNERS * 2 * 2) + (MAX_ALLOWED_SIGNERS * (160 + 16)))
+
+// BBB-AIRGAP: the persisted record is the sealed body (main/registration_seal.h)
+#define DESCRIPTOR_BYTES_LEN(descriptor) REGISTRATION_SEALED_LEN(DESCRIPTOR_BODY_LEN(descriptor))
 
 // The largest supported descriptor record
 // NOTE: beware of a later 'version' reducing this size as we may end up with larger records persisted in storage
-#define MAX_DESCRIPTOR_BYTES_LEN                                                                                       \
-    (2 + 2 + MAX_DESCRIPTOR_SCRIPT_LEN + 1 + (MAX_ALLOWED_SIGNERS * 2 * 2) + (MAX_ALLOWED_SIGNERS * (160 + 16))        \
-        + HMAC_SHA256_LEN)
+#define MAX_DESCRIPTOR_BYTES_LEN REGISTRATION_SEALED_LEN(MAX_DESCRIPTOR_BODY_LEN)
 
 typedef enum { DESCRIPTOR_TYPE_UNKNOWN, DESCRIPTOR_TYPE_MINISCRIPT_ONLY, DESCRIPTOR_TYPE_MIXED } descriptor_type_t;
 
@@ -80,7 +86,10 @@ WARN_UNUSED_RESULT bool descriptor_search_for_script(const char* name, const des
     size_t script_len);
 
 // Storage related functions
-WARN_UNUSED_RESULT bool descriptor_to_bytes(descriptor_data_t* descriptor, uint8_t* output_bytes, size_t output_len);
+WARN_UNUSED_RESULT bool descriptor_body_to_bytes(const descriptor_data_t* descriptor, uint8_t* body, size_t body_len);
+WARN_UNUSED_RESULT bool descriptor_seal_body(const uint8_t* body, size_t body_len, uint8_t* output, size_t output_len);
+WARN_UNUSED_RESULT bool descriptor_open_registration(
+    const uint8_t* bytes, size_t bytes_len, uint8_t* body, size_t body_len, size_t* written);
 WARN_UNUSED_RESULT bool descriptor_from_bytes(const uint8_t* bytes, size_t bytes_len, descriptor_data_t* descriptor);
 WARN_UNUSED_RESULT bool descriptor_load_from_storage(
     const char* descriptor_name, descriptor_data_t* output, const char** errmsg);

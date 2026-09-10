@@ -86,6 +86,15 @@ int sign_message_file(const char* str, const size_t str_len, uint8_t* sig_output
     // bip32 path - parse, then print back as standardised nul-terminated string
     ptr = end + 1;
     end = memchr(ptr, ' ', str_end - ptr);
+    // BBB-AIRGAP: a file with no space after the path leaves this NULL, and the length below was
+    // computed from it without checking - the two other fields of this parser do check (the prefix
+    // above, the 'ascii:' label below), so this was the odd one out rather than a deliberate
+    // omission.  Reachable from any scanned code that starts with 'signmessage ', which the wallet
+    // menu now opens deliberately (main/qrmode.c, handle_sign_message()).
+    if (!end) {
+        *errmsg = "Invalid bip32 path";
+        return CBOR_RPC_BAD_PARAMETERS;
+    }
     uint32_t path[MAX_PATH_LEN];
     size_t path_len = 0;
     if (!wallet_bip32_path_from_str(ptr, end - ptr, path, sizeof(path) / sizeof(path[0]), &path_len) || !path_len) {
