@@ -4,6 +4,7 @@
 # Run: docker exec jade-dev bash /probe/desc_scenarios.sh
 # Requires: build_linux_nci_log daemon (CI disabled, real presses, LOG enabled, CAMERA enabled),
 #           Task 5 frames (/probe/desc_*.gray, /probe/msfile*.gray),
+#           SeedQR frames (/probe/mne.gray and /probe/mne24.gray, pijade/tools/mnemonic_qr.py),
 #           Task 0 old-format settings file (/probe/settingsR8old.a and .b).
 #
 # This script ran on 2026-09-06; the four measurements below shaped its current form.
