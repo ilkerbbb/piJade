@@ -72,10 +72,11 @@ bottom.</p>
   <li>On piJade open <code>Session</code>, then the wallet fingerprint, then
       <code>Sign Message</code>. The camera opens. Hold it over Sparrow's code.</li>
   <li>piJade shows the message, its digest and the derivation path. <strong>Read them.</strong>
-      Approving signs the message that was scanned. Keep the message under 192 bytes: at that
-      length and above the device shows the first 188 bytes followed by an ellipsis and signs the
-      whole thing, so the part past the ellipsis is approved without being read. A message longer
-      than 96 bytes is shown over two screens; step through both before approving.</li>
+      Approving signs the message that was scanned. piJade refuses any message of 192 bytes or
+      more and shows <code>Message too long to display</code>; it does not sign text it cannot put
+      on screen in full. A message longer than 96 bytes is shown over two screens, and the summary
+      screen lets you approve without opening the message at all, so open it and step through both
+      screens before approving.</li>
   <li>piJade then displays the signature as its own QR code, under <code>Scan QR</code>. Sparrow
       reads that code back with its camera and drops the signature into the
       <em>Signature</em> field.</li>
