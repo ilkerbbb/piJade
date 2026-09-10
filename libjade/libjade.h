@@ -210,6 +210,16 @@ typedef enum {
 LIBJADE_API void libjade_input(libjade_input_t event);
 
 /*
+ * BBB-AIRGAP: the frame geometry a host has to produce, published here because a host cannot see
+ * the firmware's main/camera.h.  It used to be copied into pijade/host/pijade_host.c by hand, so
+ * a change on one side showed up only at run time as a rejected first frame.  libjade/esp_camera.c
+ * asserts at compile time that these still equal CAMERA_IMAGE_WIDTH and CAMERA_IMAGE_HEIGHT, which
+ * remain the single source: change camera.h and the build stops here until this follows.
+ */
+#define LIBJADE_CAMERA_FRAME_WIDTH 640
+#define LIBJADE_CAMERA_FRAME_HEIGHT 480
+
+/*
  * Push one 8-bit greyscale camera frame (CAMERA_IMAGE_WIDTH * CAMERA_IMAGE_HEIGHT bytes).
  *
  * Returns false when the frame is rejected outright (null data, wrong size) and in every call if

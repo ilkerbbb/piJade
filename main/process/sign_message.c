@@ -31,6 +31,32 @@ static inline bool isGdkLoginChallenge(
         && !strncmp(message, GDK_CHALLENGE_PREFIX, sizeof(GDK_CHALLENGE_PREFIX) - 1);
 }
 
+// BBB-AIRGAP: the screen draws printable ASCII and nothing else, so a message containing anything
+// else is shown as a different message than the one signed.  Measured on the emulator 2026-09-10,
+// three ways: a newline pushes the rest below the visible area and nothing scrolls to it ("OK" and
+// 32 newlines and "NO" showed as "OK"); a tab is drawn as nothing at all ("OK", 40 tabs, "NO"
+// showed as "OKNO"); and a byte the font has no glyph for is dropped silently, so a message
+// reading "sifir mi, sifre mi?" with a Turkish s lost that letter and read "ifre" on screen.  In
+// each case the device would have signed text the reader never saw, which is the one thing it
+// exists to prevent.  Plain ASCII is unaffected: 148 bytes of it were measured filling two message
+// screens in full.  Decision by Ilker 2026-09-10: refuse, the same answer the length rule got.
+//
+// The rule also closes an abort: confirm_sign_message() below formats with "%.*s", which stops at
+// a NUL, so a message carrying one failed its own length assertion and took the process down.
+// Measured by removing this check on each path in turn, 2026-09-10: both aborted at that
+// assertion, and neither does with the check in place.
+static bool message_is_displayable(const char* message, const size_t msg_len)
+{
+    JADE_ASSERT(message);
+    for (size_t i = 0; i < msg_len; ++i) {
+        const uint8_t c = (uint8_t)message[i];
+        if (c < 0x20 || c > 0x7e) {
+            return false;
+        }
+    }
+    return true;
+}
+
 // Ask the user to confirm signing the message
 static bool confirm_sign_message(
     const char* msg, const size_t msg_len, const uint8_t* hash, const size_t hash_len, const char* pathstr)
@@ -40,15 +66,13 @@ static bool confirm_sign_message(
     JADE_ASSERT(hash_len == SHA256_LEN);
     JADE_ASSERT(pathstr);
 
-    // Truncate message if overlong
+    // BBB-AIRGAP: both callers reject an overlong message before reaching here, so what is shown
+    // is always the complete text.  Upstream's truncating branch (first 188 bytes plus "...", the
+    // rest signed unseen) is gone rather than left unreachable.
+    JADE_ASSERT(msg_len < MAX_DISPLAY_MESSAGE_LEN);
     char message[MAX_DISPLAY_MESSAGE_LEN];
-    if (msg_len < MAX_DISPLAY_MESSAGE_LEN) {
-        const int ret = snprintf(message, sizeof(message), "%.*s", msg_len, msg);
-        JADE_ASSERT(ret == msg_len);
-    } else {
-        const int ret = snprintf(message, sizeof(message), "%.*s...", sizeof(message) - 4, msg);
-        JADE_ASSERT(ret == sizeof(message) - 1);
-    }
+    const int ret = snprintf(message, sizeof(message), "%.*s", msg_len, msg);
+    JADE_ASSERT(ret == msg_len);
 
     // Ask user to confirm
     char* hashhex = NULL;
@@ -126,6 +150,22 @@ int sign_message_file(const char* str, const size_t str_len, uint8_t* sig_output
     }
 
     const size_t len = str_end - ptr;
+
+    // BBB-AIRGAP: refuse to sign a message the screen cannot show in full.  Upstream truncates
+    // anything at or beyond MAX_DISPLAY_MESSAGE_LEN to its first 188 bytes plus an ellipsis and
+    // then signs the WHOLE text, so every byte past the ellipsis is approved unseen.  The identity
+    // path already rejects exactly this case (process_utils.c, params_identity_curve_index); message
+    // signing was the odd one out.  Decision by Ilker 2026-09-10: reject, do not merely warn.
+    if (len >= MAX_DISPLAY_MESSAGE_LEN) {
+        *errmsg = "Message too long to display";
+        return CBOR_RPC_BAD_PARAMETERS;
+    }
+
+    if (!message_is_displayable(ptr, len)) {
+        *errmsg = "Message contains a character the screen cannot show";
+        return CBOR_RPC_BAD_PARAMETERS;
+    }
+
     uint8_t message_hash[SHA256_LEN];
     if (!wallet_get_message_hash((const uint8_t*)ptr, len, message_hash, sizeof(message_hash))) {
         *errmsg = "Failed to get message hash";
@@ -204,6 +244,12 @@ void sign_message_process(void* process_ptr)
         goto cleanup;
     }
 
+    // BBB-AIRGAP: same rule as the QR path above - we do not sign what the screen cannot show.
+    if (msg_len >= MAX_DISPLAY_MESSAGE_LEN) {
+        jade_process_reject_message(process, CBOR_RPC_BAD_PARAMETERS, "Message too long to display");
+        goto cleanup;
+    }
+
     uint8_t message_hash[SHA256_LEN];
     if (!wallet_get_message_hash((const uint8_t*)message, msg_len, message_hash, sizeof(message_hash))) {
         jade_process_reject_message(process, CBOR_RPC_INTERNAL_ERROR, "Failed to convert message to btc hex format");
@@ -248,6 +294,16 @@ void sign_message_process(void* process_ptr)
     if (auto_sign) {
         JADE_LOGI("Auto-signing GDK login challenge message");
     } else {
+        // BBB-AIRGAP: the rule belongs to the screen, so it is applied where the message reaches
+        // the screen.  The auto-signed challenge above is exempt because it is never displayed at
+        // all: it is locked to one derivation path, one length and one prefix, and refusing it for
+        // how it would have looked would protect nobody.
+        if (!message_is_displayable(message, msg_len)) {
+            jade_process_reject_message(
+                process, CBOR_RPC_BAD_PARAMETERS, "Message contains a character the screen cannot show");
+            goto cleanup;
+        }
+
         // Ask the user to confirm signing the message
         if (!confirm_sign_message(message, msg_len, message_hash, sizeof(message_hash), pathstr)) {
             JADE_LOGW("User declined to sign message");

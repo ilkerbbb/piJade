@@ -7,9 +7,9 @@ test suite requires hardware and network dependencies in the container.
 
 Usage (in the container):
   LD_LIBRARY_PATH=/jade/build/nocam/libjade \
-      python3 pijade/tools/scan_qr_probe.py [test_data/qr_qvga_*.json names]
+      python3 pijade/tools/scan_qr_probe.py [test_data/qr_vga_*.json names]
 
-Defaults to qr_qvga_compactseedqr_vec1.json. In-process execution with the camera-enabled
+Defaults to qr_vga_compactseedqr_vec1.json. In-process execution with the camera-enabled
 library is unsupported: that branch expects host frames (libjade_camera_active), crashes
 without a feeder and returns 139. Drive the camera-enabled build through libjade_daemon.
 """
@@ -48,7 +48,7 @@ def h2b(hexstr):
 
 
 def main():
-    cases = sys.argv[1:] or ['qr_qvga_compactseedqr_vec1.json']
+    cases = sys.argv[1:] or ['qr_vga_compactseedqr_vec1.json']
     ok = 0
     with JadeAPI.create_libjade(timeout=0) as jade:
         for name in cases:

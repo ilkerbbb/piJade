@@ -209,6 +209,11 @@ two lines here: libjade's camera shim is hard-bound to QVGA (`libjade/esp_camera
 `JADE_ASSERT(config->frame_size == FRAMESIZE_QVGA)`), frames arrive as 320x240 greyscale. A single
 high-resolution frame would require a change to the shim.
 
+> **Superseded on 2026-09-10, and the record is kept as it was written.** The shim is now bound to
+> `FRAMESIZE_VGA` and frames arrive as 640x480 greyscale (`main/camera.h`), because the quirc scan
+> window that 320x240 implied was too small for a version 14 QR code. Every 320x240 and 76800-byte
+> figure below is the measurement of that day, not of the code today.
+
 ### C2c. An "entropy bit counter" ; **a live counter CANNOT be built, three real tools can**
 
 The second question ("a counter we can look at on every seed generation to see whether we reached

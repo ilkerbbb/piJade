@@ -5,7 +5,7 @@ Why redraw: the 240x240 display dump leaves a 20 px border around the QR, or 2.5
 quirc expects a 4-module quiet zone and SILENTLY fails on the raw dump (measured 2026-08-27:
 200x200 bounding box, quirc_count=0). Read each module and redraw with a clean quiet zone.
 
-Write two files: <output> (320x240 grayscale, for set_camera_bytes) and <output>.rgb565
+Write two files: <output> (640x480 grayscale, for set_camera_bytes) and <output>.rgb565
 (for independent verification with screen_qr_decode).
 
 Usage:
@@ -18,19 +18,25 @@ import struct, sys
 src, x0, y0, mods, ppm, out = (sys.argv[1], int(sys.argv[2]), int(sys.argv[3]),
                                int(sys.argv[4]), int(sys.argv[5]), sys.argv[6])
 W = H = 240
-CAM_W, CAM_H = 320, 240   # same contract as jadectl.CAM_FRAME_W/H
+CAM_W, CAM_H = 640, 480   # same contract as jadectl.CAM_FRAME_W/H
 QUIET = 4
-# Use the largest scale that fits, capped at 6. At a fixed 6, a 33-module code
-# took (33+8)*6 = 246 px and exceeded the 240 px frame height; address QRs are this size.
-# Smaller codes still use 6, preserving earlier measurement anchors.
-SCALE = min(6, CAM_H // (mods + 2 * QUIET))
+# quirc reads only the central SCAN_WINDOW square of the frame (SCAN_MARGIN, main/qrscan.c:13), so
+# the code has to fit that square rather than the full frame height. The cap matters more: measured
+# 2026-09-10 on build_linux, quirc identifies synthetic codes at 3..7 px per module for every
+# version from 1 to 10 and finds nothing at all from 8 px upwards (blur rescues some 8 px cases,
+# no 12 px case), so a frame drawn at 8 px per module or above is silently unreadable - the cap
+# sits at 6 to keep a margin below that. quirc_count returns 0 in the unreadable case and
+# the scan reports no code rather than a decode error. The cap was 6 while the frame was 320x240
+# and stays 6 now: the frame doubled, the readable module size did not.
+SCAN_WINDOW = min(CAM_W, CAM_H) - 20
+SCALE = min(6, SCAN_WINDOW // (mods + 2 * QUIET))
 
 raw = open(src, 'rb').read()
 assert len(raw) == W * H * 2, 'expected a %dx%d display dump' % (W, H)
 px = struct.unpack('>%dH' % (W * H), raw)
 
 side = (mods + 2 * QUIET) * SCALE
-assert side <= CAM_H, 'frame does not fit camera height: %d px' % side
+assert side <= SCAN_WINDOW, 'code does not fit the quirc scan window: %d px' % side
 ox, oy = (CAM_W - side) // 2, (CAM_H - side) // 2
 
 frame = bytearray(b'\xff' * (CAM_W * CAM_H))

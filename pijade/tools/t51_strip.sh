@@ -30,7 +30,7 @@ rm -f /probe/t51_flat80.rgb565 /probe/t51_flat40.rgb565 /probe/t51_scene.rgb565
 # preservation of the image can be measured.
 python3 - <<'FRAME'
 import hashlib
-W, H = 320, 240
+W, H = 640, 480
 open('/probe/t51_flat80.gray','wb').write(bytes([0x80])*W*H)
 open('/probe/t51_flat40.gray','wb').write(bytes([0x40])*W*H)
 frame = bytearray(W*H)

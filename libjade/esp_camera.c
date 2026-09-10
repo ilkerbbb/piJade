@@ -3,11 +3,18 @@
 #include "jade_assert.h"
 #include "jade_log.h"
 #include "jade_wally_verify.h"
+#include "libjade.h"
 #include "sdkconfig.h"
 #include <string.h>
 #include <time.h>
 #include <wally_core.h>
 
+// BBB-AIRGAP: a host builds its frames from the libjade.h values and cannot see camera.h; these
+// two lines are what keeps the copy honest.
+_Static_assert(LIBJADE_CAMERA_FRAME_WIDTH == CAMERA_IMAGE_WIDTH,
+    "camera frame width drifted; update LIBJADE_CAMERA_FRAME_WIDTH in libjade/libjade.h");
+_Static_assert(LIBJADE_CAMERA_FRAME_HEIGHT == CAMERA_IMAGE_HEIGHT,
+    "camera frame height drifted; update LIBJADE_CAMERA_FRAME_HEIGHT in libjade/libjade.h");
 
 #ifdef CONFIG_LIBJADE_CAMERA
 
@@ -36,6 +43,11 @@ static pthread_cond_t _cam_cond = PTHREAD_COND_INITIALIZER;
 bool libjade_push_camera_frame(const uint8_t* data, const size_t len)
 {
     if (!data || len != sizeof(_cam_frame_buffer)) {
+        // BBB-AIRGAP: say why. The frame size is a build-time contract (main/camera.h), and it
+        // changed once already (QVGA to VGA), which leaves every tool that hardcoded the old size
+        // pushing frames that are silently dropped. Without this line the symptom is "the camera
+        // never delivered a frame", which points at the plumbing instead of at the size.
+        JADE_LOGW("camera frame rejected: %u bytes, expected %u", (unsigned)len, (unsigned)sizeof(_cam_frame_buffer));
         return false;
     }
     pthread_mutex_lock(&_cam_mutex);
@@ -52,7 +64,7 @@ esp_err_t esp_camera_init(const camera_config_t* config)
 {
     JADE_ASSERT(config);
     JADE_ASSERT(config->pixel_format == PIXFORMAT_GRAYSCALE);
-    JADE_ASSERT(config->frame_size == FRAMESIZE_QVGA);
+    JADE_ASSERT(config->frame_size == FRAMESIZE_VGA); // BBB-AIRGAP: see main/camera.h
     pthread_mutex_lock(&_cam_mutex);
     _cam_frame_count = 0;
     _cam_stopped = false;

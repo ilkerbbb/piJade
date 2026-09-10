@@ -43,8 +43,8 @@ static volatile bool camera_task_should_run = false;
 static volatile bool camera_task_running = false;
 
 // Size of the image as provided by the camera
-#define CAMERA_IMAGE_RESOLUTION FRAMESIZE_QVGA
-#if (CAMERA_IMAGE_WIDTH != 320) || (CAMERA_IMAGE_HEIGHT != 240)
+#define CAMERA_IMAGE_RESOLUTION FRAMESIZE_VGA // BBB-AIRGAP: see main/camera.h
+#if (CAMERA_IMAGE_WIDTH != 640) || (CAMERA_IMAGE_HEIGHT != 480)
 #error CAMERA_IMAGE_WIDTH/HEIGHT inconsistent with CAMERA_IMAGE_RESOLUTION!
 #endif
 

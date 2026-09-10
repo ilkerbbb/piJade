@@ -52,10 +52,11 @@
 #define DEFAULT_SPI_HZ 40000000
 
 /* Jade's camera buffer is fixed at main/camera.h's CAMERA_IMAGE_WIDTH x CAMERA_IMAGE_HEIGHT and
- * libjade_push_camera_frame() rejects anything else. libjade does not export those values, so they
- * are repeated here; a mismatch shows up on the first frame as a rejected push, not as silence. */
-#define CAMERA_WIDTH 320
-#define CAMERA_HEIGHT 240
+ * libjade_push_camera_frame() rejects anything else. libjade.h publishes those two numbers and
+ * libjade/esp_camera.c asserts they still match camera.h, so a change to the firmware contract
+ * stops the build rather than showing up on the first frame as a rejected push. */
+#define CAMERA_WIDTH LIBJADE_CAMERA_FRAME_WIDTH
+#define CAMERA_HEIGHT LIBJADE_CAMERA_FRAME_HEIGHT
 #define CAMERA_FRAME_BYTES ((size_t)CAMERA_WIDTH * CAMERA_HEIGHT)
 
 // Long enough that a stalled sensor does not spin this thread, short enough that stopping the

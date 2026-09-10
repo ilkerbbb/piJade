@@ -1,0 +1,6 @@
+{
+  "input": {
+    "filedata": "signmessage m/44h/0h/0h/0/0 ascii:OK\u0000NO"
+  },
+  "expected_error": "Message contains a character the screen cannot show"
+}

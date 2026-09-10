@@ -52,11 +52,31 @@ def rpc_monkey_patch(jade):
     jade._jadeRpc = types.MethodType(locked_jadeRpc, jade)
 
 
+def _frame_geometry():
+    """The frame size libjade accepts, read from the header that publishes it.
+
+    BBB-AIRGAP: this used to be two numbers copied by hand, which is how the same pair went stale
+    in pijade/host/pijade_host.c. The C side is now held to main/camera.h by a _Static_assert in
+    libjade/esp_camera.c; python cannot join that, so it reads the same header instead. A parse
+    that finds nothing raises rather than falling back to a guess, because a wrong size here means
+    every pushed frame is rejected and the symptom looks like a dead camera.
+    """
+    header = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'libjade.h')
+    with open(header, encoding='utf-8') as f:
+        text = f.read()
+    sizes = []
+    for name in ('LIBJADE_CAMERA_FRAME_WIDTH', 'LIBJADE_CAMERA_FRAME_HEIGHT'):
+        found = re.search(r'^#define\s+%s\s+(\d+)\s*$' % name, text, re.MULTILINE)
+        if not found:
+            raise RuntimeError('%s not found in %s' % (name, header))
+        sizes.append(int(found.group(1)))
+    return sizes[0], sizes[1]
+
+
 class CameraManager:
     """Manages the camera capture thread and static-frame injection."""
 
-    FRAME_W = 320  # CAMERA_IMAGE_WIDTH
-    FRAME_H = 240  # CAMERA_IMAGE_HEIGHT
+    FRAME_W, FRAME_H = _frame_geometry()
 
     def __init__(self, jade):
         self.jade = jade

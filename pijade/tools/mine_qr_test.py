@@ -32,7 +32,7 @@ def test_single_part_cbor():
     assert len(p["previousblockhash"]) == 32
     assert p["address"] == "tb1q0ht9tyks4vh7p5p904t340cr9nvahy7um9zdem"
     assert [l for l in lines if l.startswith("ur=ur:jade-mine/")]
-    assert os.path.getsize(out + ".gray") == 320 * 240
+    assert os.path.getsize(out + ".gray") == 640 * 480
     assert os.path.getsize(out + ".png") > 0
 
 
@@ -46,7 +46,7 @@ def test_multi_part_roundtrip():
     parts = [l.split("=", 1)[1] for l in lines if l.startswith("part=")]
     assert len(parts) == 2 * -(-len(bytes.fromhex(cbor_hex)) // 60)
     for index in range(len(parts)):
-        assert os.path.getsize("%s-%02d.gray" % (out, index)) == 320 * 240
+        assert os.path.getsize("%s-%02d.gray" % (out, index)) == 640 * 480
     decoder = URDecoder()
     for part in parts:
         decoder.receive_part(part)

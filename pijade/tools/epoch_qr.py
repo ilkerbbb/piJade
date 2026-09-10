@@ -2,7 +2,7 @@
 """Generate a single-part epoch UR QR for Jade (ur:jade-epoch; main/qrmode.c:1401).
 
 Usage: epoch_qr.py [--epoch N] <output.png> [<output.gray>]
-(gray: 320x240 emulator camera frame). Recipe and evidence: pijade/UPSTREAM.md section 25.
+(gray: 640x480 emulator camera frame). Recipe and evidence: pijade/UPSTREAM.md section 25.
 
 Mac dependencies:
     python3 -m venv ~/.venvs/pijade
@@ -39,8 +39,8 @@ BYTEWORDS = (
 
 PNG_SCALE = 10
 QUIET_MODULES = 4
-CAMERA_WIDTH = 320
-CAMERA_HEIGHT = 240
+CAMERA_WIDTH = 640
+CAMERA_HEIGHT = 480
 
 
 def chunk(tag, data):
@@ -82,7 +82,11 @@ def write_png(path, matrix):
 
 
 def write_gray(path, matrix):
-    scale = CAMERA_HEIGHT // len(matrix)
+    # See the scale note in pijade/tools/screen_qr_to_camera.py: quirc reads only the central
+    # scan window (SCAN_MARGIN, main/qrscan.c:13) and identifies nothing above 7 px per module
+    # (measured 2026-09-10), so cap the scale rather than filling the frame height.
+    scan_window = min(CAMERA_WIDTH, CAMERA_HEIGHT) - 20
+    scale = min(6, scan_window // len(matrix))
     side = len(matrix) * scale
     offset_x = (CAMERA_WIDTH - side) // 2
     offset_y = (CAMERA_HEIGHT - side) // 2

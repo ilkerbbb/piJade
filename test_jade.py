@@ -588,7 +588,7 @@ YzNnQaWx24j5hX8iWcaZgTZJ6Y3sedLi'),
                              '2dafKNiCKbRum9S1u5BYqTByZT5R9zSqcWy')]
 
 # Hold test data in separate files as can be large
-QR_QVGA_SCAN_TESTS = 'qr_qvga_*.json'
+QR_VGA_SCAN_TESTS = 'qr_vga_*.json'
 MULTI_REG_TESTS = 'multisig_reg_*.json'
 MULTI_REG_SS_TESTS = 'multisig_reg_ss_*.json'
 MULTI_REG_FILE_TESTS = 'multisig_file_*.json'
@@ -2337,7 +2337,7 @@ def test_passphrase(jade):
 # Test qr scanning - can be slow as image data large (slow to upload) and
 # tests involve starting the camera (and associated tasks).
 def test_scan_qr(jadeapi, board_type):
-    for qr_data in _get_test_cases(QR_QVGA_SCAN_TESTS):
+    for qr_data in _get_test_cases(QR_VGA_SCAN_TESTS):
         expected = qr_data['expected_output']
         image_filename = qr_data['input']['image']
         with open('./test_data/' + image_filename, 'rb') as f:
@@ -2904,11 +2904,23 @@ def test_get_xpubs(jadeapi):
 def test_sign_message(jadeapi):
     for msg_data in _get_test_cases(SIGN_MSG_TESTS):
         inputdata = msg_data['input']
-        rslt = jadeapi.sign_message(inputdata['path'],
-                                    inputdata['message'],
-                                    inputdata.get('use_ae_signatures'),
-                                    inputdata.get('ae_host_commitment'),
-                                    inputdata.get('ae_host_entropy'))
+        # BBB-AIRGAP: this fork refuses a message the screen cannot show in full
+        # (main/process/sign_message.c), so a case may now expect an error instead of a
+        # signature.  test_sign_message_file() below already had this branch; the two paths
+        # enforce the same rule and their tests should read the same way.
+        expected_error = msg_data.get('expected_error')
+        try:
+            rslt = jadeapi.sign_message(inputdata['path'],
+                                        inputdata['message'],
+                                        inputdata.get('use_ae_signatures'),
+                                        inputdata.get('ae_host_commitment'),
+                                        inputdata.get('ae_host_entropy'))
+        except JadeError as e:
+            assert expected_error, f'Unexpected error: {e.message}'
+            assert e.message == expected_error, 'Expected error: ' + expected_error
+            continue
+
+        assert expected_error is None, 'Expected error: ' + expected_error
 
         # Check returned signature
         _check_msg_signature(jadeapi, msg_data, rslt)

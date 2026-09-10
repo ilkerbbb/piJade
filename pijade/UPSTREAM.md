@@ -467,7 +467,7 @@ is fed back to its camera:
 ```bash
 # 1) take the full-screen QR dump, learn the bounding box
 docker exec jade-dev /tmp/screenqr /probe/<dump>.rgb565 240 240 "<expected>"
-# 2) redraw as a 320x240 grey camera frame with a quiet zone (20 20 25 8 for v2, 18 18 29 7 for v3)
+# 2) redraw as a 640x480 grey camera frame with a quiet zone (20 20 25 8 for v2, 18 18 29 7 for v3)
 docker exec jade-dev python3 /jade/pijade/tools/screen_qr_to_camera.py \
   /probe/<dump>.rgb565 20 20 25 8 /probe/cam.gray
 # 3) load the frames BEFORE clicking 'Done', then click, then keep feeding

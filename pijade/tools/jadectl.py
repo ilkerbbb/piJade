@@ -23,12 +23,12 @@ READ_TIMEOUT_FLOOR = 0.2
 # Characters on the dice screen wheel, in screen order.
 DICE_CHARS = '123456<'
 CAM_DELAY = float(os.environ.get('CAM_DELAY','0.06'))
-# Camera frames are QVGA grayscale; their size is a C-side CONTRACT, not an assumption here:
-# esp_camera_init() asserts FRAMESIZE_QVGA (libjade/esp_camera.c:52), and
-# libjade_push_camera_frame() rejects frames of a different length (esp_camera.c:35).
+# Camera frames are VGA grayscale; their size is a C-side CONTRACT, not an assumption here:
+# esp_camera_init() asserts FRAMESIZE_VGA (libjade/esp_camera.c:61), and
+# libjade_push_camera_frame() rejects frames of a different length and logs why (esp_camera.c:38).
 # A wrong size therefore returns RpcError instead of being silently swallowed. The daemon
 # has no RPC to query this size; if the constant changes, this code must change too.
-CAM_FRAME_W, CAM_FRAME_H = 320, 240
+CAM_FRAME_W, CAM_FRAME_H = 640, 480
 CAM_FRAME_SIZE = CAM_FRAME_W * CAM_FRAME_H
 OUT = '/probe'
 

@@ -1,0 +1,13 @@
+{
+  "input": {
+    "path": [
+      2147483692,
+      2147483648,
+      2147483648,
+      0,
+      0
+    ],
+    "message": "ode 5 TL: sifir mi, \u015fifre mi?"
+  },
+  "expected_error": "Message contains a character the screen cannot show"
+}

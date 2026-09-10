@@ -10,8 +10,16 @@
 
 // Size of the image as provided by the camera
 // TODO: fetch from Kconfig?
-#define CAMERA_IMAGE_WIDTH 320
-#define CAMERA_IMAGE_HEIGHT 240
+// BBB-AIRGAP: VGA where upstream uses QVGA. main/qrscan.c derives the quirc scan window from
+// these, so 320x240 capped it at 220 pixels: a version 14 QR (73 modules, the size of a multisig
+// descriptor) then arrives at under 3 pixels per module and a real camera cannot decode it.
+// Measured on the device: that descriptor failed with ECC failure at QVGA and decoded at VGA.
+// The window doubles to 460; the cost is frame time, measured at 165 ms -> 278 ms on armv6.
+// The display path rescales automatically (CALC_SCALE_DENOMINATOR in main/camera.c), so the
+// field of view is unchanged. This target is the Pi, where the frame lives in ordinary RAM; an
+// ESP32 build would need PSRAM for a 640x480 grayscale frame and no path is kept for it here.
+#define CAMERA_IMAGE_WIDTH 640
+#define CAMERA_IMAGE_HEIGHT 480
 
 // Function to process images from the camera.
 // Should return false if processing incomplete (and so should be called again with the next frame)

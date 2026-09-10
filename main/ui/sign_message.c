@@ -61,8 +61,15 @@ static gui_activity_t* make_sign_message_activities(const char* msgtxt, const ch
         gui_set_activity_initial_selection(hdrbtns[1].btn);
 
         // Second message screen has a tick button
+        // BBB-AIRGAP: and the tick now signs.  Upstream left this button raising NEXT, which walked
+        // back to the summary and signed from there; with the accept gone from the summary that
+        // left a two screen message with no way to sign at all.  Measured on the emulator: four
+        // presses ended back on the summary with no reply.  Signing from here is also what the
+        // glyph has always promised, and it is the last screen of the message, so nothing is
+        // signed that has not been drawn.
         hdrbtns[1].txt = "S";
         hdrbtns[1].font = VARIOUS_SYMBOLS_FONT;
+        hdrbtns[1].ev_id = BTN_SIGNMSG_ACCEPT;
 
         ret = snprintf(buf, sizeof(buf), "\n%s", msgtxt + max_display_len);
         JADE_ASSERT(ret > 0 && ret < sizeof(buf));
@@ -105,8 +112,13 @@ static gui_activity_t* make_sign_message_activities(const char* msgtxt, const ch
     *actpath = make_show_single_value_activity("Path", pathstr, show_help_btn);
 
     // Create buttons/menu
+    // BBB-AIRGAP: the summary carries no accept.  Its message row scrolls the text only while that
+    // row is selected, so a tick here could sign text the screen had not finished drawing; the
+    // whole point of this device is that it cannot.  The only accept is on the message screen
+    // itself, and where the message needs two screens it is on the second, so everything that gets
+    // signed has been drawn before the accept can be reached.  This button opens that screen.
     btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_SIGNMSG_REJECT },
-        { .txt = "S", .font = VARIOUS_SYMBOLS_FONT, .ev_id = BTN_SIGNMSG_ACCEPT } };
+        { .txt = ">", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_SIGNMSG_MSG } };
 
     btn_data_t menubtns[] = { { .content = msgsplit, .ev_id = BTN_SIGNMSG_MSG },
         { .content = hashsplit, .ev_id = BTN_SIGNMSG_HASH }, { .content = pathsplit, .ev_id = BTN_SIGNMSG_PATH } };
@@ -167,7 +179,7 @@ bool show_sign_message_activity(const char* message, const char* hashhex, const 
             break;
 
         case BTN_SIGNMSG_NEXT:
-            act = (act == act_message1) ? act_message2 : act_summary;
+            act = act_message2;
             break;
 
         // BBB-AIRGAP: KEY3 leaves through the screen's own decline, never its accept.

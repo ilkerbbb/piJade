@@ -8,6 +8,10 @@ build_linux_nci
 # BBB-AIRGAP: a third emulator build, same as _nci but with libjade logging compiled in, so
 # storage failure paths can be measured.
 build_linux_nci_log
+# BBB-AIRGAP: a fourth emulator build, CI (auto-click) mode ON like build_linux but with libjade
+# logging compiled in, so paths that only run under CI mode - the QR scan in particular - can be
+# measured through their log lines instead of only their return value.
+build_linux_log
 # BBB-AIRGAP: the bc-ur decoder built under ASAN, for probing the decoder's input handling.
 build_asan_bcur
 # BBB-AIRGAP: a build that runs the fork's own selfcheck vectors. The three emulator builds above
