@@ -51,6 +51,7 @@ const EXPECTED_CHECKS = [
     'choosing a photograph ends a scan that is still looking',
     'a camera that stops on its own hands the button back and says so',
     'starting a scan supersedes a photograph still being read',
+    'a running scan leaves neither launch button live to be pressed',
     'the address button fills the address field and leaves the signature alone',
     'the test module finished',
 ];
@@ -487,6 +488,30 @@ async function run() {
         check('starting a scan supersedes a photograph still being read', announced >= 1,
             'the field saw ' + announced + ' input event(s) in the click itself');
         await evaluate("document.getElementById('scan-stop').click()");
+
+        // One camera serves two fields, and which field it fills is fixed when the scan starts:
+        // the guard at the top of startScan cannot change it once a stream is running. Measured
+        // 2026-09-11 (Codex review of commit 7b9cc1ef): the other button stayed live, its press
+        // returned at that guard without a word, and the code presented next landed in the field
+        // of the button pressed first. Both buttons are out of reach while the panel holds the
+        // camera, and both come back when it lets go. jsQR is still stubbed here, so the scans
+        // below stay open instead of decoding and closing themselves.
+        await evaluate("document.getElementById('scan-btn').click()");
+        const bothDownForSignature = await waitFor(async () =>
+            await evaluate("document.getElementById('scan-btn').disabled"
+                + " && document.getElementById('expected-scan').disabled"), 5000);
+        await evaluate("document.getElementById('scan-stop').click()");
+        const bothBack = await evaluate("document.getElementById('scan-btn').disabled === false"
+            + " && document.getElementById('expected-scan').disabled === false");
+        await evaluate("document.getElementById('expected-scan').click()");
+        const bothDownForAddress = await waitFor(async () =>
+            await evaluate("document.getElementById('scan-btn').disabled"
+                + " && document.getElementById('expected-scan').disabled"), 5000);
+        await evaluate("document.getElementById('scan-stop').click()");
+        check('a running scan leaves neither launch button live to be pressed',
+            bothDownForSignature && bothBack && bothDownForAddress,
+            'signature scan ' + bothDownForSignature + ', released ' + bothBack
+            + ', address scan ' + bothDownForAddress);
 
         await evaluate("window.jsQR = window.__realJsQR");
 

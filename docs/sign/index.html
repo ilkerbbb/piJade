@@ -14987,7 +14987,13 @@ if (!selfTest()) {
      * it is going to fill, since a photograph landing mid-scan would close the panel. It also
      * reaches the close listener below, which has nothing to close yet. */
     signature.dispatchEvent(new Event("input"));
-    which.button.disabled = true;
+    /* Both launch buttons go down, not only the one pressed. The field a read lands in is fixed
+     * when the scan starts, so the other button could not change it: pressing it while a camera
+     * runs returned at the guard above without saying so, and the code presented next went to the
+     * field of the button pressed first. A control that looks pressable and does nothing is worse
+     * than one that is plainly out of reach, and the reader who wants the other field has the Stop
+     * button. release() hands both back. */
+    SCAN_TARGETS.forEach(function (t) { t.button.disabled = true; });
     panel.hidden = false;
     status.textContent = "asking for the camera";
     const mine = era;
