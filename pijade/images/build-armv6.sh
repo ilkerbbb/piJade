@@ -85,7 +85,7 @@ T44_FLAGS="-O2 -DNDEBUG -D_FORTIFY_SOURCE=3 -D_GLIBCXX_ASSERTIONS -fstack-protec
 mkdir -p /out/build/t44
 gcc $ARCHFLAGS $T44_FLAGS \
     -I/src/components/esp32-quirc/lib -I/src/components/esp32-quirc \
-    -I/src/libjade/include -I/src/pijade/tools \
+    -I/src/libjade/include -I/src/pijade/tools -I/src/main \
     -c /src/pijade/tools/t44_bench.c -o /out/build/t44/t44_bench.o
 gcc $ARCHFLAGS -Wl,-z,relro,-z,now -o /out/build/pijade-t44-bench /out/build/t44/t44_bench.o -lm
 ls -la /out/build/pijade-t44-bench

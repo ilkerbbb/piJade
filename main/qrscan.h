@@ -34,6 +34,11 @@ struct _qr_data_t {
 
     // Cached internal quirc structs - caller should set to NULL
     struct quirc* q;
+    // BBB-AIRGAP: a second instance sized to half the scan window, for the fallback pass in
+    // qr_recognize().  Separate rather than resized because quirc_resize() frees and reallocates
+    // the image buffer on every call, which inside the per-frame callback would mean malloc churn
+    // on each frame.  See main/qr_downscale.h for why the pass exists at all.
+    struct quirc* q_half;
     struct datastream* ds;
 };
 

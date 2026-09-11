@@ -33,6 +33,9 @@
 #include "quirc.h"
 #include "quirc_internal.h"
 
+/* The device's own halving, so the third capture below times the real arithmetic. */
+#include "qr_downscale.h"
+
 /* The five files used by the device, in the same order as libjade.c. */
 #include "lib/decode.c"
 #include "lib/identify.c"
@@ -50,11 +53,16 @@
 
 struct capture {
     int w, h; /* capture size */
+    bool half; /* halve the window first, as qr_recognize()'s second pass does */
 };
 
 static const struct capture CAPTURES[] = {
-    { 320, 240 }, /* current path; window 220 */
-    { 640, 480 }, /* path proposed by item 44; window 460 */
+    { 320, 240, false }, /* current path; window 220 */
+    { 640, 480, false }, /* path proposed by item 44; window 460 */
+    /* Item 65's fallback pass: same capture, window halved to 230 before quirc sees it. The
+     * device pays this ON TOP of the row above, and only on frames the full-scale pass failed,
+     * so the frame cost of a failing scan is the two medians added together. */
+    { 640, 480, true },
 };
 
 static uint64_t now_us(clockid_t clock)
@@ -119,16 +127,17 @@ static void crop(const uint8_t* frame, int W, int H, uint8_t* window, int qw, in
     }
 }
 
-static bool measure(const struct t44_matrix* m, int W, int H)
+static bool measure(const struct t44_matrix* m, int W, int H, bool half)
 {
     const int window = (W < H ? W : H) - SCAN_MARGIN;
+    const int scan = half ? window / 2 : window;
 
     uint8_t* const frame = malloc((size_t)W * (size_t)H);
     uint8_t* const cropped = malloc((size_t)window * (size_t)window);
     struct quirc* const q = quirc_new();
     struct datastream* const ds = malloc(sizeof(struct datastream));
     uint8_t* const ds_data = malloc(QUIRC_MAX_PAYLOAD);
-    if (!frame || !cropped || !q || !ds || !ds_data || quirc_resize(q, window, window) < 0) {
+    if (!frame || !cropped || !q || !ds || !ds_data || quirc_resize(q, scan, scan) < 0) {
         fprintf(stderr, "pijade: t44 memory/setup error (%s %dx%d)\n", m->name, W, H);
         free(frame);
         free(cropped);
@@ -156,7 +165,12 @@ static bool measure(const struct t44_matrix* m, int W, int H)
         int qw = 0, qh = 0;
         const uint64_t a = now_us(CLOCK_MONOTONIC);
         uint8_t* const image = quirc_begin(q, &qw, &qh);
-        memcpy(image, cropped, (size_t)qw * (size_t)qh);
+        if (half) {
+            /* Inside the timed section: the device pays for the halving per frame too. */
+            qr_downscale_half(cropped, (size_t)window, (size_t)window, (size_t)window, image);
+        } else {
+            memcpy(image, cropped, (size_t)qw * (size_t)qh);
+        }
         quirc_end(q);
         const uint64_t b = now_us(CLOCK_MONOTONIC);
 
@@ -182,12 +196,14 @@ static bool measure(const struct t44_matrix* m, int W, int H)
     qsort(identify, ROUNDS, sizeof(identify[0]), compare);
     qsort(decode, ROUNDS, sizeof(decode[0]), compare);
 
-    printf("pijade: t44 %s version=%d modules=%d frame=%dx%d window=%d qr_px=%d module_px=%.2f\n", m->name, m->version, m->n,
-        W, H, window, target, module_px);
+    /* Report what quirc actually saw: halving divides both the window and the module size. */
+    printf("pijade: t44 %s version=%d modules=%d frame=%dx%d window=%d half=%d qr_px=%d module_px=%.2f\n", m->name,
+        m->version, m->n, W, H, scan, half ? 1 : 0, half ? target / 2 : target, half ? module_px / 2.0 : module_px);
     printf("pijade: t44   identify_us=%" PRIu64 "/%" PRIu64 "/%" PRIu64 " decode_us=%" PRIu64 "/%" PRIu64 "/%" PRIu64
            " frame_us=%" PRIu64 " cpu_us=%" PRIu64 " found=%d decoded=%d error=%s\n",
         identify[0], identify[ROUNDS / 2], identify[ROUNDS - 1], decode[0], decode[ROUNDS / 2], decode[ROUNDS - 1],
-        identify[ROUNDS / 2] + decode[ROUNDS / 2], cpu / ROUNDS, found, decoded ? 1 : 0, decoded ? "(none)" : last_error);
+        identify[ROUNDS / 2] + decode[ROUNDS / 2], cpu / ROUNDS, found, decoded ? 1 : 0,
+        decoded ? "(none)" : last_error);
 
     free(frame);
     free(cropped);
@@ -208,7 +224,7 @@ int main(int argc, char** argv)
     bool ok = true;
     for (size_t i = 0; i < sizeof(t44_matrices) / sizeof(t44_matrices[0]); ++i) {
         for (size_t g = 0; g < sizeof(CAPTURES) / sizeof(CAPTURES[0]); ++g) {
-            ok = measure(&t44_matrices[i], CAPTURES[g].w, CAPTURES[g].h) && ok;
+            ok = measure(&t44_matrices[i], CAPTURES[g].w, CAPTURES[g].h, CAPTURES[g].half) && ok;
         }
     }
     printf("pijade: t44 measurement complete (%s)\n", ok ? "ok" : "INCOMPLETE");

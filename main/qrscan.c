@@ -5,6 +5,7 @@
 #include "camera.h"
 #include "idletimer.h"
 #include "jade_assert.h"
+#include "qr_downscale.h"
 #include "qrscan.h"
 #include "sensitive.h"
 #include "utils/malloc_ext.h"
@@ -12,18 +13,78 @@
 
 #define SCAN_MARGIN 20
 
-// Inspect qrcodes and try to extract payload - whether any were seen and any
-// string data extracted are stored in the qr_data struct passed.
-static bool qr_extract_payload(qr_data_t* qr_data)
+// BBB-AIRGAP: both entry points below need the same pair of quirc instances and the same decoder
+// scratch, and both have to release them.  Kept in one place because there are now two instances
+// to keep in step: the half-scale one has to be sized from the same scan window as the full-scale
+// one, or the fallback pass in qr_recognize() reads the wrong number of pixels.
+static void qr_scanner_init(qr_data_t* qr_data)
 {
     JADE_ASSERT(qr_data);
+    JADE_ASSERT(!qr_data->q);
+    JADE_ASSERT(!qr_data->q_half);
+    JADE_ASSERT(!qr_data->ds);
+
+    // Size the internal image buffers since we know the size of the camera images.
+    // These are then reused for every camera image frame processed.
+    const uint16_t scan_width = min_u16(CAMERA_IMAGE_WIDTH, CAMERA_IMAGE_HEIGHT) - SCAN_MARGIN;
+    JADE_ASSERT(scan_width % 2 == 0); // qr_downscale_half() halves this window
+
+    qr_data->q = quirc_new();
     JADE_ASSERT(qr_data->q);
+    int qret = quirc_resize(qr_data->q, scan_width, scan_width);
+    JADE_ASSERT(qret == 0);
+
+    qr_data->q_half = quirc_new();
+    JADE_ASSERT(qr_data->q_half);
+    qret = quirc_resize(qr_data->q_half, scan_width / 2, scan_width / 2);
+    JADE_ASSERT(qret == 0);
+
+    qr_data->len = 0;
+
+    // BBB-AIRGAP: upstream logs these at ERROR level (719fa40c), but they are not errors - the
+    // scan box is a fixed calculation from the camera size. On this device the log is a product
+    // feature (T3.13 added --log-level), so a line that reads ERROR has to BE an error; two
+    // fake ones on every QR scan both bury real failures and make the audit tool report a
+    // finding where nothing is wrong. Kept at debug level rather than deleted: the value is
+    // worth having when the scan box is being tuned for a different panel.
+    JADE_LOGD("SCAN WIDTH: %u", scan_width);
+    JADE_LOGD("SCAN HEIGHT: %u", scan_width);
+
+    qr_data->ds = JADE_MALLOC_PREFER_DRAM(sizeof(struct datastream));
+    qr_data->ds->data = JADE_MALLOC_PREFER_DRAM(QUIRC_MAX_PAYLOAD * sizeof(uint8_t));
+}
+
+static void qr_scanner_destroy(qr_data_t* qr_data)
+{
+    JADE_ASSERT(qr_data);
+
+    // NOTE: quirc_destroy() frees the image buffers without wiping them, and in a SeedQR scan
+    // those buffers hold the frame the mnemonic was read from.  That is the camera-buffer gap
+    // tracked as phase 1.3 of the hardening round, and it lands here, once, for both instances.
+    free(qr_data->ds->data);
+    qr_data->ds->data = NULL;
+    free(qr_data->ds);
+    qr_data->ds = NULL;
+    quirc_destroy(qr_data->q);
+    qr_data->q = NULL;
+    quirc_destroy(qr_data->q_half);
+    qr_data->q_half = NULL;
+}
+
+// Inspect qrcodes and try to extract payload - whether any were seen and any
+// string data extracted are stored in the qr_data struct passed.
+// BBB-AIRGAP: 'q' is passed rather than taken from qr_data because there are now two instances
+// to extract from - the full-scale window and the halved one.
+static bool qr_extract_payload(qr_data_t* qr_data, struct quirc* const q)
+{
+    JADE_ASSERT(qr_data);
+    JADE_ASSERT(q);
     JADE_ASSERT(qr_data->ds);
 
     qr_data->data[0] = '\0';
     qr_data->len = 0;
 
-    const int count = quirc_count(qr_data->q);
+    const int count = quirc_count(q);
     if (count <= 0) {
         return false;
     }
@@ -36,7 +97,7 @@ static bool qr_extract_payload(qr_data_t* qr_data)
     // Look for a string
     for (int i = 0; i < count; ++i) {
         struct quirc_code code;
-        quirc_extract(qr_data->q, i, &code);
+        quirc_extract(q, i, &code);
 
         const quirc_decode_error_t error_status = quirc_decode(&code, &data, qr_data->ds);
         if (error_status != QUIRC_SUCCESS) {
@@ -84,21 +145,49 @@ static bool qr_recognize(
     JADE_ASSERT(quirc_width <= width);
     JADE_ASSERT(quirc_height <= height);
 
+    // Crop to central area of image (zero offsets when the whole image is the scan window)
+    const uint16_t xoffset = (width - quirc_width) / 2;
+    const uint16_t yoffset = (height - quirc_height) / 2;
     if (quirc_width == width && quirc_height == height) {
         // Whole image optimisation
         memcpy(quirc_image, data, len);
     } else {
-        // Crop to central area of image
-        const uint16_t xoffset = (width - quirc_width) / 2;
-        const uint16_t yoffset = (height - quirc_height) / 2;
         for (uint16_t y = 0; y < quirc_height; ++y) {
             memcpy(quirc_image + (y * quirc_width), data + ((y + yoffset) * width) + xoffset, quirc_width);
         }
     }
     quirc_end(qr_data->q);
 
+    bool found = qr_extract_payload(qr_data, qr_data->q) && qr_data->len;
+
+    // BBB-AIRGAP: second pass at half scale.  A code held close enough to fill the frame has
+    // modules wider than about 7 pixels, and quirc then finds the finder patterns but cannot
+    // build the grid - measured 0/19 on held device frames at this scale, 11/19 halved
+    // (main/qr_downscale.h carries the measurement and the choice of kernel).
+    //
+    // Full scale is tried FIRST so that nothing which works today gets slower: a frame that
+    // decodes at 460 never reaches this branch, and the halving reads the camera frame directly,
+    // so a successful scan pays nothing at all for this.  The reverse order would have made the
+    // dense descriptor codes of item 44 pay on every frame.
+    //
+    // The ordering inside this function matters too: quirc_end() thresholds its own buffer in
+    // place, so the source here is the camera frame rather than qr_data->q's image, which is no
+    // longer grayscale by this point.
+    if (!found && qr_data->q_half) {
+        int half_width = 0, half_height = 0;
+        uint8_t* const half_image = quirc_begin(qr_data->q_half, &half_width, &half_height);
+        JADE_ASSERT(half_image);
+        JADE_ASSERT(half_width == quirc_width / 2);
+        JADE_ASSERT(half_height == quirc_height / 2);
+
+        qr_downscale_half(data + ((size_t)yoffset * width) + xoffset, quirc_width, quirc_height, width, half_image);
+        quirc_end(qr_data->q_half);
+
+        found = qr_extract_payload(qr_data, qr_data->q_half) && qr_data->len;
+    }
+
     // If no QR data can be recognised/extracted, return false
-    if (!qr_extract_payload(qr_data) || !qr_data->len) {
+    if (!found) {
         qr_data->len = 0;
         return false;
     }
@@ -123,39 +212,13 @@ static bool qr_recognize(
 bool scan_qr(const size_t width, const size_t height, const uint8_t* data, const size_t len, qr_data_t* qr_data)
 {
     JADE_ASSERT(qr_data);
-    JADE_ASSERT(!qr_data->q);
 
-    // Create the quirc structs
-    qr_data->q = quirc_new();
-    JADE_ASSERT(qr_data->q);
-
-    // Also correctly size the internal image buffer since we know the size of the camera images.
-    const uint16_t scan_width = min_u16(CAMERA_IMAGE_WIDTH, CAMERA_IMAGE_HEIGHT) - SCAN_MARGIN;
-    const int qret = quirc_resize(qr_data->q, scan_width, scan_width);
-    JADE_ASSERT(qret == 0);
-    qr_data->len = 0;
-
-    // BBB-AIRGAP: upstream logs these at ERROR level (719fa40c), but they are not errors - the
-    // scan box is a fixed calculation from the camera size. On this device the log is a product
-    // feature (T3.13 added --log-level), so a line that reads ERROR has to BE an error; two
-    // fake ones on every QR scan both bury real failures and make the audit tool report a
-    // finding where nothing is wrong. Kept at debug level rather than deleted: the value is
-    // worth having when the scan box is being tuned for a different panel.
-    JADE_LOGD("SCAN WIDTH: %u", scan_width);
-    JADE_LOGD("SCAN HEIGHT: %u", scan_width);
-
-    qr_data->ds = JADE_MALLOC_PREFER_DRAM(sizeof(struct datastream));
-    qr_data->ds->data = JADE_MALLOC_PREFER_DRAM(QUIRC_MAX_PAYLOAD * sizeof(uint8_t));
+    // Create the quirc structs - destroyed below
+    qr_scanner_init(qr_data);
 
     const bool ret = qr_recognize(width, height, data, len, qr_data);
 
-    // Destroy the quirc structs created above
-    free(qr_data->ds->data);
-    qr_data->ds->data = NULL;
-    free(qr_data->ds);
-    qr_data->ds = NULL;
-    quirc_destroy(qr_data->q);
-    qr_data->q = NULL;
+    qr_scanner_destroy(qr_data);
 
     // Any scanned qr code will be in the qr_data passed
     return ret && qr_data->len > 0;
@@ -177,28 +240,7 @@ bool jade_camera_scan_qr(
     gui_activity_t* const prev_act = gui_current_activity();
 
     // Create the quirc structs (reused for each frame) - destroyed below
-    JADE_ASSERT(!qr_data->q);
-    qr_data->q = quirc_new();
-    JADE_ASSERT(qr_data->q);
-
-    // Also correctly size the internal image buffer since we know the size of the camera images.
-    // This image buffer is then reused for every camera image frame processed.
-    const uint16_t scan_width = min_u16(CAMERA_IMAGE_WIDTH, CAMERA_IMAGE_HEIGHT) - SCAN_MARGIN;
-    const int qret = quirc_resize(qr_data->q, scan_width, scan_width);
-    JADE_ASSERT(qret == 0);
-    qr_data->len = 0;
-
-    // BBB-AIRGAP: upstream logs these at ERROR level (719fa40c), but they are not errors - the
-    // scan box is a fixed calculation from the camera size. On this device the log is a product
-    // feature (T3.13 added --log-level), so a line that reads ERROR has to BE an error; two
-    // fake ones on every QR scan both bury real failures and make the audit tool report a
-    // finding where nothing is wrong. Kept at debug level rather than deleted: the value is
-    // worth having when the scan box is being tuned for a different panel.
-    JADE_LOGD("SCAN WIDTH: %u", scan_width);
-    JADE_LOGD("SCAN HEIGHT: %u", scan_width);
-
-    qr_data->ds = JADE_MALLOC_PREFER_DRAM(sizeof(struct datastream));
-    qr_data->ds->data = JADE_MALLOC_PREFER_DRAM(QUIRC_MAX_PAYLOAD * sizeof(uint8_t));
+    qr_scanner_init(qr_data);
 
     // Run the camera task trying to interpet frames as qr-codes
     const bool show_camera_ui = true;
@@ -214,12 +256,7 @@ bool jade_camera_scan_qr(
     }
 
     // Destroy the quirc structs created above
-    free(qr_data->ds->data);
-    qr_data->ds->data = NULL;
-    free(qr_data->ds);
-    qr_data->ds = NULL;
-    quirc_destroy(qr_data->q);
-    qr_data->q = NULL;
+    qr_scanner_destroy(qr_data);
 
     // Any scanned qr code will be in the qr_data passed
     return qr_data->len > 0;
