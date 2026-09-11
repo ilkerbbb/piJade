@@ -688,6 +688,23 @@ takes a **copy** ; was proven: `libjade/esp_camera.c:41` does `memcpy(_cam_frame
 len)` and does not keep the pointer. Wiping the host-side buffer does not affect libjade's copy;
 that copy is wiped separately inside `esp_camera_deinit()` (phase 1.3).
 
+> **Phase 1.3 grew on 2026-09-11, and the earlier text is kept as it was written.** The scanner now
+> runs two passes: the VGA window as it is, and, when that fails, a half-scale copy of the same
+> window (`main/qrscan.c`, `main/qr_downscale.h`). The reason is measured, not guessed: quirc stops
+> finding a code once its modules grow past roughly eight pixels, which is exactly what happens when
+> the user holds the code close enough to fill the frame. On the device the remedy was confirmed on
+> 2026-09-12 in all three callers that open the camera (`Scan SeedQR`, `QR PIN Unlock`, the home
+> screen's `Scan QR`): the same fixture that would not read at close range now reads in under a
+> second, and the 20-30 cm distance that already worked still works.
+>
+> The security consequence is a second buffer, not a new class of exposure: `qr_data->q_half`
+> (`main/qrscan.h`) holds a reduced copy of the same frame, so in a SeedQR scan it carries the same
+> mnemonic pixels as the first one. `quirc_destroy()` frees an image buffer without wiping it, and
+> that was already true of the single instance; phase 1.3 therefore covers **both** instances, wiped
+> in one place inside `qr_scanner_destroy()` (`main/qrscan.c`), next to the host-side buffer and
+> `esp_camera_deinit()`. Until that lands, the item stays open and is listed as such in the
+> project's pending-image table.
+
 ### The 1.1 out-of-bounds read: measured with ASAN (with a positive control)
 
 Phase 1's only verified memory error rested, after the fix, on "it compiles" alone. The probe uses
