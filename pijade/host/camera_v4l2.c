@@ -55,7 +55,8 @@ static void unmap_buffers(camera_t* const camera)
     camera->buffer_count = 0;
 }
 
-camera_t* camera_open(const char* const path, const unsigned int width, const unsigned int height)
+camera_t* camera_open(
+    const char* const path, const unsigned int width, const unsigned int height, const unsigned int frames_per_second)
 {
     if (!path || !width || !height) {
         fprintf(stderr, "pijade: camera_open called with invalid arguments\n");
@@ -112,6 +113,21 @@ camera_t* camera_open(const char* const path, const unsigned int width, const un
             fmt.fmt.pix.width, fmt.fmt.pix.height, (const char*)&fmt.fmt.pix.pixelformat, width,
             height);
         goto fail;
+    }
+
+    if (frames_per_second) {
+        /* Asked for after the format and before the buffers, which is the order v4l2-ctl uses.
+         * The driver clips out-of-range rates instead of failing, so a refusal here is a real
+         * error (wrong buffer type, or a driver without V4L2_CAP_TIMEPERFRAME), not a bad value. */
+        struct v4l2_streamparm parm;
+        memset(&parm, 0, sizeof(parm));
+        parm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        parm.parm.capture.timeperframe.numerator = 1;
+        parm.parm.capture.timeperframe.denominator = frames_per_second;
+        if (xioctl(camera->fd, VIDIOC_S_PARM, &parm) == -1) {
+            fprintf(stderr, "pijade: cannot request %u fps: %s\n", frames_per_second, strerror(errno));
+            goto fail;
+        }
     }
 
     camera->width = width;
@@ -189,6 +205,23 @@ camera_t* camera_open(const char* const path, const unsigned int width, const un
 fail:
     camera_close(camera);
     return NULL;
+}
+
+bool camera_frame_interval(camera_t* const camera, uint32_t* const numerator, uint32_t* const denominator)
+{
+    if (!camera || !numerator || !denominator) {
+        return false;
+    }
+    struct v4l2_streamparm parm;
+    memset(&parm, 0, sizeof(parm));
+    parm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (xioctl(camera->fd, VIDIOC_G_PARM, &parm) == -1 || !(parm.parm.capture.capability & V4L2_CAP_TIMEPERFRAME)
+        || !parm.parm.capture.timeperframe.denominator) {
+        return false;
+    }
+    *numerator = parm.parm.capture.timeperframe.numerator;
+    *denominator = parm.parm.capture.timeperframe.denominator;
+    return true;
 }
 
 void camera_close(camera_t* const camera)

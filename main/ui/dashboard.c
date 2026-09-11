@@ -359,11 +359,15 @@ gui_activity_t* make_otp_activity(void)
     // BBB-AIRGAP: 'Set Clock' scans an epoch QR (ur:jade-epoch).  Time-based codes are wrong
     // until the clock is set, and this port loses the clock on every power cut (no RTC), so the
     // step belongs in the menu that leads to those codes rather than buried in a generic scan.
-    btn_data_t menubtns[] = { { .txt = "View OTP", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_OTP_VIEW },
+    // Order (ROADMAP item 66): the record is made once, then viewed on every use, and the clock
+    // is a prerequisite of viewing rather than an OTP action of its own, so it sits last instead
+    // of between the two OTP rows, where upstream's pair had been split by it.
+    btn_data_t menubtns[] = { { .txt = "New OTP Record", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_OTP_NEW },
+        { .txt = "View OTP", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_OTP_VIEW },
 #ifdef CONFIG_HAS_CAMERA
         { .txt = "Set Clock", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_OTP_SET_CLOCK },
 #endif
-        { .txt = "New OTP Record", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_OTP_NEW } };
+    };
 
     return make_menu_activity("OTP", hdrbtns, 2, menubtns, sizeof(menubtns) / sizeof(btn_data_t));
 }
@@ -670,7 +674,7 @@ gui_activity_t* make_io_test_buttons_activity(gui_view_node_t** marks, gui_view_
     gui_make_vsplit(&keys, GUI_SPLIT_RELATIVE, 3, 33, 34, 33);
     gui_set_parent(keys, body);
 
-    gui_make_text(&marks[IO_TEST_MARK_KEY1], "K1 First", TFT_DARKGREY);
+    gui_make_text(&marks[IO_TEST_MARK_KEY1], "K1 Back", TFT_DARKGREY);
     gui_set_align(marks[IO_TEST_MARK_KEY1], GUI_ALIGN_LEFT, GUI_ALIGN_MIDDLE);
     gui_set_parent(marks[IO_TEST_MARK_KEY1], keys);
 
@@ -679,7 +683,7 @@ gui_activity_t* make_io_test_buttons_activity(gui_view_node_t** marks, gui_view_
     gui_set_parent(marks[IO_TEST_MARK_KEY2], keys);
 
     gui_view_node_t* key3;
-    gui_make_text(&key3, "K3 Exit", TFT_WHITE);
+    gui_make_text(&key3, "K3 Home", TFT_WHITE);
     gui_set_align(key3, GUI_ALIGN_LEFT, GUI_ALIGN_MIDDLE);
     gui_set_parent(key3, keys);
 

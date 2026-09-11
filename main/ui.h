@@ -180,8 +180,15 @@ typedef enum {
 // centre press (gui_front_click()) and KEY3 is gui_alt_click().  Up and down fall back to prev
 // and next on a screen with no vertical neighbour (gui.c select_vertical_or_wheel()), which is
 // why their lines name both.  Keep these within the width the screen already fits.
-#define IO_TEST_NOTE_KEY3 "K3: leave this screen"
-#define IO_TEST_NOTE_KEY1 "K1: jump to first item"
+// KEY1 and KEY3 are described by what the user sees them do, not by the gui call behind them
+// (ROADMAP item 71): the first selectable item on every screen is the back arrow in the header,
+// so gui_select_first() lands on it; and gui_alt_click() raises the escape flag that every
+// screen up the stack honours (gui_escape_request()), so KEY3 does not leave this screen only, it
+// unwinds to the home screen.  The keyboard is the one exception - KEY3 is shift there.
+// Measured on the emulator (tur 9): the note line holds about twenty characters of this font
+// before it wraps mid-word, so these two are the short forms of what they say.
+#define IO_TEST_NOTE_KEY3 "K3: exit to home"
+#define IO_TEST_NOTE_KEY1 "K1: go to back arrow"
 #define IO_TEST_NOTE_CLICK "Press or K2: select"
 #define IO_TEST_NOTE_LEFT "Left: previous item"
 #define IO_TEST_NOTE_RIGHT "Right: next item"

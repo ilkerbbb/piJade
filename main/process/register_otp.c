@@ -416,6 +416,32 @@ int register_otp_string(const char* otp_uri, const size_t uri_len, const char** 
         // Ensure prefilled name is valid to use as storage key (eg. strip out any invalid chars)
         storage_key_name_make_valid(otp_name);
     }
+
+    // BBB-AIRGAP: a scanned record used to land straight on the name keyboard, and the only way
+    // out of that screen is to erase the prefilled name and answer 'Discard OTP'.  Ask first,
+    // before any typing, so the scan can be walked away from (ROADMAP item 67).  A migrate uri
+    // reaches this once per record, so each one can be declined on its own.  The escape key
+    // counts as 'No' here: the question is whether to keep something that has just arrived.
+    {
+        // A migrate uri walks its records in a loop, so an escape raised on an earlier record is
+        // still pending when this one asks: honour it without drawing the screen, the way the
+        // keyboard loop below does at the top of its own loop.  Otherwise one KEY3 press would
+        // abandon a single record and then have to be pressed again for every record left.
+        if (gui_escape_pending()) {
+            JADE_LOGW("User left the scanned otp record(s)");
+            *errmsg = "User declined OTP record";
+            return CBOR_RPC_USER_CANCELLED;
+        }
+
+        const char* message[]
+            = { "Scanned an OTP record", otp_name[0] ? otp_name : "No issuer given", "Name it and save?" };
+        if (!await_yesno_activity("New OTP Record", message, 3, true, "blkstrm.com/otp")) {
+            JADE_LOGW("User declined scanned otp record");
+            *errmsg = "User declined OTP record";
+            return CBOR_RPC_USER_CANCELLED;
+        }
+    }
+
     if (!get_otp_data_from_kb(otp_name, sizeof(otp_name), NULL, 0, NULL)) {
         // User abandoned
         JADE_LOGW("User abandoned entering otp name");

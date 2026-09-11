@@ -17,6 +17,10 @@ btn: verify the screen ACTUALLY changes after every press; abort if it does not.
                   of frames, not frame equality; compare the hash sets observed
                   before and after the presses.
 Additionally:
+  camfile:<path>[:<count>] - push one 640x480 grayscale frame <count> times (default 12) into the
+    camera screen that is open, then verify the camera screen was LEFT: one more, deliberately
+    different frame is sent, and a screen that still repaints is still the preview, so the code
+    was not decoded and the audit aborts there rather than walking on across the camera screen.
   scan:<name>:<n> - press 'next' n times on the current screen, taking a screenshot each time;
                    never click, so a destructive menu item cannot run accidentally.
   seed:<mnemonic> - set up a wallet with debug_set_mnemonic; click its confirmation screen.
@@ -165,6 +169,64 @@ class Audit:
             self.findings.append((source, repr(exc)))
             raise AuditAbort('%s: still press could not complete' % source)
 
+    def _camfile(self, spec, source):
+        """Push a camera frame and verify the camera screen was actually LEFT.
+
+        A changed screen is NOT the criterion, and measuring it as one was wrong: the camera
+        loop copies EVERY captured frame into the displayed image (main/camera.c:556 and
+        its gui_update_picture() at :570), so a frame the decoder rejects repaints the preview
+        just as a decoded one does.  The audit would then walk on across the camera screen
+        believing the code had been read.
+
+        The discriminator is what happens to the NEXT frame.  While the scanner is running it
+        consumes frames and draws them; once a code has been decoded the screen belongs to
+        whatever the scan led to and nothing is drawing camera frames any more.  So after the
+        push a single deliberately different frame is sent: a screen that still moves is still
+        the preview, and a screen that stays put is the screen after the scan.
+
+        Stillness alone is not enough either, and that was the second false positive: a screen
+        with no camera on it at all is also still.  libjade_push_camera_frame() answers ok and
+        throws the frame away while the camera is stopped (libjade/esp_camera.c:53-59), so an
+        audit that arrived here on a menu would see no repaint and call it a decode.  The probe
+        frame below closes that: before the fixture is sent, one frame that cannot decode has to
+        MOVE the screen, which only a running preview does."""
+        try:
+            self.j.settle(time.monotonic() + jadectl.SETTLE_DEADLINE, SETTLE_MIN_WAIT)
+            self._expect_preview(source, 'live', True)
+            self.j.camfile(spec)
+            self.j.settle(time.monotonic() + jadectl.SETTLE_DEADLINE, SETTLE_MIN_WAIT)
+            self._expect_preview(source, 'gone', False)
+        except jadectl.RpcError as exc:
+            self.findings.append((source, str(exc)))
+            raise AuditAbort('%s: frame push could not be verified' % source)
+        except OSError as exc:
+            self.findings.append((source, repr(exc)))
+            raise AuditAbort('%s: frame push could not complete' % source)
+
+    def _expect_preview(self, source, tag, want_running):
+        """Push one undecodable frame and say whether the camera preview repainted.
+
+        The frame is deterministic noise rather than a flat tone: it has to differ from whatever
+        is on screen, including the fixture just pushed and any flat frame sent before it, or a
+        running preview would repaint to the same image and read as stopped."""
+        before = self.j.settle(time.monotonic() + jadectl.SETTLE_DEADLINE, SETTLE_MIN_WAIT)
+        self.j.cam('2:' + ('911' if want_running else '404'))
+        deadline = time.monotonic() + jadectl.SETTLE_DEADLINE
+        running = False
+        while time.monotonic() < deadline:
+            if hashlib.sha256(self._read(deadline)).digest() != before:
+                running = True
+                break
+            time.sleep(SEED_POLL_INTERVAL)
+        if running == want_running:
+            if running:
+                self.j.settle(time.monotonic() + jadectl.SETTLE_DEADLINE, SETTLE_MIN_WAIT)
+            return
+        self.findings.append((source, 'no camera preview on this screen' if want_running
+                              else 'the camera screen is still drawing frames: not decoded'))
+        raise AuditAbort('%s: %s' % (source, 'not on a camera screen' if want_running
+                                     else 'frame was not decoded'))
+
     def _press(self, which, source):
         """Press a button and verify the screen CHANGED; otherwise abort the audit.
 
@@ -199,6 +261,8 @@ class Audit:
             self._press_still(arg, 'still')
         elif kind == 'wait':
             time.sleep(float(arg))
+        elif kind == 'camfile':
+            self._camfile(arg, 'camfile')
         elif kind == 'shot':
             self.shot(arg)
         elif kind == 'scan':

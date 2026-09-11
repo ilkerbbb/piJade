@@ -27,8 +27,18 @@ typedef enum {
 } camera_result_t;
 
 /* Opens the device and starts streaming at width x height. Returns NULL on any failure,
- * having reported the reason on stderr and released whatever it had already acquired. */
-camera_t* camera_open(const char* path, unsigned int width, unsigned int height);
+ * having reported the reason on stderr and released whatever it had already acquired.
+ *
+ * frames_per_second of 0 leaves the driver's own frame interval untouched (bcm2835-camera
+ * defaults to 30 fps: tpf_default in bcm2835-camera.c). Any other value is asked for with
+ * VIDIOC_S_PARM, which that driver clips to its [1, 90] fps range rather than refusing; what it
+ * settled on is read back with camera_frame_interval(). BBB-AIRGAP: added for ROADMAP item 65,
+ * where SeedSigner's QR screen runs the same sensor at 6 fps and ours runs at the default. */
+camera_t* camera_open(const char* path, unsigned int width, unsigned int height, unsigned int frames_per_second);
+
+/* Reads the frame interval the driver is actually using (VIDIOC_G_PARM) as a fraction of a
+ * second, numerator/denominator. Returns false when the driver does not report one. */
+bool camera_frame_interval(camera_t* camera, uint32_t* numerator, uint32_t* denominator);
 
 void camera_close(camera_t* camera);
 

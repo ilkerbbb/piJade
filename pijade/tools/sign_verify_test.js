@@ -63,9 +63,15 @@ const EXPECTED_CHECKS = [
     'rotated and noisy screen still decodes',
     'oversized photographs are refused before image decoding',
     'large photographs are downscaled before QR decoding',
-    'the page lists all three addresses',
+    'under a purpose-44 path the page shows the legacy address alone',
+    'under a path with no purpose the page lists all three addresses',
+    'Verify with an empty signature says what is missing',
+    'an edit alone does not light the result up',
+    'Verify lights the result up',
     'an upper-case bech32 address still matches',
     'only the matching row is marked',
+    'a match on another script type than the path names says so',
+    'the verdict does not claim the signature came from that path',
     'a foreign address is reported as no match',
     'a photograph of the screen fills the signature in',
     'a photo with no code in it says so',
@@ -287,10 +293,35 @@ async function run() {
   type('message', golden.message);
   type('signature', golden.signature_base64);
   type('expected', '');
+  // The path names the script type (ROADMAP item 69): under 44' the page shows the legacy address
+  // and nothing else, so a reader is not sent looking for a native segwit address their wallet
+  // never had. A path the page cannot read that way lists all three, as it always did.
+  type('path', golden.path);
+  const one = el('verify-out').textContent;
+  check('under a purpose-44 path the page shows the legacy address alone',
+    !el('verify-out').hidden && one.includes(golden.p2pkh) && !one.includes(golden.p2sh_p2wpkh)
+      && !one.includes(golden.p2wpkh) && el('verify-out').querySelectorAll('.addr').length === 1,
+    one.slice(0, 60));
+  type('path', "m/0/0");
   const listed = el('verify-out').textContent;
-  check('the page lists all three addresses',
+  check('under a path with no purpose the page lists all three addresses',
     !el('verify-out').hidden && listed.includes(golden.p2pkh) && listed.includes(golden.p2sh_p2wpkh)
-      && listed.includes(golden.p2wpkh));
+      && listed.includes(golden.p2wpkh) && el('verify-out').querySelectorAll('.addr').length === 3);
+  type('path', golden.path);
+
+  // The Verify button has to be seen to do something, even though every edit already verified:
+  // with nothing to check it says so, with a result it lights the result up.
+  type('signature', '');
+  el('verify-btn').click();
+  check('Verify with an empty signature says what is missing',
+    !el('verify-error').hidden && el('verify-error').textContent.includes('Nothing to verify'),
+    el('verify-error').textContent.slice(0, 40));
+  type('signature', golden.signature_base64);
+  check('an edit alone does not light the result up', !el('verify-out').classList.contains('flash'));
+  el('verify-btn').click();
+  check('Verify lights the result up',
+    !el('verify-out').hidden && el('verify-out').classList.contains('flash')
+      && el('verify-out').textContent.includes(golden.p2pkh));
 
   // Upper case, the way an address is often printed or copied out of a receipt.
   type('expected', golden.p2wpkh.toUpperCase());
@@ -299,6 +330,16 @@ async function run() {
     el('verify-out').textContent.includes('Match.') && !!matchRow && matchRow.textContent.includes(golden.p2wpkh),
     el('verify-out').querySelector('.verdict').textContent.slice(0, 40));
   check('only the matching row is marked', el('verify-out').querySelectorAll('.addr.match').length === 1);
+  // The match is real, the key is the same; but the path says 44', so the page says which address
+  // that path's wallet would show instead of leaving the reader to wonder why the two differ.
+  check('a match on another script type than the path names says so',
+    el('verify-out').querySelector('.verdict').textContent.includes('where a wallet would show the legacy address instead'),
+    el('verify-out').querySelector('.verdict').textContent.slice(-80));
+  // The path is the field's text, not something the signature carries; a verdict that claimed the
+  // key belongs to the path would be an unprovable claim (Codex review, 2026-09-11).
+  check('the verdict does not claim the signature came from that path',
+    el('verify-out').querySelector('.verdict').textContent.includes('does not say which path made it'),
+    el('verify-out').querySelector('.verdict').textContent.slice(0, 60));
 
   type('expected', '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2');
   check('a foreign address is reported as no match',
@@ -319,9 +360,10 @@ async function run() {
   el('photo').files = asFile(blob, 'signature.png');
   el('photo').dispatchEvent(new Event('change'));
   for (let i = 0; i < 50 && !el('signature').value; i++) { await settle(); }
+  // The address on screen is the legacy one: the path field still reads the golden 44' path.
   check('a photograph of the screen fills the signature in',
     el('signature').value === golden.signature_base64
-      && el('verify-out').textContent.includes(golden.p2wpkh),
+      && el('verify-out').textContent.includes(golden.p2pkh),
     el('signature').value.slice(0, 24) + '...');
 
   const blank = document.createElement('canvas');
@@ -486,7 +528,7 @@ async function run() {
   el('verify-btn').click();
   check('the verify button runs the same check an edit does',
     clearedFirst && !el('verify-out').hidden
-    && el('verify-out').textContent.includes(golden.p2wpkh) && el('verify-error').hidden,
+    && el('verify-out').textContent.includes(golden.p2pkh) && el('verify-error').hidden,
     el('verify-out').textContent.slice(0, 40));
 
   // No camera answers a headless browser. The reader has to be told, and left able to try again or

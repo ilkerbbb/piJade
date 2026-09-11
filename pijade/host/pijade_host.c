@@ -26,6 +26,7 @@
  *   q              stop libjade and exit
  */
 #include <errno.h>
+#include <fcntl.h>
 #include <inttypes.h>
 #include <pthread.h>
 #include <signal.h>
@@ -79,6 +80,26 @@
  * and the readers (the camera thread, the libjade callbacks) start only after that, so unlike
  * g_stop this needs no extra ordering. */
 static bool g_flow_trace = false;
+
+/* BBB-AIRGAP: two more operator markers, both for ROADMAP item 65 (the camera stops reading a QR
+ * held close to it, and nothing measured so far explains why). Sampled once in main() exactly
+ * like g_flow_trace, with the same thread-visibility argument.
+ *
+ * pijade-t45.enable: the camera thread writes what the sensor delivers to the card as plain PGM
+ * files, one every T45_DUMP_INTERVAL_MS, at most T45_DUMP_MAX per run, and never over a file that
+ * already exists - the operator clears the previous run's files to get a new one. THIS TURNS THE
+ * CARD INTO A RECORDER OF WHATEVER IS HELD UP TO THE CAMERA, A SEEDQR INCLUDED. It dumps what the
+ * sensor delivers, not what the decoder rejected, exists only to look at what the camera gives at
+ * close range, is for a public test fixture only, and the files go as soon as they have been read.
+ *
+ * pijade-t46.enable: the camera is opened at T46_FRAMES_PER_SECOND instead of the driver's 30 fps
+ * default. SeedSigner's QR screen runs this same sensor at 6 fps (ScanScreen.framerate); ours
+ * has never asked for a rate. Without the marker VIDIOC_S_PARM is not called at all. */
+static bool g_t45_dump = false;
+static bool g_t46_fps = false;
+#define T45_DUMP_MAX 20
+#define T45_DUMP_INTERVAL_MS 2000
+#define T46_FRAMES_PER_SECOND 6
 
 static volatile sig_atomic_t g_stop = 0;
 /* g_stop is the signal-handler flag and says nothing about visibility between threads: the main
@@ -222,6 +243,71 @@ static void on_display_flush_panel(const uint16_t* buffer, const size_t len, voi
  * libjade_camera_active() reports that, so the sensor is only powered while it is in use. On the
  * Pi Zero W the module draws about twice what the board itself does, and the case has no airflow.
  */
+/* Writes one frame per interval to /boot/firmware/pijade-t45-NN.pgm. Only the camera thread
+ * calls this, so the counters need no locking. Any failure stops further dumps for the run: a
+ * diagnostic that starts failing half-way is worse than one that stops, because the operator
+ * would read the surviving files as the whole picture. */
+static void t45_dump_frame(const uint8_t* const frame)
+{
+    static unsigned int written = 0;
+    static uint64_t last_ns = 0;
+    if (written >= T45_DUMP_MAX) {
+        return;
+    }
+    uint64_t now = 0;
+    if (!now_ns(&now)) {
+        return;
+    }
+    if (last_ns && now - last_ns < (uint64_t)T45_DUMP_INTERVAL_MS * 1000000ULL) {
+        return;
+    }
+
+    char path[64];
+    snprintf(path, sizeof(path), "/boot/firmware/pijade-t45-%02u.pgm", written);
+    const int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0644);
+    if (fd == -1) {
+        fprintf(stderr, "pijade: t45 stopped, cannot create %s: %s\n", path, strerror(errno));
+        written = T45_DUMP_MAX;
+        return;
+    }
+
+    char header[32];
+    const int header_len
+        = snprintf(header, sizeof(header), "P5\n%u %u\n255\n", (unsigned int)CAMERA_WIDTH, (unsigned int)CAMERA_HEIGHT);
+    bool ok = header_len > 0 && (size_t)header_len < sizeof(header);
+    const uint8_t* parts[2] = { (const uint8_t*)header, frame };
+    const size_t lens[2] = { (size_t)header_len, CAMERA_FRAME_BYTES };
+    for (unsigned int i = 0; ok && i < 2; ++i) {
+        size_t done = 0;
+        while (done < lens[i]) {
+            const ssize_t n = write(fd, parts[i] + done, lens[i] - done);
+            if (n < 0 && errno == EINTR) {
+                continue;
+            }
+            if (n <= 0) {
+                ok = false;
+                break;
+            }
+            done += (size_t)n;
+        }
+    }
+    /* The operator ends a run by cutting power as often as by the menu; an unsynced file would
+     * then be the one frame that mattered. */
+    if (ok && fsync(fd) != 0) {
+        ok = false;
+    }
+    close(fd);
+
+    if (!ok) {
+        fprintf(stderr, "pijade: t45 stopped, short write to %s\n", path);
+        written = T45_DUMP_MAX;
+        return;
+    }
+    last_ns = now;
+    ++written;
+    fprintf(stderr, "pijade: t45 frame %u/%u written to %s\n", written, T45_DUMP_MAX, path);
+}
+
 static void* camera_thread(void* const ctx)
 {
     const char* const device_path = ctx;
@@ -253,7 +339,7 @@ static void* camera_thread(void* const ctx)
         }
 
         if (!camera) {
-            camera = camera_open(device_path, CAMERA_WIDTH, CAMERA_HEIGHT);
+            camera = camera_open(device_path, CAMERA_WIDTH, CAMERA_HEIGHT, g_t46_fps ? T46_FRAMES_PER_SECOND : 0);
             if (!camera) {
                 // camera_open() has already said why. Saying it again every half second would
                 // bury the rest of the log, so the reason is reported once per attempt series.
@@ -265,6 +351,17 @@ static void* camera_thread(void* const ctx)
                 continue;
             }
             open_failure_reported = false;
+            /* Behind the markers: a successful open is otherwise silent so the card log carries
+             * no count of how often the camera was used (see g_flow_trace). The frames dumped by
+             * t45 are only readable next to the rate they were taken at, so t45 logs it too. */
+            if (g_t45_dump || g_t46_fps) {
+                uint32_t num = 0, den = 0;
+                if (camera_frame_interval(camera, &num, &den)) {
+                    fprintf(stderr, "pijade: camera frame interval %" PRIu32 "/%" PRIu32 " s\n", num, den);
+                } else {
+                    fprintf(stderr, "pijade: camera frame interval not reported by driver\n");
+                }
+            }
         }
 
         const camera_result_t result
@@ -280,6 +377,9 @@ static void* camera_thread(void* const ctx)
         }
         if (result == CAMERA_FRAME_NONE) {
             continue; // no frame this time; the sensor is still fine
+        }
+        if (g_t45_dump) {
+            t45_dump_frame(frame);
         }
 
         if (!libjade_push_camera_frame(frame, CAMERA_FRAME_BYTES)) {
@@ -855,6 +955,8 @@ int main(int argc, char** argv)
      * will do; the content is never read. Removing the marker while the device is off turns the
      * next run's trace back off. */
     g_flow_trace = access("/boot/firmware/pijade-t40.enable", F_OK) == 0;
+    g_t45_dump = access("/boot/firmware/pijade-t45.enable", F_OK) == 0;
+    g_t46_fps = access("/boot/firmware/pijade-t46.enable", F_OK) == 0;
 
     unsigned int width = 0, height = 0;
     libjade_display_size(&width, &height);

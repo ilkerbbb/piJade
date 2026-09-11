@@ -35,6 +35,7 @@
   #signature { min-height: 3.4rem; }
   .fmt { margin: 0; padding-top: 9px; font-size: 0.88rem; }
   .fmt .hint { color: var(--dim); font-size: 0.8rem; }
+  .field-hint { margin: 5px 0 0; font-size: 0.8rem; color: var(--dim); }
 
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 0;
              padding-top: 14px; border-top: 1px solid var(--line); }
@@ -78,6 +79,13 @@
   .verdict { margin: 12px 0 6px; font-size: 0.9rem; }
   .verdict.good { color: var(--accent); font-weight: 600; }
   .verdict.bad { color: var(--bad); font-weight: 600; }
+  /* The Verify button runs the same check every edit already ran, so without this the press changes
+   * nothing on screen and looks dead.  The result block lights up and scrolls into view instead. */
+  @keyframes verify-flash { from { background: var(--flash); } to { background: transparent; } }
+  #verify-out.flash { animation: verify-flash 1.4s ease-out; border-radius: 6px; }
+  @media (prefers-reduced-motion: reduce) {
+    #verify-out.flash { animation: none; outline: 2px solid var(--accent); outline-offset: 6px; }
+  }
 
   details.guide { margin-top: 26px; border-top: 1px solid var(--line); padding-top: 12px; }
   details.guide > summary { cursor: pointer; font-size: 0.86rem; color: var(--dim); }
@@ -92,6 +100,7 @@
   .warning { margin-top: 18px; font-size: 0.86rem; background: #fffbe8; border: 1px solid #e6d9a6;
              border-radius: 6px; padding: 10px 12px; color: #4a4326; }
   a { color: var(--accent); }
+  :root { --flash: #dff0e6; }
 
   @media (max-width: 33rem) {
     .form { grid-template-columns: minmax(0, 1fr); gap: 2px; }
@@ -110,6 +119,7 @@
     button.primary { color: #0d1512; }
     #code-box { background: #e8ece9; }
     .addr.match { background: #1c3529; }
+    :root { --flash: #1c3529; }
     .warning { background: #2a2718; border-color: #4d452a; color: #ded4ad; }
   }
 </style>
@@ -131,7 +141,11 @@
   <textarea id="signature" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
 
   <span class="lab"><label for="expected">Address</label></span>
-  <input id="expected" spellcheck="false" autocapitalize="off" autocorrect="off" placeholder="leave empty to list the three this key controls">
+  <div>
+    <input id="expected" spellcheck="false" autocapitalize="off" autocorrect="off" placeholder="optional: an address to check this signature against">
+    <p class="field-hint">Paste an address to ask whether this signature proves control of it, the question
+      Sparrow's Verify answers. Left empty, the page shows the address the path above leads to.</p>
+  </div>
 
   <span class="lab">Format</span>
   <p class="fmt">Standard (Electrum) <span class="hint">the only format the device produces</span></p>
@@ -236,7 +250,20 @@ is in.</p>
 <p>The device shows the signature as a QR code and nothing else; on that screen it never shows the
 address the signature belongs to. <code>Scan signature</code> closes that gap: the public key is
 recovered from the signature itself, which is enough to work out the three single-signature
-addresses that key controls. No wallet, no network, no second device.</p>
+addresses that key controls. Which of the three to show is decided by the path in the field above:
+under <code>44'</code> a wallet shows a legacy address, under <code>49'</code> nested segwit, under
+<code>84'</code> native segwit, so that is the one to look for. A signature made under
+<code>m/44'</code> is not a signature for the native segwit address in your wallet's list: those
+addresses come from <code>m/84'</code>, a different key. A path that starts any other way lists all
+three. No wallet, no network, no second device.</p>
+<p>The path is a reading aid and nothing more. A signature carries a message and a key, never a
+derivation path, so this page cannot confirm that the signature was made at the path in the field;
+editing that field changes which address is shown and proves nothing about the signature. What the
+page does establish is the key: whoever made this signature holds the one behind the address it
+shows.</p>
+<p>The <code>Address</code> field is the question Sparrow's <code>Verify</code> answers: paste an
+address, and the page says whether this signature proves control of it. Left empty, the page shows
+the address instead of judging one.</p>
 <p>The camera needs the device screen to fill the frame. If the camera is not available, or the
 browser refuses it, <code>Choose photo</code> reads a still image of the same screen instead.
 Either way the message field has to hold the message that was signed, byte for byte, because the
@@ -14593,9 +14620,42 @@ function normaliseAddress(text) {
   return trimmed.toLowerCase();
 }
 
-function verify() {
+/* The purpose level of a BIP44-style path names the script type a wallet derives at it: 44' legacy
+ * (BIP44), 49' nested segwit (BIP49), 84' native segwit (BIP84). The same key stands behind all
+ * three addresses, so a signature made at m/44' is a valid signature for the key's native segwit
+ * address too; but the address a wallet shows for that path is the legacy one, and listing the
+ * other two sent a reader to look for an address their wallet never had (ROADMAP item 69). A path
+ * that starts any other way, 86' included, says nothing this page can use, and all three are
+ * listed as before.
+ *
+ * What this is NOT: proof of the path. recoverAddresses() reads the message and the signature and
+ * nothing else, and neither of them carries a derivation path; the path here is the text in the
+ * field above, which the reader can change after the signature was made. So it may only narrow
+ * WHICH of the key's three addresses to show, and every sentence built on it says that it is the
+ * field's reading rather than something the signature established. */
+const SCRIPT_TYPES = {
+  p2pkh: "Legacy (P2PKH)",
+  p2shP2wpkh: "Nested segwit (P2SH-P2WPKH)",
+  p2wpkh: "Native segwit (P2WPKH)"
+};
+/* The same three, as they read inside a sentence. */
+const SCRIPT_NAMES = { p2pkh: "legacy", p2shP2wpkh: "nested segwit", p2wpkh: "native segwit" };
+function scriptTypeFromPath(path) {
+  const found = /^m\/(44|49|84)['hH]\//.exec(path.trim());
+  if (!found) { return null; }
+  return { "44": "p2pkh", "49": "p2shP2wpkh", "84": "p2wpkh" }[found[1]];
+}
+
+/* pressed: the reader used the Verify button rather than editing a field. The check is the same;
+ * what differs is that a press has to be seen to do something (ROADMAP item 69). */
+function verify(pressed) {
   const signature = signatureEl.value;
   if (!signature || (signature.length <= MAX_SIGNATURE_TEXT && !signature.trim())) {
+    if (pressed) {
+      verifyFail("Nothing to verify yet: scan the device's screen, choose a photo of it, or paste " +
+        "the signature into the field above.");
+      return;
+    }
     verifyErrEl.hidden = true;
     verifyOutEl.hidden = true;
     return;
@@ -14626,27 +14686,53 @@ function verify() {
   verifyOutEl.hidden = false;
   verifyOutEl.textContent = "";
 
+  const path = pathEl.value.trim();
+  const hinted = scriptTypeFromPath(path);
+
   const verdict = document.createElement("p");
   verdict.className = "verdict" + (expected ? (matched ? " good" : " bad") : "");
   if (!expected) {
-    verdict.textContent = "Whoever made this signature holds the key behind all three of these " +
-      "addresses. Which one is yours depends on the script type your wallet uses at that " +
-      "derivation path.";
+    verdict.textContent = hinted
+      ? "Whoever made this signature holds the key behind the address below. The signature does " +
+        "not say which path made it; the path field reads " + path + ", and a wallet showing that " +
+        "path shows the " + SCRIPT_NAMES[hinted] + " address, so that is the one listed. If the " +
+        "signature was made under another path, its address is not this one."
+      : "Whoever made this signature holds the key behind all three of these addresses. The path " +
+        "field reads " + path + ", which does not say which script type a wallet uses at it " +
+        "(44' legacy, 49' nested segwit, 84' native segwit), so all three are listed.";
   } else if (matched) {
-    verdict.textContent = "Match. This signature proves control of " + expected + ".";
+    verdict.textContent = "Match. This signature proves control of " + expected + "." +
+      (hinted && matched !== hinted
+        ? " Note: that is the " + SCRIPT_NAMES[matched] + " address of the key that signed, while " +
+          "the path field reads " + path + ", where a wallet would show the " + SCRIPT_NAMES[hinted] +
+          " address instead. The signature does not say which path made it, so the two need not agree."
+        : "");
   } else {
     verdict.textContent = "No match. This signature does not come from the key behind " + expected +
-      ". Either the message is not the one that was signed, or the address belongs to a different key.";
+      ". Either the message is not the one that was signed, or the address belongs to a different " +
+      "key. The key that made it controls:";
   }
   verifyOutEl.append(verdict);
-  verifyOutEl.append(row("Legacy (P2PKH)", result.p2pkh, matched === "p2pkh"));
-  verifyOutEl.append(row("Nested segwit (P2SH-P2WPKH)", result.p2shP2wpkh, matched === "p2shP2wpkh"));
-  verifyOutEl.append(row("Native segwit (P2WPKH)", result.p2wpkh, matched === "p2wpkh"));
+  /* Which addresses to list: the one the reader named when it matched; otherwise the one the path
+   * leads to; otherwise all three, since nothing narrows them down. */
+  const shown = matched ? [matched] : hinted ? [hinted] : ["p2pkh", "p2shP2wpkh", "p2wpkh"];
+  for (const type of shown) {
+    verifyOutEl.append(row(SCRIPT_TYPES[type], result[type], matched === type));
+  }
 
   const key = document.createElement("p");
   key.className = "measure";
   key.textContent = "recovered public key " + result.pubkeyHex;
   verifyOutEl.append(key);
+
+  if (pressed) {
+    /* Removing and re-adding the class restarts the animation on a second press; the reflow in
+     * between is what makes the browser notice the removal. */
+    verifyOutEl.classList.remove("flash");
+    void verifyOutEl.offsetWidth;
+    verifyOutEl.classList.add("flash");
+    verifyOutEl.scrollIntoView({ block: "nearest" });
+  }
 }
 
 /* Reading a photograph takes time, and everything on screen while it runs belongs to the input
@@ -14703,11 +14789,19 @@ if (!selfTest()) {
     const file = photoEl.files && photoEl.files[0];
     if (file) readPhoto(file);
   });
-  /* Typing supersedes a photograph that is still being read; see latestInput above. */
-  const typed = () => { latestInput++; verifyNoteEl.hidden = true; verify(); };
+  /* Typing supersedes a photograph that is still being read; see latestInput above. The Verify
+   * button arrives here too, as a CustomEvent carrying pressed: true; a keystroke's Event has no
+   * detail and so counts as an edit. */
+  const typed = (ev) => {
+    latestInput++;
+    verifyNoteEl.hidden = true;
+    verify(!!(ev && ev.detail && ev.detail.pressed));
+  };
   signatureEl.addEventListener("input", typed);
   expectedEl.addEventListener("input", typed);
   messageEl.addEventListener("input", typed);
+  /* The address shown for the key follows the path, so a path edit redraws the result too. */
+  pathEl.addEventListener("input", typed);
   /* Exposed for pijade/tools/sign_verify_test.js, which drives exactly the
    * function the page itself uses rather than a copy of it. */
   window.piJadeVerify = { recoverAddresses, selfTest, decodeSignatureFromFile };
@@ -14742,9 +14836,10 @@ if (!selfTest()) {
   });
 
   /* Verification already runs on every edit. The button exists for the reader who filled the
-   * fields by hand and expects one; it triggers the same path rather than a second one. */
+   * fields by hand and expects one; it triggers the same path rather than a second one, and says
+   * so on the event so that the result can be made visible for a press (ROADMAP item 69). */
   verifyBtn.addEventListener("click", function () {
-    signature.dispatchEvent(new Event("input"));
+    signature.dispatchEvent(new CustomEvent("input", { detail: { pressed: true } }));
   });
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof jsQR !== "function") {

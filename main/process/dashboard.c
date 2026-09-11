@@ -2492,9 +2492,13 @@ static void handle_wallet_options(void)
     uint8_t flags = storage_get_feature_flags();
     size_t selected = 0;
 
+    // BBB-AIRGAP: every row reads 'name: value', as the rows of QR Settings do, so the state of a
+    // feature is on the list itself and not one screen further in (ROADMAP item 68).  The labels
+    // are rebuilt on every pass because a save changes the value a row shows.
+    char labels[NUM_FEATURE_ROWS][32];
     list_item_t items[NUM_FEATURE_ROWS];
     for (size_t i = 0; i < NUM_FEATURE_ROWS; ++i) {
-        items[i] = (list_item_t){ .txt = FEATURE_ROWS[i].name, .ev_id = BTN_FEATURE_ROW_0 + i };
+        items[i] = (list_item_t){ .txt = labels[i], .ev_id = BTN_FEATURE_ROW_0 + i };
     }
 
     while (true) {
@@ -2502,6 +2506,12 @@ static void handle_wallet_options(void)
         // itself only sees KEY3 while it is the one waiting.
         if (gui_escape_pending()) {
             return;
+        }
+        for (size_t i = 0; i < NUM_FEATURE_ROWS; ++i) {
+            const feature_row_t* const row = &FEATURE_ROWS[i];
+            const int ret
+                = snprintf(labels[i], sizeof(labels[i]), "%s: %s", row->name, (flags & row->flag) ? row->on : row->off);
+            JADE_ASSERT(ret > 0 && ret < sizeof(labels[i]));
         }
         const int32_t ev_id
             = run_list_activity("Features", BTN_SETTINGS_FEATURES_EXIT, items, NUM_FEATURE_ROWS, &selected);
@@ -3506,15 +3516,29 @@ static void handle_session(void)
             handle_sign_message();
             break;
 
-        case BTN_SETTINGS_WALLET_SCAN_QR:
+        case BTN_SETTINGS_WALLET_SCAN_QR: {
             // BBB-AIRGAP: a scan can load a wallet into a free slot or, when the psbt names
             // another wallet, switch the one in use (main/process/sign_psbt.c).  Either invalidates
             // the two lists laid out at the top of this function - the session list would be
             // missing a wallet, and the wallet rows would name one wallet while 'Forget' and
             // 'Backup' acted on another.  Neither list can be patched up from here, so
             // return and let the home screen rebuild them, the way 'Forget' already does.
+            // Only then, though: returning unconditionally threw the user out to the home screen
+            // when the scan was merely cancelled with the back arrow, which felt like the button
+            // had fired two or three times (ROADMAP item 70).  handle_scan_qr() cannot say which
+            // it was, so the two things the lists depend on are compared across the call: how
+            // many wallets are held, and which one is in use.  A load adds a slot, a switch moves
+            // keychain_get() to another slot's storage (main/keychain.c:208-209); anything else -
+            // a cancel, an epoch, a psbt for the wallet already in use - leaves both as they were
+            // and the menu is simply redrawn, as it is for 'Sign Message' above.
+            const size_t slots_before = keychain_slot_count();
+            const keychain_t* const active_before = keychain_get();
             handle_scan_qr("Scan QR", "blkstrm.com/jadescan");
-            return;
+            if (keychain_slot_count() != slots_before || keychain_get() != active_before) {
+                return;
+            }
+            break;
+        }
 #endif
 
         case BTN_SETTINGS_WALLET_FORGET: {
