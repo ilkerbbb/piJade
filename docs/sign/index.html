@@ -37,6 +37,27 @@
   .fmt .hint { color: var(--dim); font-size: 0.8rem; }
   .field-hint { margin: 5px 0 0; font-size: 0.8rem; color: var(--dim); }
 
+  /* ROADMAP item 69d: the address type is picked here, so the path never has to be typed from
+   * memory.  The row wraps rather than widening the grid track, same rule as .actions below. */
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+  .presets button { padding: 4px 9px; font-size: 0.78rem; }
+  .presets button[aria-pressed="true"] { border-color: var(--accent); background: var(--flash); }
+
+  /* ROADMAP item 74: the address is read from the device's own code, so the button belongs where
+   * the address goes rather than in the row of actions further down.  The input keeps room for it
+   * on the right so a long address never runs under the button. */
+  .infield { position: relative; display: block; }
+  .infield input { padding-right: 40px; }
+  .infield .inbtn {
+    position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+    padding: 5px 7px; line-height: 0; background: transparent; border-color: transparent;
+    color: var(--dim);
+  }
+  .infield .inbtn:hover { border-color: var(--line); color: var(--ink); }
+  .infield .inbtn svg { display: block; width: 17px; height: 17px; fill: currentColor; }
+  .infield .inbtn[disabled] { opacity: 0.45; cursor: default; }
+  .infield .inbtn[disabled]:hover { border-color: transparent; color: var(--dim); }
+
   .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 0;
              padding-top: 14px; border-top: 1px solid var(--line); }
   .actions .spacer { flex: 1 1 auto; }
@@ -132,7 +153,17 @@
 
 <div class="form">
   <span class="lab"><label for="path">Path</label></span>
-  <input id="path" value="m/44'/0'/0'/0/0" spellcheck="false" autocapitalize="off" autocorrect="off">
+  <div>
+    <input id="path" value="m/44'/0'/0'/0/0" spellcheck="false" autocapitalize="off" autocorrect="off">
+    <div class="presets" role="group" aria-label="Address type">
+      <button type="button" class="preset" data-path="m/44'/0'/0'/0/0">Legacy m/44'</button>
+      <button type="button" class="preset" data-path="m/49'/0'/0'/0/0">Nested SegWit m/49'</button>
+      <button type="button" class="preset" data-path="m/84'/0'/0'/0/0">Native SegWit m/84'</button>
+    </div>
+    <p class="field-hint">These are the first receive address of each account. The path decides which
+      key signs, so it also decides which address the signature proves; change the last number to
+      reach the second address, the third, and so on.</p>
+  </div>
 
   <span class="lab tall"><label for="message">Message</label></span>
   <textarea id="message" spellcheck="false">hello</textarea>
@@ -142,9 +173,19 @@
 
   <span class="lab"><label for="expected">Address</label></span>
   <div>
-    <input id="expected" spellcheck="false" autocapitalize="off" autocorrect="off" placeholder="optional: an address to check this signature against">
-    <p class="field-hint">Paste an address to ask whether this signature proves control of it, the question
-      Sparrow's Verify answers. Left empty, the page shows the address the path above leads to.</p>
+    <span class="infield">
+      <input id="expected" spellcheck="false" autocapitalize="off" autocorrect="off" placeholder="optional: an address to check this signature against">
+      <button type="button" id="expected-scan" class="inbtn"
+              title="Read an address from a QR code" aria-label="Read an address from a QR code">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M3 3h8v8H3V3zm2 2v4h4V5H5zm-2 8h8v8H3v-8zm2 2v4h4v-4H5zM13 3h8v8h-8V3zm2 2v4h4V5h-4z"></path>
+          <path d="M13 13h3v3h-3v-3zm5 0h3v3h-3v-3zm-5 5h3v3h-3v-3zm5 0h3v3h-3v-3z"></path>
+        </svg>
+      </button>
+    </span>
+    <p class="field-hint">Give the page an address to ask whether this signature proves control of
+      it; type it, or press the code button in the field and read it off the device. Left empty,
+      the page shows the address the path above leads to instead.</p>
   </div>
 
   <span class="lab">Format</span>
@@ -163,7 +204,7 @@
 
 <div id="scan-panel" hidden>
   <div class="panel-head">
-    <h2>Point the camera at the device screen</h2>
+    <h2 id="scan-heading">Point the camera at the device screen</h2>
     <span class="note" id="scan-status"></span>
   </div>
   <video id="scan-video" playsinline muted></video>
@@ -188,90 +229,84 @@
 <summary>How this works, and what it does not prove</summary>
 <div class="body">
 
-<p>Signing proves you hold the private key behind an address without ever revealing that key. The
-device signs the text with the key at the derivation path you choose, and anyone can check the
-signature against the address. No coins move and nothing is broadcast.</p>
+<p>A message signature proves that whoever made it holds the private key behind an address, without
+revealing that key. The device signs a digest of your text with the key at the derivation path you
+choose, and anyone holding the message, the signature and the address can check the claim for
+themselves. No coins move, nothing is broadcast, and the signature says nothing about a balance.</p>
 
-<h3>What the round trip looks like</h3>
-<p>A wallet that can talk in QR codes drives the whole thing. In Sparrow the screen is
-<code>Tools &gt; Sign/Verify Message</code>, which has an <em>Address</em> field, a
-<em>Message</em> field, a <em>Signature</em> field and a format selector, with
-<code>Sign by QR</code>, <code>Sign</code>, <code>Verify</code> and <code>Done</code> along the
-bottom.</p>
+<h3>The round trip</h3>
+<p>The device is never plugged into anything. Both directions are a camera reading a screen: this
+page draws a code for the device, the device draws one back.</p>
 <ol>
-  <li>In Sparrow, open the wallet the address belongs to first: <code>Sign by QR</code> stays
-      disabled while no wallet is selected, and Sparrow refuses an address it cannot find in the
-      one that is. Then fill in the address and the message, leave the format on
-      <code>Standard (Electrum)</code>, and press <code>Sign by QR</code>. The format matters here
-      even for a native segwit address, where Sparrow also offers
-      <code>BIP322 (Simple)</code>: that request leaves as a <code>ur:crypto-psbt</code>, a
-      type the device's message scanner reads and then refuses.</li>
+  <li>Choose the address type with the buttons under <code>Path</code>, or type a path yourself,
+      and write your text in <code>Message</code>. Press <code>Sign by QR</code> and the code
+      appears below the form.</li>
   <li>On piJade open <code>Session</code>, then the wallet fingerprint, then
-      <code>Sign Message</code>. The camera opens. Hold it over Sparrow's code.</li>
+      <code>Sign Message</code>. The camera opens. Hold it over the code on this screen.</li>
   <li>piJade shows the message, its digest and the derivation path. <strong>Read them.</strong>
       Approving signs the message that was scanned, the whole of it. The screen has room for 191
-      bytes, and <code>Sign by QR</code> above draws no code from 192 bytes up, so a message this
-      page produced is always one the screen can show in full. A message longer than 96 bytes is
-      shown over two screens, and the summary screen lets you approve without opening the message
-      at all, so open it and step through both screens before approving.</li>
-  <li>piJade then displays the signature as its own QR code, under <code>Scan QR</code>. Sparrow
-      reads that code back with its camera and drops the signature into the
-      <em>Signature</em> field.</li>
-  <li>Press <code>Verify</code>. The signature landing in the field only means the QR code was
-      read; it is <code>Verify</code> that checks the signature against the address and the exact
-      message in the fields above it. If it fails, the message field is the one to check first: it
-      has to be the scanned message byte for byte, trailing spaces and line breaks included, which
-      for a message short enough to fit is exactly what the device displayed. The device never
-      shows the address, only the derivation path, so the address is checked the other way round:
-      it must be the one your wallet lists at that path.</li>
+      bytes and <code>Sign by QR</code> draws no code from 192 bytes up, so a message this page
+      produced is always one the screen can show in full. A message longer than 96 bytes is spread
+      over two screens, and the summary screen lets you approve without opening the message at all,
+      so step through both screens before you approve.</li>
+  <li>piJade draws the signature as its own QR code, under <code>Scan QR</code>.</li>
+  <li>Come back here, press <code>Scan signature</code> and hold your camera over the device
+      screen. If the camera is unavailable, or the browser refuses it, <code>Choose photo</code>
+      reads a still image of the same screen instead.</li>
+  <li>The verdict appears as soon as the signature is read, and <code>Verify</code> works it out
+      again at any time. With <code>Address</code> left empty the page shows which address the
+      signing key controls; fill that field in and the page answers whether this signature proves
+      control of that exact address.</li>
 </ol>
-<p>The device is never plugged into anything: both directions are cameras reading screens.</p>
+<p>Checking someone else's signature needs no device at all: type their message, their signature
+and their address into the three fields and press <code>Verify</code>.</p>
 
-<h3>Which signature format</h3>
-<p>When Sparrow verifies, it picks the format itself: it tries the two ECDSA readings and then
-BIP322, and moves the selector to whichever one succeeded. So the selector does not decide whether a
-verification passes. It decides how Sparrow signs, and there it follows the address type. For a
-Taproot address Sparrow disables the ECDSA options and forces <code>BIP322 (Simple)</code>, whose
-request travels as a <code>ur:crypto-psbt</code> that this device's message scanner refuses by
-type. Keep this round trip to legacy, nested segwit and native segwit addresses; Taproot is outside
-it.</p>
-<p>For those addresses the device produces a recoverable ECDSA signature over the usual Bitcoin
-signed-message digest, base64 encoded, with the header byte written as
-<code>31 + recovery id</code> for a compressed key, whatever the derivation path. That is what
-<code>Standard (Electrum)</code> describes, and it is the only thing the device emits, which is why
-the field above states it rather than offering a choice. A strict BIP137 verifier reads the same
-header byte as a statement about the address type: 31 to 34 means P2PKH, 35 to 38 nested segwit, 39
-to 42 native segwit. Since the device writes 31 plus the recovery id everywhere, such a verifier
-accepts the legacy case and reports an address-type mismatch under a segwit path. Sparrow is not
-that verifier, but other tools are, so name Standard when something asks which format the signature
-is in.</p>
+<h3>The path decides which address</h3>
+<p>One seed holds every address you will ever use, and the derivation path picks one key out of it.
+The three presets are the first receive address of the three account types a single-signature
+wallet keeps: <code>m/44'</code> for legacy addresses starting <code>1</code>, <code>m/49'</code>
+for nested segwit starting <code>3</code>, <code>m/84'</code> for native segwit starting
+<code>bc1q</code>. The last number walks along the addresses of that account, so
+<code>m/84'/0'/0'/0/1</code> is the second native segwit receive address.</p>
+<p>This is where the confusion usually starts. A signature made under <code>m/44'</code> is not a
+signature for the native segwit address in your wallet's list: those come from <code>m/84'</code>,
+a different key that shares nothing with it but the seed. Pick the type your wallet is showing you
+before you sign, and the address that comes back is one you can find in that list.</p>
+<p>The device can hand you an address to check against, so it need not be typed out. Open
+<code>Session</code>, the wallet fingerprint, then <code>Address Explorer</code>; pick
+<code>Receive</code> or <code>Change</code>, choose an address, and the tick draws it as a QR code
+under <code>Show QR</code>. The code button inside the <code>Address</code> field reads it with the
+same camera that reads signatures.</p>
+<p>Taproot addresses (<code>m/86'</code>, starting <code>bc1p</code>) are outside this round trip.
+They are not proved with a plain recoverable ECDSA signature, which is the only kind the device
+produces, so there is no preset for one and a Taproot path is not treated as an address type
+here.</p>
 
-<h3>Reading the signature back</h3>
-<p>The device shows the signature as a QR code and nothing else; on that screen it never shows the
-address the signature belongs to. <code>Scan signature</code> closes that gap: the public key is
-recovered from the signature itself, which is enough to work out the three single-signature
-addresses that key controls. Which of the three to show is decided by the path in the field above:
-under <code>44'</code> a wallet shows a legacy address, under <code>49'</code> nested segwit, under
-<code>84'</code> native segwit, so that is the one to look for. A signature made under
-<code>m/44'</code> is not a signature for the native segwit address in your wallet's list: those
-addresses come from <code>m/84'</code>, a different key. A path that starts any other way lists all
-three. No wallet, no network, no second device.</p>
-<p>The path is a reading aid and nothing more. A signature carries a message and a key, never a
-derivation path, so this page cannot confirm that the signature was made at the path in the field;
-editing that field changes which address is shown and proves nothing about the signature. What the
-page does establish is the key: whoever made this signature holds the one behind the address it
-shows.</p>
-<p>The <code>Address</code> field is the question Sparrow's <code>Verify</code> answers: paste an
-address, and the page says whether this signature proves control of it. Left empty, the page shows
-the address instead of judging one.</p>
-<p>The camera needs the device screen to fill the frame. If the camera is not available, or the
-browser refuses it, <code>Choose photo</code> reads a still image of the same screen instead.
-Either way the message field has to hold the message that was signed, byte for byte, because the
-signature covers a digest of it and not the text you can see.</p>
+<h3>The signature format</h3>
+<p>The device produces a recoverable ECDSA signature over the usual Bitcoin signed-message digest,
+base64 encoded, with the header byte written as <code>31 + recovery id</code> for a compressed key,
+whatever the derivation path. That is what <code>Standard (Electrum)</code> describes, and it is
+the only thing the device emits, which is why the field above states it rather than offering a
+choice. Name that format when a tool asks which one a signature is in.</p>
+<p>One consequence is worth knowing. A strict BIP137 verifier reads that same header byte as a
+statement about the address type: 31 to 34 means legacy, 35 to 38 nested segwit, 39 to 42 native
+segwit. Since the device writes 31 plus the recovery id everywhere, such a verifier accepts the
+legacy case and reports an address-type mismatch under a segwit path, although the signature itself
+is sound. This page recovers the key and compares addresses instead, so what it reports here does
+not depend on that byte.</p>
+
+<h3>What a signature carries, and what it does not</h3>
+<p>A signature carries the message and the key, never a derivation path. This page recovers the
+public key from the signature itself, which is enough to work out the single-signature addresses
+that key controls, and the <code>Path</code> field only decides which of them to show. Editing that
+field changes what is listed and proves nothing about the signature; a path that is none of
+<code>44'</code>, <code>49'</code> or <code>84'</code> leaves all three listed, because nothing
+narrows them down.</p>
 <p>A match says the signature was made by the key behind that address. It does not say the address
-is yours: check that the address is the one your wallet shows at the derivation path you signed
-under. And a signature only ever proves the message it covers, so read the message before you trust
-what it says.</p>
+is yours: check that the address is the one your own wallet shows at the path you signed under. And
+a signature only ever proves the message it covers, so read the message before you trust what it
+says. That message has to be entered here byte for byte, trailing spaces and line breaks included,
+because the signature covers a digest of the text rather than the text you can see.</p>
 
 <h3>What is inside the QR code</h3>
 <p>One format is accepted; anything else is refused with <code>Not a message to sign</code>:</p>
@@ -284,7 +319,7 @@ it is not, it says <code>Invalid bip32 path</code>.</p>
 <p>The QR code is drawn in your browser, the camera frames and photographs are read in your
 browser, and nothing you type or photograph is sent anywhere. Everything the page needs is inside
 this one file, so saving it and opening the copy works with no network at all. The device itself
-never reaches this page: only the phone or computer showing it does.</p>
+never reaches this page; only the phone or computer showing it does.</p>
 
 <div class="warning">
   <strong>Do not sign what you have not read.</strong> The signature covers the whole message that
@@ -14802,6 +14837,27 @@ if (!selfTest()) {
   messageEl.addEventListener("input", typed);
   /* The address shown for the key follows the path, so a path edit redraws the result too. */
   pathEl.addEventListener("input", typed);
+
+  /* ROADMAP item 69d: the preset buttons write the path rather than asking the reader to recall
+   * it.  The input event they dispatch is the one both script blocks already listen for, so the
+   * QR above and the result below redraw exactly as they do for a keystroke.  The pressed mark is
+   * recomputed from the field's own text, so typing a path by hand clears it and typing one that
+   * happens to match a preset sets it. */
+  const presetEls = Array.from(document.querySelectorAll(".preset"));
+  const markPresets = () => {
+    const current = pathEl.value.trim();
+    for (const el of presetEls) {
+      el.setAttribute("aria-pressed", String(el.dataset.path === current));
+    }
+  };
+  for (const el of presetEls) {
+    el.addEventListener("click", () => {
+      pathEl.value = el.dataset.path;
+      pathEl.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+  pathEl.addEventListener("input", markPresets);
+  markPresets();
   /* Exposed for pijade/tools/sign_verify_test.js, which drives exactly the
    * function the page itself uses rather than a copy of it. */
   window.piJadeVerify = { recoverAddresses, selfTest, decodeSignatureFromFile };
@@ -14826,10 +14882,27 @@ if (!selfTest()) {
   const panel = document.getElementById("scan-panel");
   const video = document.getElementById("scan-video");
   const status = document.getElementById("scan-status");
+  const heading = document.getElementById("scan-heading");
   const signature = document.getElementById("signature");
+  /* ROADMAP item 74: the same camera fills either field. The device draws the address it is
+   * showing as a code of its own (Address Explorer, Address N, then Show QR), so the reader can
+   * hand the page an address the same way they hand it a signature. Which field a read lands in
+   * is decided when the scan starts and never inferred from what was read. */
+  const expected = document.getElementById("expected");
+  const addrBtn = document.getElementById("expected-scan");
+  /* Each target also carries the way out of a camera that will not run.  Choose photo fills the
+   * signature and only the signature, so offering it to someone reading an address would move
+   * their address into the wrong field; that reader is told to type instead. */
+  const SCAN_TARGETS = [
+    { button: scanBtn, field: signature, heading: "Point the camera at the device screen",
+      orElse: "or use Choose photo", instead: "use Choose photo instead" },
+    { button: addrBtn, field: expected, heading: "Point the camera at the address code",
+      orElse: "or type the address", instead: "type the address instead" },
+  ];
+  let target = SCAN_TARGETS[0];
 
-  /* The code is drawn as the message is typed, but it takes the screen only when asked for, the
-   * way Sparrow opens Sign by QR in a window of its own. */
+  /* The code is drawn as the message is typed, but it takes the screen only when asked for, so
+   * the form stays readable while the message is still being written. */
   qrBtn.addEventListener("click", function () {
     qrPanel.hidden = !qrPanel.hidden;
     qrBtn.textContent = qrPanel.hidden ? "Sign by QR" : "Hide the code";
@@ -14845,6 +14918,8 @@ if (!selfTest()) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof jsQR !== "function") {
     scanBtn.disabled = true;
     scanBtn.title = "This browser does not offer this page a camera. Choose photo still works.";
+    addrBtn.disabled = true;
+    addrBtn.title = "This browser does not offer this page a camera. Type the address instead.";
     return;
   }
 
@@ -14868,6 +14943,7 @@ if (!selfTest()) {
     if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
     video.srcObject = null;
     scanBtn.disabled = false;
+    addrBtn.disabled = false;
   }
 
   function close() {
@@ -14890,24 +14966,28 @@ if (!selfTest()) {
       ctx.drawImage(video, 0, 0, w, h);
       const found = jsQR(ctx.getImageData(0, 0, w, h).data, w, h);
       if (found && found.data) {
+        const field = target.field;
         close();
-        signature.value = found.data;
-        signature.dispatchEvent(new Event("input"));
+        field.value = found.data;
+        field.dispatchEvent(new Event("input"));
         return;
       }
     }
     ticking = requestAnimationFrame(tick);
   }
 
-  scanBtn.addEventListener("click", function () {
+  function startScan(which) {
     if (stream) return;
+    target = which;
+    heading.textContent = which.heading;
     /* A photograph still being read is older than this scan, and it finishes by calling the verify
      * path directly rather than through an input event, so nothing else would stop it landing in
      * the field later. The page already has one way to say "what came before is superseded": an
-     * input event on this field. The scan announces itself through that same door. It also reaches
-     * the close listener below, which has nothing to close yet. */
+     * input event on this field. The scan announces itself through that same door, whichever field
+     * it is going to fill, since a photograph landing mid-scan would close the panel. It also
+     * reaches the close listener below, which has nothing to close yet. */
     signature.dispatchEvent(new Event("input"));
-    scanBtn.disabled = true;
+    which.button.disabled = true;
     panel.hidden = false;
     status.textContent = "asking for the camera";
     const mine = era;
@@ -14929,7 +15009,7 @@ if (!selfTest()) {
           t.addEventListener("ended", function () {
             if (mine !== era) return;
             release();
-            status.textContent = "the camera stopped; start it again, or use Choose photo";
+            status.textContent = "the camera stopped; start it again, " + which.orElse;
           });
         });
         return video.play();
@@ -14945,14 +15025,17 @@ if (!selfTest()) {
         /* The reader is told what to do about it, not what threw. */
         const name = err && err.name;
         if (name === "NotAllowedError" || name === "SecurityError") {
-          status.textContent = "the camera was refused; allow it for this page, or use Choose photo";
+          status.textContent = "the camera was refused; allow it for this page, " + which.orElse;
         } else if (name === "NotFoundError" || name === "OverconstrainedError") {
-          status.textContent = "no camera was found; use Choose photo instead";
+          status.textContent = "no camera was found; " + which.instead;
         } else {
-          status.textContent = "the camera could not be started; use Choose photo instead";
+          status.textContent = "the camera could not be started; " + which.instead;
         }
       });
-  });
+  }
+
+  scanBtn.addEventListener("click", function () { startScan(SCAN_TARGETS[0]); });
+  addrBtn.addEventListener("click", function () { startScan(SCAN_TARGETS[1]); });
 
   stopBtn.addEventListener("click", close);
 
@@ -14963,6 +15046,7 @@ if (!selfTest()) {
    * own event. The scan's own fill also arrives here, after close() has already run, and closing
    * something already closed costs nothing. */
   signature.addEventListener("input", close);
+  expected.addEventListener("input", close);
   document.getElementById("photo").addEventListener("change", close);
 
   /* A camera left running behind a hidden tab is a privacy problem of its own, and the tab cannot

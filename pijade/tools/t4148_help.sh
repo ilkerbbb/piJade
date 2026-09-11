@@ -25,9 +25,10 @@ FRAME=/probe/sign_frame.gray
 # The same seed, path and text produce the same signature on every run (deterministic nonce),
 # so a constant can verify the EXPECTED signature. It was not copied from the device:
 # pijade/tools/verify_signature.py recovers the public key and compares it with the key derived
-# from the BIP39 words, providing independent verification. If the page self-test path or text
-# changes, update this constant and PATH and MESSAGE in verify_signature.py to the new vector
-# and rerun; do not copy the signature from the display.
+# from the BIP39 words, providing independent verification. The path and the text are arguments
+# of that script now, so if the page self-test path or text changes, rerun it as
+# `verify_signature.py <signature> <path> <message>` and update this constant to what it
+# confirms; do not copy the signature from the display.
 EXPECTED_SIGNATURE="IA4824BgeUflJ7q/N0w5Lis+7hQa00HZQIrA5AzM4JG5c3Rm7zQKiWKG9ltzhKUyO+E4qoBpb1KbIQI84Gq4mCc="
 
 ERROR=0

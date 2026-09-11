@@ -65,6 +65,11 @@ const EXPECTED_CHECKS = [
     'large photographs are downscaled before QR decoding',
     'under a purpose-44 path the page shows the legacy address alone',
     'under a path with no purpose the page lists all three addresses',
+    'the preset buttons carry one path each',
+    'a preset writes its path and the result follows it',
+    'the preset in use is the only one marked',
+    'a path typed by hand clears the marks',
+    'typing a preset path back marks it again',
     'Verify with an empty signature says what is missing',
     'an edit alone does not light the result up',
     'Verify lights the result up',
@@ -91,6 +96,10 @@ const EXPECTED_CHECKS = [
     'the code panel opens and closes on its own button',
     'the verify button runs the same check an edit does',
     'a camera that will not start hands the button back',
+    'the address field carries a scan button of its own',
+    'the address button opens the same panel, named for the address',
+    'a camera that will not start hands the address button back',
+    'the address reader is not sent to Choose photo, which fills the signature',
     'the test module finished',
 ];
 
@@ -116,6 +125,15 @@ for (const [name, want] of Object.entries(PINNED)) {
     const from = page.indexOf('\n', begin) + 1;
     const got = crypto.createHash('sha256').update(page.slice(from, end - 1), 'utf8').digest('hex');
     check('embedded ' + name, got === want, got === want ? '' : 'sha256 ' + got);
+}
+
+// The guide describes this device and this page and no other wallet by name (Ilker, 2026-09-11);
+// the walkthrough it replaced was written around one, which left a reader of the page following
+// instructions for software they may not run.
+{
+    const named = page.match(/sparrow/gi);
+    check('the page names no other wallet', named === null,
+        named ? named.length + ' mentions' : '');
 }
 
 // ---- 2. script order --------------------------------------------------------------------------
@@ -308,6 +326,32 @@ async function run() {
     !el('verify-out').hidden && listed.includes(golden.p2pkh) && listed.includes(golden.p2sh_p2wpkh)
       && listed.includes(golden.p2wpkh) && el('verify-out').querySelectorAll('.addr').length === 3);
   type('path', golden.path);
+
+  // ROADMAP item 69d: the reader picks the address type instead of recalling a path. A preset has
+  // to do exactly what typing does, since both the code above and the result below hang off the
+  // field's input event, and the mark has to follow the field rather than the last click, or a
+  // path edited by hand would still show a type as chosen.
+  const presets = Array.from(document.querySelectorAll('.preset'));
+  const marked = () => presets.filter(b => b.getAttribute('aria-pressed') === 'true')
+    .map(b => b.dataset.path);
+  check('the preset buttons carry one path each',
+    presets.length === 3 && presets.map(b => b.dataset.path).join(' ')
+      === "m/44'/0'/0'/0/0 m/49'/0'/0'/0/0 m/84'/0'/0'/0/0",
+    presets.map(b => b.dataset.path).join(' '));
+  presets[2].click();
+  const native = el('verify-out').textContent;
+  check('a preset writes its path and the result follows it',
+    el('path').value === "m/84'/0'/0'/0/0" && !el('verify-out').hidden
+      && native.includes(golden.p2wpkh) && !native.includes(golden.p2pkh)
+      && el('verify-out').querySelectorAll('.addr').length === 1,
+    el('path').value + ' ' + native.slice(0, 40));
+  check('the preset in use is the only one marked',
+    marked().length === 1 && marked()[0] === "m/84'/0'/0'/0/0", marked().join(' '));
+  type('path', "m/0/0");
+  check('a path typed by hand clears the marks', marked().length === 0, marked().join(' '));
+  type('path', golden.path);
+  check('typing a preset path back marks it again',
+    marked().length === 1 && marked()[0] === golden.path, marked().join(' '));
 
   // The Verify button has to be seen to do something, even though every edit already verified:
   // with nothing to check it says so, with a result it lights the result up.
@@ -544,6 +588,36 @@ async function run() {
     await new Promise(resolve => setTimeout(resolve, 25));
   }
   check('a camera that will not start hands the button back', handedBack(),
+    el('scan-status').textContent.slice(0, 56));
+
+  // ROADMAP item 74: the device draws the address it is showing as a code, so the same camera can
+  // fill the address field. The button sits inside that field rather than in the row of actions,
+  // which is where a reader looks for it. What is measured here is the wiring: the button exists,
+  // it opens the one panel the page has, the panel says which field it is filling, and a camera
+  // that refuses hands this button back too. Where the read lands is measured in
+  // sign_camera_test.js, which is the test with a camera.
+  const addrBtn = el('expected-scan');
+  check('the address field carries a scan button of its own',
+    !!addrBtn && addrBtn.closest('.infield') === el('expected').closest('.infield')
+      && addrBtn.getAttribute('aria-label').length > 0,
+    addrBtn ? addrBtn.getAttribute('aria-label') : 'no button');
+  addrBtn.click();
+  check('the address button opens the same panel, named for the address',
+    !el('scan-panel').hidden && el('scan-heading').textContent.includes('address'),
+    el('scan-heading').textContent);
+  // The way out of a refused camera is not the same for the two fields: Choose photo fills the
+  // signature and nothing else, so sending an address reader there would put their address in the
+  // wrong field. The address reader is told to type instead, and that is measured, not assumed.
+  const addrHandedBack = () => el('scan-status').textContent.includes('type the address')
+    && !addrBtn.disabled;
+  const addrGiveUp = Date.now() + 8000;
+  while (!addrHandedBack() && Date.now() < addrGiveUp) {
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  check('a camera that will not start hands the address button back', addrHandedBack(),
+    el('scan-status').textContent.slice(0, 56));
+  check('the address reader is not sent to Choose photo, which fills the signature',
+    !el('scan-status').textContent.includes('Choose photo'),
     el('scan-status').textContent.slice(0, 56));
 }
 run().catch(e => check('the test itself ran', false, String(e && e.message))).then(report);

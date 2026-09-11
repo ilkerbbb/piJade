@@ -1,7 +1,7 @@
 # BBB-AIRGAP: checks a signature the device produced WITHOUT trusting the device.  The public key
 # is recovered from the signature itself and compared against the key derived from the BIP39 words,
 # so the constant in t4148_help.sh is not just "whatever the device printed that day".
-# Usage:  python3 pijade/tools/verify_signature.py <base64 signature>
+# Usage:  python3 pijade/tools/verify_signature.py <base64 signature> [path] [message]
 # The words below are the public BIP39 test vector; a real seed never reaches this machine.
 # No third-party package: the secp256k1 arithmetic is right here, which is also why it is slow
 # enough to notice (a few seconds) and fast enough not to matter for one signature.
@@ -108,12 +108,15 @@ def recover(sig_b64, h):
 
 SEED_WORDS = ('abandon abandon abandon abandon abandon abandon '
               'abandon abandon abandon abandon abandon about')
-PATH = "m/44'/0'/0'/0/0"
-MESSAGE = b'hello'
-if len(sys.argv) != 2:
-    print('usage: verify_signature.py <base64 signature>')
+# The path and the text default to the page's self-test vector; both can be given instead, which
+# is how a signature made under another purpose (m/49', m/84') is checked without a second copy of
+# the arithmetic above (ROADMAP item 69d, 2026-09-11).
+if not 2 <= len(sys.argv) <= 4:
+    print("usage: verify_signature.py <base64 signature> [path] [message]")
     sys.exit(2)
 SIG = sys.argv[1]
+PATH = sys.argv[2] if len(sys.argv) > 2 else "m/44'/0'/0'/0/0"
+MESSAGE = (sys.argv[3] if len(sys.argv) > 3 else 'hello').encode()
 
 key = derive(bip39_seed(SEED_WORDS), PATH)
 pub = ser(mul(int.from_bytes(key, 'big'), G))

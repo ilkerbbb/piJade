@@ -51,6 +51,7 @@ const EXPECTED_CHECKS = [
     'choosing a photograph ends a scan that is still looking',
     'a camera that stops on its own hands the button back and says so',
     'starting a scan supersedes a photograph still being read',
+    'the address button fills the address field and leaves the signature alone',
     'the test module finished',
 ];
 
@@ -341,11 +342,17 @@ async function run() {
                 + " ? window.__grants[0].getVideoTracks()[0].readyState : '(no grant)'"));
 
         // Verification runs off the input event the camera dispatched, on the page's own schedule.
+        // The page opens on m/44', and since ROADMAP item 69 the purpose in the path picks ONE
+        // address to list rather than all three, so the legacy address is the one that has to
+        // appear and the other two are the ones that must not. Measured 2026-09-11: this check
+        // still demanded all three and had been failing since that change went in, unnoticed
+        // because this test needs a real browser and a fake capture device to run at all.
         await waitFor(async () => (await evaluate(
-            "document.getElementById('verify-out').textContent")).indexOf(golden.p2wpkh) >= 0, 8000);
+            "document.getElementById('verify-out').textContent")).indexOf(golden.p2pkh) >= 0, 8000);
         const out = await evaluate("document.getElementById('verify-out').textContent");
         check('what the camera read is verified without another click',
-            out.includes(golden.p2wpkh) && out.includes(golden.p2pkh)
+            out.includes(golden.p2pkh) && !out.includes(golden.p2wpkh)
+            && !out.includes(golden.p2sh_p2wpkh)
             && await evaluate("document.getElementById('verify-error').hidden === true"),
             out.replace(/\s+/g, ' ').slice(0, 44));
 
@@ -482,6 +489,22 @@ async function run() {
         await evaluate("document.getElementById('scan-stop').click()");
 
         await evaluate("window.jsQR = window.__realJsQR");
+
+        // ROADMAP item 74: the address field has a camera button of its own, and which field a
+        // read lands in is decided when the scan starts. The capture device here carries a
+        // signature rather than an address, which is exactly what makes the check sharp: what was
+        // read has to land in the address field anyway, because the button pressed was that
+        // field's. A module that kept writing to the signature field would fail both halves.
+        await evaluate("document.getElementById('signature').value = '';"
+            + " document.getElementById('expected').value = '';");
+        await evaluate("document.getElementById('expected-scan').click()");
+        const landed = await waitFor(async () =>
+            await evaluate("document.getElementById('expected').value") === golden.signature_base64, 15000);
+        check('the address button fills the address field and leaves the signature alone',
+            landed && await evaluate("document.getElementById('signature').value") === '',
+            'address field holds ' + JSON.stringify(
+                (await evaluate("document.getElementById('expected').value")).slice(0, 24)));
+        await evaluate("document.getElementById('scan-stop').click()");
 
         check('the test module finished', true);
     } finally {
