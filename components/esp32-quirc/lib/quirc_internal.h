@@ -92,6 +92,13 @@ struct quirc
 {
   uint8_t *image;
   quirc_pixel_t *pixels;
+  /* BBB-AIRGAP: scratch for the row threshold() is working on, one int per column.  It was a
+   * variable length array declared inside that row loop, sized from q->w at run time, so the
+   * compiler could not account for the frame and a wider image grew the stack instead of
+   * failing where a failure can be reported.  It is sized with the buffers above, from the
+   * same width, by quirc_resize().
+   */
+  int *row_average;
   int w;
   int h;
 

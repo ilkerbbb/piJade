@@ -43,6 +43,12 @@ void quirc_destroy(struct quirc *q)
   if (sizeof(*q->image) != sizeof(*q->pixels))
     if (q->pixels)
       free(q->pixels);
+  /* BBB-AIRGAP: released with the buffers it was sized alongside.  It is zeroed at both ends
+   * of its life (quirc_resize() below, threshold() in identify.c), so there is nothing left
+   * here to wipe first.
+   */
+  if (q->row_average)
+    free(q->row_average);
 
   if (q)
     free(q);
@@ -73,6 +79,26 @@ int quirc_resize(struct quirc *q, int w, int h)
     }
     q->pixels = new_pixels;
   }
+  /* BBB-AIRGAP: threshold() reads and writes one int per column of the row it is on, and that
+   * scratch used to be a variable length array in its row loop.  It is allocated here instead,
+   * from the same width as the image, and out of internal memory rather than PSRAM because the
+   * loop touches it once per pixel.  Taken last so that a failure frees only what this call
+   * itself allocated; callers treat the -1 as fatal (main/qrscan.c:36 and :41).
+   *
+   * It is zeroed here and again by threshold() before that function returns, which together
+   * mean it never holds readable data outside a scan: recycled heap can carry the bytes of
+   * whatever was freed before it, and it is released without a wipe.
+   */
+  int *const new_row_average = d_malloc((size_t)w * sizeof(*new_row_average));
+  if (!new_row_average)
+  {
+    free(new_image);
+    return -1;
+  }
+  memset(new_row_average, 0, (size_t)w * sizeof(*new_row_average));
+  if (q->row_average)
+    free(q->row_average);
+  q->row_average = new_row_average;
   q->image = new_image;
   q->w = w;
   q->h = h;

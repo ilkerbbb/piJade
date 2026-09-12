@@ -255,6 +255,10 @@ static void threshold(struct quirc *q)
   int avg_u = 0;
   int threshold_s = q->w / THRESHOLD_S_DEN;
   quirc_pixel_t *row = q->pixels;
+  /* BBB-AIRGAP: the row scratch is allocated with the image (quirc.c) rather than declared
+   * below, where its length came from q->w and made it a variable length array.
+   */
+  int *const row_average = q->row_average;
 
   /*
      * Ensure a sane, non-zero value for threshold_s.
@@ -267,9 +271,7 @@ static void threshold(struct quirc *q)
 
   for (y = 0; y < q->h; y++)
   {
-    int row_average[q->w];
-
-    memset(row_average, 0, sizeof(row_average));
+    memset(row_average, 0, (size_t)q->w * sizeof(*row_average));
 
     for (x = 0; x < q->w; x++)
     {
@@ -308,6 +310,13 @@ static void threshold(struct quirc *q)
 
     row += q->w;
   }
+
+  /* BBB-AIRGAP: on return the scratch would hold the last row's running sums, which come from
+   * the frame that was scanned; on a SeedQR scan that frame carries the mnemonic.  It outlives
+   * this call now that it is allocated with the image, and the fork's wipe (main/qrscan.c)
+   * cannot reach it because it has no public accessor, so it is left zeroed here instead.
+   */
+  memset(row_average, 0, (size_t)q->w * sizeof(*row_average));
 }
 
 static void area_count(void *user_data, int y, int left, int right)

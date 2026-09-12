@@ -92,6 +92,7 @@ All work happens on `bbb-airgap`.
 | `libjade/nvs_flash.c` | +28 / -2 | Emulator layer | `nvs_commit()` and `nvs_flash_erase()` notify the host; the single hook for settings persistence. It covers all five namespaces, asks for every copy to be removed on a factory reset, and provides access to `pijade_settings_storage()` |
 | `main/utils/psbt.c` | +28 / -0 | Upstream file | feat(psbt): suggest the right slot with several wallets, and ask early when there is no input to sign |
 | `main/ui/keyboard.c` | +27 / -0 | Upstream file | Turns the ALT event into the existing Shift button event, opening the next keyboard page |
+| `components/esp32-quirc/lib/quirc.c` | +26 / -0 | Vendored library | quirc: the row scratch `threshold()` works on is allocated by `quirc_resize()` alongside the image buffers, from the same width, and zeroed there; `quirc_destroy()` frees it |
 | `test_data/sign_message_golden.json` | +26 / -0 | **New file** | docs: read the signature back on the sign page |
 | `libjade/include/esp_timer.h` | +25 / -0 | **New file** | feat(miner): take in the mining component, write two sims, close three defects |
 | `libjade/include/esp_system.h` | +24 / -0 | Emulator layer | `esp_reset_reason_t` and `esp_reset_reason()`; the names and their order come from the esp-idf 5.5 source |
@@ -125,12 +126,14 @@ All work happens on `bbb-airgap`.
 | `test_data/msg_bbb_newline.json` | +13 / -0 | **New file** | camera: capture at VGA, and refuse a message the screen cannot show |
 | `test_data/msg_bbb_nonascii.json` | +13 / -0 | **New file** | camera: capture at VGA, and refuse a message the screen cannot show |
 | `test_data/msg_bbb_nul.json` | +13 / -0 | **New file** | camera: capture at VGA, and refuse a message the screen cannot show |
+| `components/esp32-quirc/lib/identify.c` | +12 / -3 | Vendored library | The same change, consumer side: `threshold()` takes the scratch from `struct quirc` instead of declaring a variable length array sized from `q->w` at run time, and zeroes it before returning, because the running sums it leaves behind come from the scanned frame |
 | `main/process.h` | +11 / -1 | Upstream file | libjade: fix deadlock between standard CBOR and libjade CBOR messages |
 | `main/process/get_receive_address.c` | +11 / -1 | Upstream file | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
 | `libjade/include/esp_log.h` | +9 / -4 | Emulator layer | fix(miner): close the indefinite hang in production, and fit the esp_log shim to the API |
 | `main/amalgamated.c` | +9 / -4 | Upstream file | The `#include` of the entropy sources and `seedqr.c`; taking the keyboard screen and the idle timer out of the libjade build was reverted |
 | `main/ui/multisig.c` | +9 / -0 | Upstream file | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
 | `main/ui/digit_entry.c` | +8 / -0 | Upstream file | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
+| `components/esp32-quirc/lib/quirc_internal.h` | +7 / -0 | Vendored library | The same change: the `row_average` member, with the comment stating that `quirc_resize()` sizes it from the same width as the image buffers |
 | `main/utils/psbt.h` | +7 / -0 | Upstream file | feat(psbt): suggest the right slot with several wallets, and ask early when there is no input to sign |
 | `main/wire.c` | +7 / -2 | Upstream file | fix(libjade): move classification onto the parsed method, and make the selfchecks runnable; libjade: fix deadlock between standard CBOR and libjade CBOR messages |
 | `components/miner/README.md` | +6 / -0 | **New file** | feat(miner): take in the mining component, write two sims, close three defects |
@@ -212,6 +215,19 @@ obvious. The other three grew for reasons unrelated to logging and are no longer
 `main/otpauth.c` (+24 / -3), `main/process/register_otp.c` (+71 / -2) and `main/qrscan.c`
 (+103 / -54, the two-pass scan). A conflict in those needs the row in the table above, not this
 paragraph.
+
+**The first fork edit inside a vendored component (2026-09-12).** `components/esp32-quirc/` is
+Espressif's fork of dlbeer's quirc, vendored by upstream Jade; until this round not one line of it
+was ours, which is why the table above had no `components/esp32-quirc/` row and the `Vendored
+library` kind did not exist. Three files carry `BBB-AIRGAP` marks now, for a single reason:
+`threshold()` in `identify.c` declared a variable length array sized from the image width at run
+time, the last one left in the tree, and that scratch is now a buffer owned by `struct quirc` and
+allocated by `quirc_resize()`. Two things follow for a rebase. dlbeer's own master has no
+counterpart for this function (it thresholds with `otsu()` over a histogram, not with a per-row
+mean), so no upstream patch will ever arrive that resolves this conflict for us; and the buffer
+holds running sums taken from the frame being scanned, which on a SeedQR scan is the mnemonic, so
+it is zeroed at both ends of its life (on allocation, and before `threshold()` returns). Keeping
+the zeroing while dropping the ownership move would put the variable length array back.
 
 Every divergence in `main/camera.c` and `main/display_hw.c` sits inside `#ifdef CONFIG_LIBJADE`:
 an ESP32 build is not affected by any of it. The VGA capture size is the one exception worth
