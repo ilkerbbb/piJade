@@ -5,6 +5,7 @@
 #include "camera.h"
 #include "idletimer.h"
 #include "jade_assert.h"
+#include "jade_wally_verify.h"
 #include "qr_downscale.h"
 #include "qrscan.h"
 #include "sensitive.h"
@@ -54,20 +55,48 @@ static void qr_scanner_init(qr_data_t* qr_data)
     qr_data->ds->data = JADE_MALLOC_PREFER_DRAM(QUIRC_MAX_PAYLOAD * sizeof(uint8_t));
 }
 
+// BBB-AIRGAP: quirc_destroy() releases the image buffer without clearing it, and in a SeedQR
+// scan that buffer holds the frame the mnemonic was read from.  quirc_begin() is the public way
+// to reach the buffer and its dimensions, so the component's internal header stays out of this
+// file; on this path its only side effect is resetting three counters on a struct that is freed
+// on the next line.  The buffer is single: QUIRC_MAX_REGIONS is 254, so quirc_pixel_t is uint8_t
+// and identify.c aliases q->pixels onto q->image rather than allocating a second one.
+static void quirc_wipe_and_destroy(struct quirc* q)
+{
+    JADE_ASSERT(q);
+
+    int width = 0;
+    int height = 0;
+    uint8_t* const image = quirc_begin(q, &width, &height);
+    JADE_ASSERT(image);
+    JADE_ASSERT(width > 0);
+    JADE_ASSERT(height > 0);
+    JADE_WALLY_VERIFY(wally_bzero(image, (size_t)width * (size_t)height));
+
+    quirc_destroy(q);
+}
+
 static void qr_scanner_destroy(qr_data_t* qr_data)
 {
     JADE_ASSERT(qr_data);
 
-    // NOTE: quirc_destroy() frees the image buffers without wiping them, and in a SeedQR scan
-    // those buffers hold the frame the mnemonic was read from.  That is the camera-buffer gap
-    // tracked as phase 1.3 of the hardening round, and it lands here, once, for both instances.
+    // BBB-AIRGAP: every buffer a scan allocates is wiped before it is released.  In a SeedQR
+    // scan the two image buffers hold the frame the mnemonic was read from, and the decoder
+    // scratch holds the mnemonic itself in two places: the struct's own raw[QUIRC_MAX_PAYLOAD]
+    // carries the codewords read off the symbol, and the separately allocated ds->data carries
+    // the payload they decode to.  The struct was measured with 27 non-zero bytes at free() on
+    // a 12-word scan, which is why it is wiped as well and not just the buffer hanging off it.
+    // This closes the camera-buffer gap tracked as phase 1.3 of the hardening round, and it
+    // lands here, once, for both instances.
+    JADE_WALLY_VERIFY(wally_bzero(qr_data->ds->data, QUIRC_MAX_PAYLOAD * sizeof(uint8_t)));
     free(qr_data->ds->data);
     qr_data->ds->data = NULL;
+    JADE_WALLY_VERIFY(wally_bzero(qr_data->ds, sizeof(struct datastream)));
     free(qr_data->ds);
     qr_data->ds = NULL;
-    quirc_destroy(qr_data->q);
+    quirc_wipe_and_destroy(qr_data->q);
     qr_data->q = NULL;
-    quirc_destroy(qr_data->q_half);
+    quirc_wipe_and_destroy(qr_data->q_half);
     qr_data->q_half = NULL;
 }
 
