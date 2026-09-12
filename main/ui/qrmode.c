@@ -466,7 +466,12 @@ gui_activity_t* make_qr_back_continue_activity(
     // LHS
     {
         gui_view_node_t* vsplit;
-        gui_make_vsplit(&vsplit, GUI_SPLIT_RELATIVE, 6, 20, 18, 16, 21, 25);
+        // BBB-AIRGAP: five rows are attached below - the back/brightness row, the three message
+        // lines and the footer button - so five parts.  This said six while passing five values;
+        // the defect and why the screen is pixel-identical afterwards are written out at
+        // make_storage_stats_activity() (main/ui/dashboard.c), which carries the same mistake.
+        // Both calls are upstream's and stand unchanged in upstream/master.
+        gui_make_vsplit(&vsplit, GUI_SPLIT_RELATIVE, 5, 20, 18, 16, 21, 25);
         gui_set_parent(vsplit, hsplit);
 
         gui_view_node_t* back_btn = make_back_brightness_row(vsplit, BTN_NO);

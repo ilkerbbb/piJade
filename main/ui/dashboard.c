@@ -909,7 +909,14 @@ gui_activity_t* make_storage_stats_activity(const size_t entries_used, const siz
     char buf[16];
 
     gui_view_node_t* vsplit;
-    gui_make_vsplit(&vsplit, GUI_SPLIT_RELATIVE, 4, 25, 25, 25);
+    // BBB-AIRGAP: three rows are attached below, so three parts.  This said four while passing
+    // three values, and make_split_node() reads exactly 'parts' arguments, so the fourth read
+    // took whatever followed the call's own arguments - undefined behaviour, and an outright
+    // abort once upstream ab2ad925 asserts the range of every value it reads.  Nothing was ever
+    // drawn from that slot: render_vsplit() stops when the children run out and get_step() does
+    // not rescale, so the three rows were 25% each before this change and are 25% each after it.
+    // Reported upstream as an existing defect rather than one this fork introduced.
+    gui_make_vsplit(&vsplit, GUI_SPLIT_RELATIVE, 3, 25, 25, 25);
     gui_set_padding(vsplit, GUI_MARGIN_ALL_DIFFERENT, 2, 2, 2, 2);
     gui_set_parent(vsplit, parent);
 
