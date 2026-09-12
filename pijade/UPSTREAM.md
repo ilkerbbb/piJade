@@ -985,7 +985,7 @@ existing `BTN_SESSION_LOGOUT` path.
 ## 27. Building libjade on macOS (upstream `fe3e3e94`, taken with fork adaptations)
 
 **Divergence:** `libjade/task.c`, `libjade/libjade.c`, `libjade/nvs_flash.c`, `libjade/CMakeLists.txt`,
-`libjade/make_libjade.sh`, `components/esp32-quirc/openmv/fmath.h`, `components/libwally-core/config.h`,
+`libjade/make_libjade.sh`, `components/libwally-core/config.h`,
 `pijade/host/settings_store.h`, `.gitignore`. Upstream's own files in the commit
 (`libjade/include/libjade_port.h`, `libjade/include/freertos/semphr_darwin.h`,
 `libjade/include/freertos/semphr.h`, `libjade/esp_event.c`, `libjade/README.md`,
@@ -1016,13 +1016,35 @@ everywhere else. Neither file in `main/` is touched.
 *`libjade/nvs_flash.c`.* The fork added `pijade_settings.h`; upstream added `libjade_port.h` for the
 `le32toh`/`htole32` macros macOS lacks. Both includes are present.
 
-**Three fork-side portability gates.** Each was measured on the failing build, not guessed.
+**Two fork-side portability gates.** Each was measured on the failing build, not guessed.
 
 | File | macOS failure | Gate |
 |---|---|---|
-| `components/esp32-quirc/openmv/fmath.h` | `invalid output constraint '=f' in asm` | `fast_sqrtf()` uses the Xtensa `fsqrt.s` instruction. It compiled on x86 and 32-bit ARM only because nothing calls it and GCC emits no body for an uncalled static inline; clang validates the constraint while parsing. Now `#ifdef __XTENSA__`, with the portable `sqrtf()` branch this file already suggested in its own commented-out block. |
 | `components/libwally-core/config.h` | `call to undeclared function 'explicit_bzero'` | macOS has no `explicit_bzero` (measured: it does not compile even with `<strings.h>`), and this header's `HAVE_INLINE_ASM` barrier is off, so falling through to a plain `memset` would leave the wipe elidable. `HAVE_MEMSET_S` with `__STDC_WANT_LIB_EXT1__` is used there instead, and it is the branch that actually runs: `upstream/src/internal.c:335` selects `memset_s()` and `nm -u build_macos/libjade/libjade.dylib` lists `_memset_s` as undefined. Every other target keeps `HAVE_EXPLICIT_BZERO`. |
 | `pijade/host/settings_store.h` | the same call, from `pijade/host/settings_store.c` (7 sites) and `libjade/daemon.c` (1) | An `__APPLE__`-only `static inline explicit_bzero()` whose `memset` is followed by an empty asm barrier, the technique libwally uses for the same job. `memset_s` was not used here: it compiles on macOS too (measured, in both include orders), but it is Annex K, which is optional and absent from glibc, and it is declared only where `__STDC_WANT_LIB_EXT1__` is set, so using it would push that feature-test macro onto every host translation unit including this header. |
+
+**The third macOS failure was upstream's, and its fix is upstream's too.** clang rejects
+`components/esp32-quirc/openmv/fmath.h` with `invalid output constraint '=f' in asm`: `fast_sqrtf()`
+is an Xtensa `fsqrt.s` instruction with an Xtensa register constraint. It compiled on x86 and on
+32-bit ARM only because nothing calls the function and GCC emits no body for an uncalled static
+inline; clang validates the constraint while parsing. The first pass at this port answered by
+gating that body behind `__XTENSA__`, which edits a vendored file. That gate has been reverted,
+because upstream had already solved the same failure one commit earlier, in `1c0025f6`, which is
+an ancestor of `fe3e3e94` and was missed when the port was taken: `libjade/libjade.c` defines
+`__FMATH_H` before including `identify.c`, so the header never enters the amalgamated build, and
+defines the two functions quirc actually calls. The measurement behind that choice: `identify.c`
+is the only file that includes `fmath.h`, and the only symbols it uses from it are `fast_roundf()`
+at lines 108 and 109 and `fast_fabsf()` at 1134, 1179 and 1180. Both replacements match the
+header's own semantics, `(int)(x)` and `fabsf(d)` respectively, so nothing about QR decoding
+changes. `cos_table`, `sin_table` and the rest of the `fast_*` family are never referenced.
+`components/esp32-quirc/openmv/fmath.h` is now byte identical to upstream again (blob
+`76c3b938`), and the ESP32 build still gets the Xtensa instruction, because there the header is
+included normally. One limit this leaves standing, stated rather than hidden: `identify.c` has a
+second consumer, `pijade/tools/t44_bench.c`, which includes it without the define. That file is
+compiled only by `pijade/images/build-armv6.sh` with the target's own GCC, where the uncalled
+`fast_sqrtf()` costs nothing, which is how it stood before this port. Building `t44_bench.c` with
+clang would hit the same asm error, and the answer then is the same define, not an edit to the
+vendored header.
 
 **Hardening flags are now platform gated** (`libjade/CMakeLists.txt`). `-fstack-clash-protection`
 and `-Wl,-z,relro,-z,now` are ELF and GCC features that Apple's toolchain does not have, so they

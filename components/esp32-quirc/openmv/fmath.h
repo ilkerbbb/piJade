@@ -13,20 +13,11 @@
 
 static inline float fast_sqrtf(float x)
 {
-  // BBB-AIRGAP: fsqrt.s is an Xtensa FPU instruction and "=f" is an Xtensa register constraint,
-  // so this body only assembles on an ESP32.  It survived on x86 and on 32-bit ARM because the
-  // function is never called - quirc includes this header but uses no square root - and a static
-  // inline that nobody calls emits nothing.  Clang validates the constraint while parsing, so on
-  // arm64 (the macOS host build) it fails there instead.  The portable branch is the one this
-  // file already suggests in its own commented-out block below.
-#ifdef __XTENSA__
+  //return sqrtf(x);
   asm("fsqrt.s %0, %1"
       : "=f"(x)
       : "f"(x));
   return x;
-#else
-  return sqrtf(x);
-#endif
 }
 static inline int fast_floorf(float x)
 {
