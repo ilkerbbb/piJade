@@ -64,6 +64,12 @@
 #define LOCK_VERSION 0
 #endif
 
+// BBB-AIRGAP: the largest version this fork ever encodes.  The encoder sizes its work areas from
+// the version at run time, which makes them variable length arrays; capping the version lets those
+// areas become fixed size arrays whose frame the compiler can see.  bcur.c asserts this same
+// ceiling on the version it picks, and qrmode.c's QR_VER_HIGH is checked against it.
+#define QRCODE_MAX_VERSION 12
+
 typedef struct QRCode {
     uint8_t version;
     uint8_t size;

@@ -1378,7 +1378,12 @@ void bcur_create_qr_icons(const uint8_t* payload, const size_t len, const char* 
     JADE_ASSERT(len);
     JADE_ASSERT(bcur_type);
     JADE_ASSERT(qr_version >= 3); // BBB-AIRGAP: 3 for xpubs, see BCUR_FRAGMENT_SIZE_V3
-    JADE_ASSERT(qr_version <= 12);
+    // BBB-AIRGAP: the ceiling is the encoder's, and the two tables above are indexed by the same
+    // version, so their length is tied to it here rather than left to agree by hand.
+    JADE_STATIC_ASSERT(
+        sizeof(QR_ALPHANUMERIC_CAPACITY) / sizeof(QR_ALPHANUMERIC_CAPACITY[0]) == QRCODE_MAX_VERSION + 1);
+    JADE_STATIC_ASSERT(sizeof(QR_SCALE_FACTOR) / sizeof(QR_SCALE_FACTOR[0]) == QRCODE_MAX_VERSION + 1);
+    JADE_ASSERT(qr_version <= QRCODE_MAX_VERSION);
     JADE_INIT_OUT_PPTR(icons);
     JADE_INIT_OUT_SIZE(num_icons);
 

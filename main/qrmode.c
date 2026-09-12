@@ -227,6 +227,9 @@ static uint8_t qr_version_from_flags(const uint32_t qr_flags)
 {
     // QR versions 12, 6 and 4 fit well on the Jade screen with scaling of
     // 2 px-per-cell, 3 px-per-cell, and 4 px-per-cell respectively.
+    // BBB-AIRGAP: the densest rung has to stay inside the version the encoder sizes its work
+    // areas for; this panel's QR_VER_HIGH is 12, which is exactly that ceiling.
+    JADE_STATIC_ASSERT(QR_VER_HIGH <= QRCODE_MAX_VERSION);
     // Version/Size/Density: HIGH|LOW > HIGH > LOW ... 0 implies unset/default
     // unset/default is treated as 'high' (ie. the middle value)
     return contains_flags(qr_flags, QR_DENSITY_HIGH | QR_DENSITY_LOW) ? QR_VER_HIGH

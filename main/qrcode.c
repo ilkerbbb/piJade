@@ -95,6 +95,23 @@ static const uint16_t NUM_RAW_DATA_MODULES = 567;
 
 #endif
 
+// BBB-AIRGAP: ceilings for the encoder's work areas, so that none of them is a variable length
+// array.  Two of the five come from the QR standard and hold for every version, so they are not
+// tied to QRCODE_MAX_VERSION:
+//   QRCODE_MAX_ALIGN_COUNT     version / 7 + 2, largest at version 40
+//   QRCODE_MAX_ECC_BLOCK_LEN   largest NUM_ERROR_CORRECTION_CODEWORDS / NUM_ERROR_CORRECTION_BLOCKS
+//                              over every version and every correction level
+// The other two are derived from QRCODE_MAX_VERSION.  The raw module count lives in the table
+// above and a table element is not a constant expression, so the codeword ceiling has to be
+// written out; qrcode_initBytes() asserts the version that produced it, and every array below
+// also asserts its own bound where it is declared.
+#define QRCODE_MAX_ALIGN_COUNT 7
+#define QRCODE_MAX_ECC_BLOCK_LEN 30
+#define QRCODE_MAX_SIZE (4 * QRCODE_MAX_VERSION + 17)
+#define QRCODE_MAX_GRID_BYTES (((QRCODE_MAX_SIZE * QRCODE_MAX_SIZE) + 7) / 8)
+// NUM_RAW_DATA_MODULES[QRCODE_MAX_VERSION - 1] = 3728 bits -> 466 bytes
+#define QRCODE_MAX_CODEWORD_BYTES 466
+
 static int max(int a, int b)
 {
     if (a > b) {
@@ -473,7 +490,8 @@ static void drawFunctionPatterns(BitBucket* modules, BitBucket* isFunction, uint
         }
 
         uint8_t alignPositionIndex = alignCount - 1;
-        uint8_t alignPosition[alignCount];
+        JADE_ASSERT(alignCount <= QRCODE_MAX_ALIGN_COUNT);
+        uint8_t alignPosition[QRCODE_MAX_ALIGN_COUNT];
 
         alignPosition[0] = 6;
 
@@ -777,10 +795,12 @@ static void performErrorCorrection(uint8_t version, uint8_t ecc, BitBucket* data
 
     uint8_t shortDataBlockLen = shortBlockLen - blockEccLen;
 
-    uint8_t result[data->capacityBytes];
-    memset(result, 0, sizeof(result));
+    JADE_ASSERT(data->capacityBytes <= QRCODE_MAX_CODEWORD_BYTES);
+    uint8_t result[QRCODE_MAX_CODEWORD_BYTES];
+    memset(result, 0, data->capacityBytes);
 
-    uint8_t coeff[blockEccLen];
+    JADE_ASSERT(blockEccLen <= QRCODE_MAX_ECC_BLOCK_LEN);
+    uint8_t coeff[QRCODE_MAX_ECC_BLOCK_LEN];
     rs_init(blockEccLen, coeff);
 
     uint16_t offset = 0;
@@ -847,6 +867,11 @@ uint16_t qrcode_getBufferSize(uint8_t version) { return bb_getGridSizeBytes(4 * 
 // @TODO: Return error if data is too big.
 int8_t qrcode_initBytes(QRCode* qrcode, uint8_t* modules, uint8_t version, uint8_t ecc, uint8_t* data, uint16_t length)
 {
+    // BBB-AIRGAP: the work areas below are sized for QRCODE_MAX_VERSION.  Version 0 would also
+    // index one before the start of every lookup table.
+    JADE_ASSERT(version >= 1);
+    JADE_ASSERT(version <= QRCODE_MAX_VERSION);
+
     uint8_t size = version * 4 + 17;
     qrcode->version = version;
     qrcode->size = size;
@@ -865,8 +890,12 @@ int8_t qrcode_initBytes(QRCode* qrcode, uint8_t* modules, uint8_t version, uint8
 #endif
 
     struct BitBucket codewords;
-    uint8_t codewordBytes[bb_getBufferSizeBytes(moduleCount)];
-    bb_initBuffer(&codewords, codewordBytes, (int32_t)sizeof(codewordBytes));
+    const uint16_t codewordBytesLen = bb_getBufferSizeBytes(moduleCount);
+    JADE_ASSERT(codewordBytesLen <= QRCODE_MAX_CODEWORD_BYTES);
+    uint8_t codewordBytes[QRCODE_MAX_CODEWORD_BYTES];
+    // BBB-AIRGAP: the bucket is told the bytes this version actually uses, not the size of the
+    // array, so capacityBytes keeps meaning what it meant before the array became a fixed size.
+    bb_initBuffer(&codewords, codewordBytes, (int32_t)codewordBytesLen);
 
     // Place the data code words into the buffer
     int8_t mode = encodeDataCodewords(&codewords, data, length, version);
@@ -893,7 +922,8 @@ int8_t qrcode_initBytes(QRCode* qrcode, uint8_t* modules, uint8_t version, uint8
     bb_initGrid(&modulesGrid, modules, size);
 
     BitBucket isFunctionGrid;
-    uint8_t isFunctionGridBytes[bb_getGridSizeBytes(size)];
+    JADE_ASSERT(bb_getGridSizeBytes(size) <= QRCODE_MAX_GRID_BYTES);
+    uint8_t isFunctionGridBytes[QRCODE_MAX_GRID_BYTES];
     bb_initGrid(&isFunctionGrid, isFunctionGridBytes, size);
 
     // Draw function patterns, draw all codewords, do masking
