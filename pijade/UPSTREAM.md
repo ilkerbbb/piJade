@@ -339,6 +339,14 @@ for panel in 128x128 240x135 240x240 320x170 480x220; do
         -Wl,--start-group $LIBS -Wl,--end-group -lpthread -lz -lm -lstdc++ || exit 1
     /tmp/qr_scale_test || exit 1
 done
+# The loop leaves build_linux configured for the last panel in the list, and every later
+# measurement that links against build_linux inherits it (item 18 is panel specific and fails
+# three checks on the wrong geometry).  Put the real configuration back before moving on, and
+# repeat the whole flag set: make_libjade.sh writes every -D from the command line, so an
+# omitted flag returns to its default (CAMERA=0, LOG=0, CI=CI) rather than staying as it was,
+# and a rebuild that only names the panel would silently disable the camera that items 20 and
+# 25 feed frames to.
+./libjade/make_libjade.sh Debug --log --camera --no-ci --display=240x240
 ```
 
 Item 13 checks that the keyboard screen stays in the libjade build. Upstream drops
@@ -497,10 +505,22 @@ Expected: `0 failure(s)`.
 measured: `components/libwally-core/upstream/include` is required for `wally_core.h`, and
 `-lcrypto` is NOT in the container (passing it breaks the link).
 
+A third trap is the library the test links against. Unlike `qr_scale_test.c` (item 5), this test is
+panel specific: it hard codes the 240x240 panel and the icon sizes that follow from it, while
+`make_libjade.sh` always writes `build_linux`, defaults to libjade's 320x200 placeholder, and
+resets every flag it is not given.  Link
+the test against a library built without `--display=240x240` and exactly three checks fail,
+`v1/v2/v3 fullscreen icon size is exactly 189/200/203 px`.  That is a mismatched build and not a
+regression: measured 2026-09-12, a 320x200 library returns scale factors 8/6/6 and icons of
+168/150/174 px, and the same source against a 240x240 library returns `0 failure(s)`.  So build the
+library first; the line below does that.  (`-I/jade/build_linux/config` used to be passed here and
+was dropped: that directory does not exist in this build.)
+
 ```bash
+docker exec jade-dev sh -lc 'cd /jade && ./libjade/make_libjade.sh Debug --log --camera --no-ci --display=240x240'
 docker exec jade-dev sh -lc 'cd /jade && LIBS=$(find /jade/build_linux -name "*.a" | tr "\n" " ") && \
   gcc -o /tmp/seedqr_frag pijade/tools/seedqr_fragments_test.c \
-    -I/jade/main -I/jade -I/jade/build_linux/config \
+    -I/jade/main -I/jade \
     -I/jade/libjade/include -I/jade/components/libwally-core/upstream/include \
     $LIBS $LIBS -lstdc++ -lm -lz && /tmp/seedqr_frag'
 ```
