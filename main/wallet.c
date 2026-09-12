@@ -609,7 +609,13 @@ static void wallet_get_gaservice_path_root(const bool subaccount_root, uint32_t*
     ga_path[0] = subaccount_root ? 3 : 1;
 
     // GA service path goes in elements 1 - 32 incl.
-    JADE_STATIC_ASSERT(sizeof(keychain->gaservice_path) == (ga_path_len - 1) * sizeof(ga_path[0]));
+    // BBB-AIRGAP: the bound below is GASERVICE_ROOT_PATH_LEN and not ga_path_len, because a
+    // function parameter is not a constant expression.  With ga_path_len the condition could not
+    // be evaluated at compile time, the char[] in JADE_STATIC_ASSERT decayed into a variable
+    // length array, and the check never ran; only -Wvla made that visible.  The runtime
+    // JADE_ASSERT at the top of this function ties ga_path_len to the same constant, so nothing
+    // that used to be covered stops being covered.
+    JADE_STATIC_ASSERT(sizeof(keychain->gaservice_path) == (GASERVICE_ROOT_PATH_LEN - 1) * sizeof(ga_path[0]));
     memcpy(&ga_path[1], keychain->gaservice_path, sizeof(keychain->gaservice_path));
 }
 
