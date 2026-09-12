@@ -1057,10 +1057,14 @@ the link line of `jade` and `libjade_daemon` (a static archive has no link line)
 **The build directory is separate on purpose.** `make_libjade.sh` writes `build_linux`, which the
 container bind-mounts from this same tree; running it on macOS would overwrite the emulator's build
 with host objects. The script now refuses to run on Darwin, and the host build goes to
-`build_macos`, which `.gitignore` carries along with its configure line:
+`build_macos`, which `.gitignore` carries along with its configure line. The source root is the
+repository, as it is for every other build in the fork (`build_linux` in the container,
+`build_sc_desc` in `.gitignore`, and `cmake -S /src` in `pijade/images/build-armv6.sh`); the root
+`CMakeLists.txt` adds `libjade` as a subdirectory when `ESP_PLATFORM` is not set, which is why the
+artefacts land under `build_macos/libjade/`:
 
 ```sh
-IDF_PATH=~/esp/esp-idf cmake -S libjade -B build_macos -DCMAKE_BUILD_TYPE=Debug -DLOG=LOG \
+IDF_PATH=~/esp/esp-idf cmake -S . -B build_macos -DCMAKE_BUILD_TYPE=Debug -DLOG=LOG \
     -DCI=0 -DDEBUG_MODE=DEBUG_MODE -DDISPLAY_WIDTH=240 -DDISPLAY_HEIGHT=240 -DCAMERA=0
 make -C build_macos -j8
 ```
