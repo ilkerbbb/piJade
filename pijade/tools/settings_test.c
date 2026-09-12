@@ -20,17 +20,6 @@
 #include "libjade.h"
 #include "pijade_settings.h"
 
-#if defined(__APPLE__)
-// Current macOS SDKs do not expose explicit_bzero; volatile stores provide the test-only fallback.
-static void explicit_bzero(void* data, size_t len)
-{
-    volatile uint8_t* p = data;
-    while (len--) {
-        *p++ = 0;
-    }
-}
-#endif
-
 // The unit-test command in this file's spec links only libjade. Include the host store directly so
 // the same settings_store_read()/settings_store_write() implementation and size cap are exercised.
 #include "../host/settings_store.c"

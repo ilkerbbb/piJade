@@ -49,13 +49,22 @@ endif()
 # Measured on the image's own compiler (gcc 12.2.0, Raspbian) before being added here; nothing
 # is listed that was not compiled.  _FORTIFY_SOURCE needs an optimising build, which Release is.
 # _GLIBCXX_ASSERTIONS only affects C++ but is set on both so the two lists stay comparable.
-# The linker options are set for this build type alone: relro plus BIND_NOW makes the GOT
-# read-only once the dynamic loader is done, so an overwritten entry cannot redirect a later
-# call.  Verified after building with nm -D (__stack_chk_fail present) and readelf -d (BIND_NOW).
-set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG -D_FORTIFY_SOURCE=3 -D_GLIBCXX_ASSERTIONS -fstack-protector-strong -fstack-clash-protection")
-set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG -D_FORTIFY_SOURCE=3 -D_GLIBCXX_ASSERTIONS -fstack-protector-strong -fstack-clash-protection")
-set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "-Wl,-z,relro,-z,now")
-set(CMAKE_EXE_LINKER_FLAGS_RELEASE "-Wl,-z,relro,-z,now")
+set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG -D_FORTIFY_SOURCE=3 -D_GLIBCXX_ASSERTIONS -fstack-protector-strong")
+set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG -D_FORTIFY_SOURCE=3 -D_GLIBCXX_ASSERTIONS -fstack-protector-strong")
+# BBB-AIRGAP: the ELF-only half of that hardening follows the rule upstream applied to the debug
+# flags above - Apple's clang has no -fstack-clash-protection, and Mach-O's linker has no
+# -z relro / -z now, so both are set for every target except macOS.  Nothing is lost where it
+# matters: the shipping target is ARM Linux and takes the NOT APPLE branch, while the macOS build
+# is a development host that never produces an image.  The linker options are set for this build
+# type alone: relro plus BIND_NOW makes the GOT read-only once the dynamic loader is done, so an
+# overwritten entry cannot redirect a later call.  Verified after building with nm -D
+# (__stack_chk_fail present) and readelf -d (BIND_NOW).
+if(NOT APPLE)
+    string(APPEND CMAKE_C_FLAGS_RELEASE " -fstack-clash-protection")
+    string(APPEND CMAKE_CXX_FLAGS_RELEASE " -fstack-clash-protection")
+    set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "-Wl,-z,relro,-z,now")
+    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "-Wl,-z,relro,-z,now")
+endif()
 
 if(CMAKE_BUILD_TYPE STREQUAL "Sanitize")
     add_compile_options(-O1 -ggdb -fsanitize=address -fsanitize=undefined -fsanitize=alignment -fsanitize-address-use-after-scope -fno-sanitize-recover=all)

@@ -14,6 +14,12 @@ build_linux_nci_log
 build_linux_log
 # BBB-AIRGAP: the bc-ur decoder built under ASAN, for probing the decoder's input handling.
 build_asan_bcur
+# BBB-AIRGAP: the macOS host build, kept apart from build_linux because the container mounts this
+# repository and shares that directory; writing both from the same tree would overwrite the
+# emulator's own build. Set up with:
+#   IDF_PATH=~/esp/esp-idf cmake -S libjade -B build_macos -DCMAKE_BUILD_TYPE=Debug -DLOG=LOG \
+#       -DCI=0 -DDEBUG_MODE=DEBUG_MODE -DDISPLAY_WIDTH=240 -DDISPLAY_HEIGHT=240 -DCAMERA=0
+build_macos
 # BBB-AIRGAP: a build that runs the fork's own selfcheck vectors. The three emulator builds above
 # leave SELFCHECK empty, so they run upstream's main/selfcheck.c instead and these vectors never
 # execute. Set up with:

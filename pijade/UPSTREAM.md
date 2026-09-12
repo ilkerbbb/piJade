@@ -981,3 +981,80 @@ a new but not yet verified `SOURCE_NONE` wallet. Back calls `keychain_clear()` o
 `keychain_get_userdata() == SOURCE_NONE`. That keeps a sourceless wallet from reaching the home
 screen's assertion while preserving a sourced one. The clearing is the same operation as on Jade's
 existing `BTN_SESSION_LOGOUT` path.
+
+## 27. Building libjade on macOS (upstream `fe3e3e94`, taken with fork adaptations)
+
+**Divergence:** `libjade/task.c`, `libjade/libjade.c`, `libjade/nvs_flash.c`, `libjade/CMakeLists.txt`,
+`libjade/make_libjade.sh`, `components/esp32-quirc/openmv/fmath.h`, `components/libwally-core/config.h`,
+`pijade/host/settings_store.h`, `.gitignore`. Upstream's own files in the commit
+(`libjade/include/libjade_port.h`, `libjade/include/freertos/semphr_darwin.h`,
+`libjade/include/freertos/semphr.h`, `libjade/esp_event.c`, `libjade/README.md`,
+`jadepy/jade_sw.py`, `main/process/ota_util.c`) were taken unchanged.
+
+**Why the host build is worth having.** The emulator runs in the `jade-dev` container, so every
+measurement pays a Docker round trip and every crash is read through a container log. A native
+build gives the same firmware under the host debugger. It is a development convenience only: the
+shipping target stays 32-bit ARM Linux, and `libjade_daemon` never enters a production image.
+
+**Three conflicts, and how they were resolved.**
+
+*`libjade/task.c`.* Upstream moved the naming call from the parent to the child (the new
+`libjade_thread_setname()` in `libjade_port.h`), because macOS can only name the calling thread.
+The fork had separately made the parent's `pthread_setname_np()` failure fatal, which upstream's
+patch deletes. Both halves are kept: the call happens in the child, and the name is truncated to
+15 characters plus the terminator before `strdup()`. Linux caps a thread name at 16 bytes, so it
+answers `ERANGE` for anything longer, and `auth_qr_client_task` (19 characters, `main/qrmode.c`)
+is the only such name in the firmware. Truncating matches what the API being emulated does:
+FreeRTOS copies `configMAX_TASK_NAME_LEN` bytes into the TCB, 16 by default (measured in ESP-IDF's
+`components/freertos/Kconfig`), and drops the rest. Task creation no longer fails over a name.
+
+*`libjade/libjade.c`.* `main/process/pinclient.c` and `main/process/update_pinserver.c` ask for the
+embedded pinserver key through `asm("_binary_pinserver_public_key_pub_start")`. Mach-O's linker
+prepends an underscore of its own, so the definition here must drop it on `__APPLE__` and keep it
+everywhere else. Neither file in `main/` is touched.
+
+*`libjade/nvs_flash.c`.* The fork added `pijade_settings.h`; upstream added `libjade_port.h` for the
+`le32toh`/`htole32` macros macOS lacks. Both includes are present.
+
+**Three fork-side portability gates.** Each was measured on the failing build, not guessed.
+
+| File | macOS failure | Gate |
+|---|---|---|
+| `components/esp32-quirc/openmv/fmath.h` | `invalid output constraint '=f' in asm` | `fast_sqrtf()` uses the Xtensa `fsqrt.s` instruction. It compiled on x86 and 32-bit ARM only because nothing calls it and GCC emits no body for an uncalled static inline; clang validates the constraint while parsing. Now `#ifdef __XTENSA__`, with the portable `sqrtf()` branch this file already suggested in its own commented-out block. |
+| `components/libwally-core/config.h` | `call to undeclared function 'explicit_bzero'` | macOS has no `explicit_bzero` (measured: it does not compile even with `<strings.h>`), and this header's `HAVE_INLINE_ASM` barrier is off, so falling through to a plain `memset` would leave the wipe elidable. `HAVE_MEMSET_S` with `__STDC_WANT_LIB_EXT1__` is used there instead, and it is the branch that actually runs: `upstream/src/internal.c:335` selects `memset_s()` and `nm -u build_macos/libjade/libjade.dylib` lists `_memset_s` as undefined. Every other target keeps `HAVE_EXPLICIT_BZERO`. |
+| `pijade/host/settings_store.h` | the same call, from `pijade/host/settings_store.c` (7 sites) and `libjade/daemon.c` (1) | An `__APPLE__`-only `static inline explicit_bzero()` whose `memset` is followed by an empty asm barrier, the technique libwally uses for the same job. `memset_s` was not used here: it compiles on macOS too (measured, in both include orders), but it is Annex K, which is optional and absent from glibc, and it is declared only where `__STDC_WANT_LIB_EXT1__` is set, so using it would push that feature-test macro onto every host translation unit including this header. |
+
+**Hardening flags are now platform gated** (`libjade/CMakeLists.txt`). `-fstack-clash-protection`
+and `-Wl,-z,relro,-z,now` are ELF and GCC features that Apple's toolchain does not have, so they
+follow the rule upstream already applied to the debug flags and are set for every target except
+macOS. `-D_FORTIFY_SOURCE=3`, `-D_GLIBCXX_ASSERTIONS` and `-fstack-protector-strong` stay
+unconditional. Verified by configuring a Release tree in the container: all four flags appear in
+`flags.make` for `jade`, `jade_static` and `libjade_daemon`, and `-Wl,-z,relro,-z,now` appears in
+the link line of `jade` and `libjade_daemon` (a static archive has no link line).
+
+**The build directory is separate on purpose.** `make_libjade.sh` writes `build_linux`, which the
+container bind-mounts from this same tree; running it on macOS would overwrite the emulator's build
+with host objects. The script now refuses to run on Darwin, and the host build goes to
+`build_macos`, which `.gitignore` carries along with its configure line:
+
+```sh
+IDF_PATH=~/esp/esp-idf cmake -S libjade -B build_macos -DCMAKE_BUILD_TYPE=Debug -DLOG=LOG \
+    -DCI=0 -DDEBUG_MODE=DEBUG_MODE -DDISPLAY_WIDTH=240 -DDISPLAY_HEIGHT=240 -DCAMERA=0
+make -C build_macos -j8
+```
+
+Only two things are needed from ESP-IDF: `components/mbedtls/mbedtls` and `components/http_parser`.
+No cross compiler is installed; the measured tree was ESP-IDF v5.5.4, whose mbedtls submodule
+matches the container's.
+
+**What the macOS build does not prove.** The full `test_jade.py` is not run there (it needs
+`cbor`, `wallycore`, `pyserial` and `bleak`), the camera path is not built (`-DCAMERA=0`), and only
+Debug is exercised. The evidence collected for this port is: `libjade.dylib`, `libjade_static.a`
+and `libjade_daemon` all link, and the daemon answers a real `get_version_info` over a Unix socket
+with a 484-byte CBOR reply (`JADE_VERSION 1.0.41-pijade`, `JADE_CONFIG NORADIO`).
+
+**Entropy caveat.** `libjade_getrandom()` calls `arc4random_buf()` on macOS instead of Linux's
+`getrandom()`. That is upstream's own porting choice and is fine for a development host, but it
+means the entropy work in the security plan (the camera characterisation, and anything measuring
+the CSPRNG mix) must not be run on macOS: the source under measurement would be a different one
+from the device's.

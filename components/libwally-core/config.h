@@ -20,7 +20,17 @@
 /* #undef HAVE_DLFCN_H */
 
 /* Define to 1 if you have the `explicit_bzero' function. */
+/* BBB-AIRGAP: macOS has no explicit_bzero (measured: it does not compile even with
+   <strings.h>), and this header's HAVE_INLINE_ASM barrier is off, so falling through to a plain
+   memset would leave the wipe elidable.  memset_s is present there and cannot be optimised away,
+   so the macOS host build uses it; every other target, the shipping ARM Linux one included, keeps
+   explicit_bzero exactly as before. */
+#ifdef __APPLE__
+#define __STDC_WANT_LIB_EXT1__ 1
+#define HAVE_MEMSET_S
+#else
 #define HAVE_EXPLICIT_BZERO
+#endif
 
 /* Define to 1 if you have the `explicit_memset' function. */
 /* #undef HAVE_EXPLICIT_MEMSET */

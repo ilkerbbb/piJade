@@ -16,17 +16,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#if defined(__APPLE__)
-// Current macOS SDKs do not expose explicit_bzero; volatile stores provide the test-only fallback.
-static void explicit_bzero(void* data, size_t len)
-{
-    volatile uint8_t* p = data;
-    while (len--) {
-        *p++ = 0;
-    }
-}
-#endif
-
 static int g_fsync_fail;
 static unsigned g_read_fail_mask;
 static unsigned g_read_calls;

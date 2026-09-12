@@ -20,6 +20,29 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/*
+ * BBB-AIRGAP: explicit_bzero() is a glibc/BSD extension that macOS does not provide (measured: it
+ * does not compile there even with <strings.h>), so the host build of this file and of
+ * libjade/daemon.c - its only two callers - needs a stand-in.  The barrier below is the technique
+ * libwally-core uses for the same job: the empty asm consumes the pointer and clobbers memory, so
+ * the compiler cannot prove the wipe is dead and elide it.  memset_s() also compiles on macOS
+ * (measured, including when __STDC_WANT_LIB_EXT1__ is defined after an earlier <string.h>), but it
+ * is Annex K: optional, absent from glibc, and declared only where that feature-test macro is set,
+ * so using it would push the macro onto every host translation unit that includes this header.
+ * The barrier asks nothing of its includers.  Every other target, the shipping ARM Linux one
+ * included, uses the real function.
+ * If a future macOS gains explicit_bzero, this definition collides with its declaration and the
+ * build fails loudly - delete the block then, do not widen the guard.
+ */
+#ifdef __APPLE__
+#include <string.h>
+static inline void explicit_bzero(void* buf, size_t len)
+{
+    memset(buf, 0, len);
+    __asm__ __volatile__("" : : "r"(buf) : "memory");
+}
+#endif
+
 typedef struct settings_store settings_store_t;
 
 /* Allocates the two slot paths from base; reads nothing. NULL on allocation failure. */

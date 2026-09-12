@@ -70,6 +70,15 @@ for arg in "$@"; do
     esac
 done
 
+# BBB-AIRGAP: this script writes build_linux, which the emulator container bind-mounts from this
+# same tree; running it on macOS would overwrite the container's build with host objects.  The
+# macOS host build lives in build_macos instead - the configure line is in .gitignore.
+if [ "$(uname -s)" = "Darwin" ]; then
+    echo "make_libjade.sh builds build_linux, which the emulator container shares; on macOS" >&2
+    echo "configure build_macos instead (see the build_macos entry in .gitignore)." >&2
+    exit 1
+fi
+
 mkdir -p build_linux
 cd build_linux
 EXTRA_ARGS=''
