@@ -1453,8 +1453,8 @@ static bool address_explorer(char* out_address, const size_t out_address_len)
     struct ext_key* const search_roots
         = search_roots_len ? JADE_CALLOC(search_roots_len, sizeof(struct ext_key)) : NULL;
 
-    // Rows, then optionally 'Previous', then 'Next' and 'Options'
-    list_item_t items[ADDR_EXPLORER_PAGE_SIZE + 3];
+    // Rows, then optionally 'Previous', then 'Next'
+    list_item_t items[ADDR_EXPLORER_PAGE_SIZE + 2];
     size_t num_items = 0;
 
     size_t page = 0;
@@ -1466,8 +1466,12 @@ static bool address_explorer(char* out_address, const size_t out_address_len)
     // screen, where the device round of 2026-09-02 could not tell what turning it on had done:
     // the rows are truncated addresses either way and nothing on screen said which branch they
     // came from.  Naming the branch on the way in, and again in the list's title below, is what
-    // was missing.  'Options' stays here as well as in the list, so the script type and account
-    // can be set before a page is derived rather than after.
+    // was missing.  'Options' is offered on this menu only.  The list carried a second copy of
+    // it until 2026-09-12, and every row that copy held is reachable here: 'Change' is a row of
+    // its own, and the script type and account belong to the derivation, so they are set before
+    // a page is derived rather than after.  A registered wallet carries its own script type and
+    // account, which is why this menu drops 'Options' for one - and why the copy in the list
+    // offered such a wallet nothing but the 'Change' row that already sits above it.
     bool show_entry_menu = true;
     size_t entry_selected = 0;
 
@@ -1589,7 +1593,6 @@ static bool address_explorer(char* out_address, const size_t out_address_len)
             if ((page + 1) * ADDR_EXPLORER_PAGE_SIZE < BIP32_INITIAL_HARDENED_CHILD) {
                 items[num_items++] = (list_item_t){ .txt = "Next 10", .ev_id = BTN_ADDR_EXPLORER_NEXT };
             }
-            items[num_items++] = (list_item_t){ .txt = "Options", .ev_id = BTN_ADDR_EXPLORER_OPTIONS };
             JADE_ASSERT(num_items <= sizeof(items) / sizeof(items[0]));
             JADE_ASSERT(selected < num_items);
 
@@ -1640,21 +1643,6 @@ static bool address_explorer(char* out_address, const size_t out_address_len)
             selected = 0;
             rebuild = true;
             break;
-
-        case BTN_ADDR_EXPLORER_OPTIONS: {
-            // A registered record carries its own script type and account, so only the change
-            // branch is the user's to pick there - the same rows verify_address() offers.
-            const bool registered_wallet = multisig_data || descriptor;
-            const bool show_account = !registered_wallet;
-            if (handle_address_options(
-                    show_account, &account_index, &is_change, registered_wallet ? NULL : &script_flags)) {
-                // A different derivation is a different set of addresses - start again at its top
-                page = 0;
-                selected = 0;
-                rebuild = true;
-            }
-            break;
-        }
 
         case BTN_ADDR_EXPLORER_EXIT:
             // Back to the menu this screen was reached from, not out of the explorer: leaving
