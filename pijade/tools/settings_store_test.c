@@ -160,7 +160,10 @@ static bool read_logs_ignoring(settings_store_t* const store, const char* const 
     char line[1024] = { 0 };
     const bool have_line = fgets(line, sizeof(line), log) != NULL;
     fclose(log);
-    char prefix[768];
+    // Sized from `line` rather than a round number: the slot paths the callers pass are the same
+    // width, so at -O1 gcc sees a `%s` of up to sizeof(line) - 1 bytes here and rejects any
+    // smaller buffer under -Werror=format-truncation.
+    char prefix[sizeof(line) + sizeof("pijade: ignoring :")];
     snprintf(prefix, sizeof(prefix), "pijade: ignoring %s:", slot);
     return matches && restored && have_line && strstr(line, prefix) == line;
 }
