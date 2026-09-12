@@ -34,12 +34,15 @@ static const char SERVICE_PATH_HEX[] = "00c9678fbd9d9f6a96bd43221d56733b5aba8f52
 
 // See macros in keychain.c for calculating encrpyted blob lengths below
 // (Payload data is padded to next multiple of 16, and is concatenated between iv and hmac)
+// BBB-AIRGAP: these are macros rather than 'static const size_t' because two of them size local
+// arrays below, and in C a const object is not a constant expression: those arrays were compiled
+// as variable-length arrays over values that have been fixed since they were written.
 // 16 (iv) + 208 (length of data stored (78 (key) + 64 (ga path) + 64 (blinding key)) padded to next 16x) + 32 (hmac)
-static const size_t FULL_KEY_BLOBLEN = 256;
+#define FULL_KEY_BLOBLEN 256
 // 16 (iv) + 32 (12-word entropy (16) padded to next 16x) + 32 (hmac)
-static const size_t MNEMONIC_12_ENTROPY_BLOBLEN = 80;
+#define MNEMONIC_12_ENTROPY_BLOBLEN 80
 // 16 (iv) + 48 (24-word entropy (32) padded to next 16x) + 32 (hmac)
-static const size_t MNEMONIC_24_ENTROPY_BLOBLEN = 96;
+#define MNEMONIC_24_ENTROPY_BLOBLEN 96
 
 // *All* fields are identical
 static bool all_fields_same(const keychain_t* keydata1, const keychain_t* keydata2, const bool strict_seeds)
