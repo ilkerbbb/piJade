@@ -16,8 +16,8 @@
 // body and the HMAC now covers the ciphertext.  Nothing older than v4 is read (spec B3).
 static const uint8_t CURRENT_MULTISIG_RECORD_VERSION = 4;
 
-_Static_assert(MAX_MULTISIG_BODY_LEN == 3217, "multisig body size drifted; update spec B4 and pijade_settings.c");
-_Static_assert(MAX_MULTISIG_BYTES_LEN == 3281, "multisig record size drifted; update pijade_settings.c max_len");
+_Static_assert(MAX_MULTISIG_BODY_LEN == 3217, "multisig body size drifted; update spec B4");
+_Static_assert(MAX_MULTISIG_BYTES_LEN == 3281, "multisig record size drifted; update PIJADE_SETTINGS_MAX_MULTISIG_LEN");
 
 // The smallest valid multisig record body, for sanity checking
 // variant, sorted, threshold, keylen, num_signers, then one signer with no paths

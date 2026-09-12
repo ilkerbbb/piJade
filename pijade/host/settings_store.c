@@ -11,9 +11,13 @@
 #include <unistd.h>
 #include <zlib.h>
 
-/* Worst case is 16*3250 + 16*3249 + 16*288 + 16*8 plus namespace 0, about 108 KB,
- * plus the 5-byte-per-entry minimum overhead. This cap bounds hostile-file allocation while reads
- * and writes remain heap-allocated at their real size. */
+/* Worst case is 16*3281 + 16*3281 + 16*288 + 16*8 plus namespace 0 and the per-entry framing:
+ * 113866 bytes with every key name at the 15-byte ceiling, from the bounds in
+ * libjade/pijade_settings.c. The same arithmetic with the 8-byte key names settings_test.c uses
+ * gives 113418, which is what that test's largest store actually measures. The two registration
+ * ceilings are PIJADE_SETTINGS_MAX_MULTISIG_LEN and PIJADE_SETTINGS_MAX_DESCRIPTOR_LEN, which
+ * pijade_settings.c binds to main/. This cap bounds hostile-file allocation while reads and writes
+ * remain heap-allocated at their real size. */
 #define SETTINGS_MAX_LEN 131072
 
 #define SLOT_HEADER_LEN 16

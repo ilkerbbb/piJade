@@ -14,6 +14,19 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/*
+ * BBB-AIRGAP: the two sealed-record ceilings this format enforces, which are main/multisig.h's
+ * MAX_MULTISIG_BYTES_LEN and main/descriptor.h's MAX_DESCRIPTOR_BYTES_LEN.
+ *
+ * They are literals here rather than an include of those headers because pijade/tools/settings_test.c
+ * includes this header and is built on its own, without main/ on its include path (the chain reaches
+ * <cbor.h> through signer.h). pijade_settings.c does have that path and asserts both macros against
+ * the owning headers at compile time, so a change in main/ that is not mirrored here fails the build
+ * rather than leaving a second copy of the number that quietly disagrees.
+ */
+#define PIJADE_SETTINGS_MAX_MULTISIG_LEN 3281
+#define PIJADE_SETTINGS_MAX_DESCRIPTOR_LEN 3281
+
 struct wally_map;
 
 /*

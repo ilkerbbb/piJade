@@ -239,7 +239,7 @@ static bool populate_largest_store(void)
         { "pinsvrpubkey", 33, false },
         { "pinsvrcert", 2048, true },
     };
-    static const size_t maximums[] = { 3250, 3249, 288, 8 };
+    static const size_t maximums[] = { PIJADE_SETTINGS_MAX_MULTISIG_LEN, PIJADE_SETTINGS_MAX_DESCRIPTOR_LEN, 288, 8 };
 
     clear_store();
     for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); ++i) {
@@ -583,10 +583,12 @@ int main(void)
 
         check(entry_case(1, valid_key, sizeof(valid_key) - 1, 113, false), "a 113-byte multisig is refused on both sides");
         check(entry_case(1, valid_key, sizeof(valid_key) - 1, 114, true), "a 114-byte multisig is accepted on both sides");
-        check(entry_case(1, valid_key, sizeof(valid_key) - 1, 3251, false), "a 3251-byte multisig is refused on both sides");
+        check(entry_case(1, valid_key, sizeof(valid_key) - 1, PIJADE_SETTINGS_MAX_MULTISIG_LEN + 1, false),
+            "one byte over the multisig ceiling is refused on both sides");
         check(entry_case(2, valid_key, sizeof(valid_key) - 1, 40, false), "a 40-byte descriptor is refused on both sides");
         check(entry_case(2, valid_key, sizeof(valid_key) - 1, 41, true), "a 41-byte descriptor is accepted on both sides");
-        check(entry_case(2, valid_key, sizeof(valid_key) - 1, 3250, false), "a 3250-byte descriptor is refused on both sides");
+        check(entry_case(2, valid_key, sizeof(valid_key) - 1, PIJADE_SETTINGS_MAX_DESCRIPTOR_LEN + 1, false),
+            "one byte over the descriptor ceiling is refused on both sides");
         check(entry_case(3, valid_key, sizeof(valid_key) - 1, 31, false), "a 31-byte OTP record is refused on both sides");
         check(entry_case(3, valid_key, sizeof(valid_key) - 1, 33, false), "a non-block-aligned OTP record is refused on both sides");
         check(entry_case(3, valid_key, sizeof(valid_key) - 1, 32, true), "a 32-byte OTP record is accepted on both sides");

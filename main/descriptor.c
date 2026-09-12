@@ -20,8 +20,9 @@ struct ext_key;
 // BBB-AIRGAP: v1 seals the v0 body (main/registration_seal.c); see multisig.c for the layout note.
 static const uint8_t CURRENT_DESCRIPTOR_RECORD_VERSION = 1;
 
-_Static_assert(MAX_DESCRIPTOR_BODY_LEN == 3216, "descriptor body size drifted; update spec B4 and pijade_settings.c");
-_Static_assert(MAX_DESCRIPTOR_BYTES_LEN == 3281, "descriptor record size drifted; update pijade_settings.c max_len");
+_Static_assert(MAX_DESCRIPTOR_BODY_LEN == 3216, "descriptor body size drifted; update spec B4");
+_Static_assert(
+    MAX_DESCRIPTOR_BYTES_LEN == 3281, "descriptor record size drifted; update PIJADE_SETTINGS_MAX_DESCRIPTOR_LEN");
 
 // The smallest valid descriptor record body, for sanity checking
 // type, script_len, one script byte, num_values

@@ -857,8 +857,8 @@ were not touched.
 | Bound | Source | Why |
 |---|---|---|
 | Name 1-15 bytes, all ASCII 33-126 | `libjade/nvs_flash.c:243`, `storage_key_name_valid()` in `main/storage.c` | A name of 16 bytes or more calls `abort()` when the menu lists records. The range is the device's own rule; it also rules out a name with an embedded NUL (such a record could not be matched by C string searches, and so could not be deleted) |
-| Multisig 114-3250 | `main/multisig.c:19,284` | The assert runs before the HMAC gate |
-| Descriptor **41**-3249 | `main/descriptor.c:24,638,642` | `MIN_DESCRIPTOR_BYTES_LEN` is 9, and although its comment says it includes the HMAC, the arithmetic does not. 9-31 bytes passes the assert, and then `bytes_len - HMAC_SHA256_LEN` underflows. The bound is therefore 41, not 9 |
+| Multisig 114-3281 | `main/multisig.c:19,284` | The assert runs before the HMAC gate |
+| Descriptor **41**-3281 | `main/descriptor.c:24,638,642` | `MIN_DESCRIPTOR_BYTES_LEN` is 9, and although its comment says it includes the HMAC, the arithmetic does not. 9-31 bytes passes the assert, and then `bytes_len - HMAC_SHA256_LEN` underflows. The bound is therefore 41, not 9 |
 | OTP 32-288, a multiple of 16 | `main/aes.c:45,51`, `main/otpauth.c:809` | The stored length goes straight into the `aes_decrypt_bytes()` asserts |
 | HOTP counter exactly 8 | `main/storage.c:773-783` | A `uint64_t`, through `read_blob_fixed` |
 | At most 16 records per namespace | `main/multisig.h:13`, `main/descriptor.h:14`, `main/otpauth.h:14` | The device's own ceiling |
@@ -878,24 +878,35 @@ every record path calls `storage_key_name_valid()` and produces records within t
 a violation is an impossible state. Skipping it quietly would recreate the very class of silent loss
 this work exists to remove, and in user data rather than preference data.
 
-**The ceiling went from 8192 to 131072.** The measured worst case is `16*3250 + 16*3249 + 16*288 +
-16*8` plus ns0, about 108 KB. Verified against the real binary: a maximal valid store of 109,180
-bytes is accepted and 131,073 bytes is rejected. Reads and writes are on the heap and at the real
-size; there is no fixed 128 KB buffer anywhere.
+**The ceiling went from 8192 to 131072.** The worst case is `16*3281 + 16*3281 + 16*288 + 16*8` of
+record payload plus the per-entry framing and ns0: 113,866 bytes, with every key name at the 15-byte
+ceiling. The two 3281 figures are `MAX_MULTISIG_BYTES_LEN` and `MAX_DESCRIPTOR_BYTES_LEN`, which are
+`REGISTRATION_SEALED_LEN(body)` = `1 + AES_ENCRYPTED_LEN(body) + HMAC_SHA256_LEN`
+(`main/registration_seal.h`), not the raw body sizes. Verified against the real binary: the store
+the test builds measures 113,418 bytes (its key names are shorter than that ceiling) and is
+accepted; 131,073 bytes is rejected. Reads and writes are on the heap and at the real size; there
+is no fixed 128 KB buffer anywhere.
 
 **A deliberate behaviour change:** `nvs_commit()` now returns `ESP_FAIL` rather than `ESP_OK` for an
 unrecognised handle. Since `nvs_open()` cannot produce a handle outside the five maps, this path is
 unreachable in practice; it is defensive. A silent `ESP_OK` was precisely the defect this work
 fixed.
 
-**Rebase trap:** all six bounds above were MEASURED from constants under `main/` but written into the
-libjade side as numbers (to preserve the upstream separation). If upstream grows one of those
-constants (a new multisig record version, say), serialisation SILENTLY rejects that record and the
-user finds out only after a restart. At a rebase, every row of the `PERSISTED_NAMESPACES` table has
-to be measured again.
+**Rebase trap:** all six bounds above were MEASURED from constants under `main/`. The two
+registration ceilings are no longer hand-copied numbers: `libjade/pijade_settings.h` defines
+`PIJADE_SETTINGS_MAX_MULTISIG_LEN` and `PIJADE_SETTINGS_MAX_DESCRIPTOR_LEN`, and
+`libjade/pijade_settings.c` binds each to `MAX_MULTISIG_BYTES_LEN` and `MAX_DESCRIPTOR_BYTES_LEN`
+with a `_Static_assert`, so a record size that grows under `main/` now fails the build instead of
+being silently rejected at the next restart. They are literals in that header rather than an include
+of `main/multisig.h` because `pijade/tools/settings_test.c` includes the same header and is built on
+its own, without `main/` on its include path. The rest of the table is still written into the
+libjade side as numbers (to preserve the upstream separation): the 114 and 41 floors, which are
+deliberately the pre-sealing values, the OTP 32-288 rule, the 8-byte HOTP counter and the 16-record
+caps. If upstream grows one of those, serialisation SILENTLY rejects that record and the user finds
+out only after a restart, so those rows still have to be measured again at a rebase.
 
 **The HOTP write cost (accepted, unmeasured):** generating each HOTP code increments the counter and
-commits (`main/otpauth.c:603`, `main/storage.c:773`), so in the worst case the entire ~108 KB file
+commits (`main/otpauth.c:603`, `main/storage.c:773`), so in the worst case the entire ~111 KB file
 is rewritten and `fsync`ed. That is the known price of the single-file decision; a realistic file is
 1-10 KB. Measuring the card's write load was left for later.
 

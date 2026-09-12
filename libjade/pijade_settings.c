@@ -6,6 +6,16 @@
 #include <wally_crypto.h>
 #include <wally_map.h>
 
+// BBB-AIRGAP: only for the two asserts below; see pijade_settings.h for why the ceilings are
+// literals there and bound to their owning headers here.
+#include "descriptor.h"
+#include "multisig.h"
+
+_Static_assert(PIJADE_SETTINGS_MAX_MULTISIG_LEN == MAX_MULTISIG_BYTES_LEN,
+    "PIJADE_SETTINGS_MAX_MULTISIG_LEN no longer matches main/multisig.h");
+_Static_assert(PIJADE_SETTINGS_MAX_DESCRIPTOR_LEN == MAX_DESCRIPTOR_BYTES_LEN,
+    "PIJADE_SETTINGS_MAX_DESCRIPTOR_LEN no longer matches main/descriptor.h");
+
 /*
  * BBB-AIRGAP: which NVS fields are written to disk, and their allowed lengths.
  *
@@ -90,15 +100,15 @@ static const struct {
     uint8_t modulo;
     uint8_t max_entries;
 } PERSISTED_NAMESPACES[] = {
-    // BBB-AIRGAP: multisig.h MAX_MULTISIG_BYTES_LEN measures 3281 bytes (sealed body, see
-    // main/registration_seal.h) and a compile-time assert in multisig.c holds it there;
-    // multisig.h caps registrations at 16.  The floor stays at the pre-sealing 114 so a record
+    // BBB-AIRGAP: the ceiling is main/multisig.h's MAX_MULTISIG_BYTES_LEN (sealed body, see
+    // main/registration_seal.h), reached here through the header macro the asserts above bind to
+    // it; multisig.h caps registrations at 16.  The floor stays at the pre-sealing 114 so a record
     // written by an older image is refused by registration_open() as "not readable" rather than
     // taking the whole settings file down with it.
-    { 114, 3281, 0, 16 },
-    // BBB-AIRGAP: descriptor.h MAX_DESCRIPTOR_BYTES_LEN measures 3281 bytes, likewise asserted in
-    // descriptor.c; floor 41 kept for the same reason as above; descriptor.h caps records at 16.
-    { 41, 3281, 0, 16 },
+    { 114, PIJADE_SETTINGS_MAX_MULTISIG_LEN, 0, 16 },
+    // BBB-AIRGAP: the ceiling is main/descriptor.h's MAX_DESCRIPTOR_BYTES_LEN, bound the same way;
+    // floor 41 kept for the same reason as above; descriptor.h caps records at 16.
+    { 41, PIJADE_SETTINGS_MAX_DESCRIPTOR_LEN, 0, 16 },
     // otpauth.c:809 passes the stored value to aes_decrypt_bytes(); aes.c:45,51 require more than
     // AES_BLOCK_LEN bytes and a multiple of AES_BLOCK_LEN after the first block. otpauth.c:808-809
     // measures the destination at 288 bytes, and otpauth.h:14 caps records at 16.
