@@ -1383,15 +1383,19 @@ static size_t get_word_number_words(
     gui_activity_t* const number_choose_word_activity
         = make_carousel_activity("Recover Wallet", &number_label, &number_text_selection);
 
+    // BBB-AIRGAP: this recovery's two entry screens opt out of the KEY3 escape, exactly as the
+    // typed-word screens do in make_word_entry_ui() - one press must not throw away the digits
+    // typed for this word, nor the words entered before it.  The digit entry's own backspace and
+    // the 'back' on the confirmation remain the way out; the final-word question in front of the
+    // last word stays escapable, and reports that escape through FINAL_WORD_ABANDON.
+    gui_activity_set_escape(digit_entry.activity, false);
+    gui_activity_set_escape(number_choose_word_activity, false);
+
     const char* wordlist_words[MNEMONIC_MAXWORDS] = { 0 };
     SENSITIVE_PUSH(wordlist_words, sizeof(wordlist_words));
     size_t word_index = 0;
     while (word_index < nwords) {
         JADE_ASSERT(!wordlist_words[word_index]);
-
-        char title[24];
-        const int ret = snprintf(title, sizeof(title), "Word %zu/%zu", word_index + 1, nwords);
-        JADE_ASSERT(ret > 0 && ret < sizeof(title));
 
         const char* word = NULL;
         bool word_selected = false;
@@ -1431,6 +1435,13 @@ static size_t get_word_number_words(
         }
 
         if (!word) {
+            // BBB-AIRGAP: the title is formatted here rather than at the top of the loop because
+            // the 'calculate final word' branch above can step word_index back one; a title built
+            // before that would ask for the word after the one this entry actually replaces.
+            char title[24];
+            const int ret = snprintf(title, sizeof(title), "Word %zu/%zu", word_index + 1, nwords);
+            JADE_ASSERT(ret > 0 && ret < sizeof(title));
+
             reset_digit_entry(&digit_entry, title);
             gui_set_current_activity(digit_entry.activity);
             if (!run_digit_entry_loop(&digit_entry)) {

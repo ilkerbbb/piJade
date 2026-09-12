@@ -322,6 +322,14 @@ bool run_digit_entry_loop(digit_entry_t* digit_entry)
         // 'backspace on the first digit', so nothing new happens on the way out, and it can only
         // ever mean abandoned - a partly entered PIN is never returned as if it were complete.
         case GUI_ALT_EVENT:
+            // BBB-AIRGAP: unless this screen opted out of the escape, which the word-number entry
+            // does: there one press must not throw away the digits typed for this word, nor the
+            // words entered before it - the same rule the keyboard follows, and the reason the
+            // caller cannot tell an escape from a backspace here.  The entry's own backspace and
+            // the 'back' on the confirmation that follows it remain the way out.
+            if (digit_entry->activity->escape_disabled) {
+                break;
+            }
             // BBB-AIRGAP: every PIN escape, including the second erase-PIN entry, must be logged.
             JADE_LOGI("User abandoned digit entry via KEY3");
             return false;
