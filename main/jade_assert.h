@@ -41,9 +41,16 @@ void __wrap_abort(void);
     } while (false)
 
 // Compile-time assert that "cond" is true. If false compilation will fail.
+//
+// BBB-AIRGAP: this is built on C11 _Static_assert rather than on the sizeof(char[1 - 2 * !(cond)])
+// idiom it used to use.  That idiom is silent about the one input it cannot handle: hand it a
+// condition that is not a constant expression and the array becomes a variable length array, the
+// code compiles, and nothing is checked.  wallet.c carried such a call for as long as the fork has
+// existed and only -Wvla ever pointed at it.  _Static_assert rejects a non-constant condition
+// instead of accepting it, so the next one fails the build rather than passing unnoticed.
 #define JADE_STATIC_ASSERT(cond)                                                                                       \
     do {                                                                                                               \
-        (void)sizeof(char[1 - 2 * !(cond)]);                                                                           \
+        _Static_assert((cond), #cond);                                                                                 \
     } while (0)
 
 // Macro to make an call and assert that the result is 0
