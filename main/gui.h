@@ -524,8 +524,8 @@ gui_activity_t* gui_make_activity(void);
 
 void gui_set_parent(gui_view_node_t* child, gui_view_node_t* parent);
 void gui_chain_activities(const link_activity_t* link_act, linked_activities_info_t* pActInfo);
-void gui_make_hsplit(gui_view_node_t** ptr, enum gui_split_type kind, uint8_t parts, ...);
-void gui_make_vsplit(gui_view_node_t** ptr, enum gui_split_type kind, uint8_t parts, ...);
+void gui_make_hsplit(gui_view_node_t** ptr, enum gui_split_type kind, int parts, ...);
+void gui_make_vsplit(gui_view_node_t** ptr, enum gui_split_type kind, int parts, ...);
 void gui_make_button(gui_view_node_t** ptr, color_t color, color_t selected_color, uint32_t event_id, void* args);
 void gui_make_fill(gui_view_node_t** ptr, color_t color, enum fill_node_kind fill_type, gui_view_node_t* parent);
 void gui_make_text(gui_view_node_t** ptr, const char* text, color_t color);
@@ -533,8 +533,8 @@ void gui_make_text_font(gui_view_node_t** ptr, const char* text, color_t color, 
 void gui_make_icon(gui_view_node_t** ptr, const Icon* icon, color_t color, const color_t* bg_color);
 void gui_make_picture(gui_view_node_t** ptr, const Picture* picture);
 void gui_make_qrguide(gui_view_node_t** ptr, color_t color);
-void gui_set_margins(gui_view_node_t* node, uint32_t sides, ...);
-void gui_set_padding(gui_view_node_t* node, uint32_t sides, ...);
+void gui_set_margins(gui_view_node_t* node, int sides, ...);
+void gui_set_padding(gui_view_node_t* node, int sides, ...);
 void gui_set_borders(gui_view_node_t* node, color_t color, uint16_t thickness, uint8_t borders);
 void gui_set_borders_selected_color(gui_view_node_t* node, color_t selected_color);
 void gui_set_borders_inactive_color(gui_view_node_t* node, color_t inactive_color);
