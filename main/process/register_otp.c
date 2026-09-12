@@ -80,6 +80,23 @@ static int handle_new_otp_uri(const char* otp_name, const char* otp_uri, const s
     JADE_ASSERT(uri_len);
     JADE_INIT_OUT_PPTR(errmsg);
 
+    // BBB-AIRGAP: bound the uri here, before it is parsed and before the storage slot is claimed.
+    // Three entry points register a record and all three land in this function: the register_otp
+    // RPC (register_otp_process()), the keyboard entry (register_otp_kb_entry()) and
+    // register_otp_string().  The keyboard one was already bounded, by the OTP_MAX_URI_LEN buffer
+    // it types into; register_otp_string() repeats this same check at its own entry, because it
+    // shows the record and asks for a name before it reaches this point.  The RPC bounded nothing
+    // at all, and handed the caller's length straight to otp_save_uri(), which sized a stack
+    // buffer from it.  The limit is the one the rest of the OTP surface already keeps:
+    // otp_load_uri() decrypts into OTP_MAX_URI_LEN bytes and the card format caps the OTP
+    // namespace at AES_ENCRYPTED_LEN(OTP_MAX_URI_LEN) (libjade/pijade_settings.c,
+    // PERSISTED_NAMESPACES), so a longer record would be confirmed by the user and then fail to
+    // store, or store and never read back.
+    if (uri_len >= OTP_MAX_URI_LEN) {
+        *errmsg = "OTP uri too long";
+        return CBOR_RPC_BAD_PARAMETERS;
+    }
+
     // Check name valid and have storage slot available
     if (!validate_otp_name(otp_name, errmsg)) {
         return CBOR_RPC_BAD_PARAMETERS;
@@ -388,6 +405,18 @@ int register_otp_string(const char* otp_uri, const size_t uri_len, const char** 
     JADE_ASSERT(uri_len);
     JADE_INIT_OUT_PPTR(errmsg);
     JADE_ASSERT(keychain_get());
+
+    // BBB-AIRGAP: repeat handle_new_otp_uri()'s cap at this entry point, because this function
+    // parses the record, shows it, and asks the user to type a name before it gets that far.  Two
+    // of the three callers already bound the length: register_otp_qr() checks it in
+    // validate_scanned_otp_uri(), and register_otp_migrate_string() hands over uris that
+    // otp_migrate_uri_to_ctx() built in OTP_MAX_URI_LEN buffers (otpauth.c).  The scanned byte
+    // string passed in by qrmode.c does not, so without this an over-long record would walk the
+    // user through the confirmation screen and the name keyboard and only then be refused.
+    if (uri_len >= OTP_MAX_URI_LEN) {
+        *errmsg = "OTP uri too long";
+        return CBOR_RPC_BAD_PARAMETERS;
+    }
 
     // Parse uri
     otpauth_ctx_t otp_ctx = { .name = "otp_string" };

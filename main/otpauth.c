@@ -782,8 +782,25 @@ bool otp_save_uri(const char* otp_name, const char* uri, const size_t uri_len)
     JADE_ASSERT(uri);
     JADE_ASSERT(uri_len);
 
+    // BBB-AIRGAP: refuse rather than assert - the register_otp RPC hands this function a length
+    // the caller chose, so an assert here would let a host abort the device.  A longer record
+    // could never be read back in any case: otp_load_uri() below decrypts into OTP_MAX_URI_LEN
+    // bytes, and the card format caps the whole OTP namespace at AES_ENCRYPTED_LEN(OTP_MAX_URI_LEN)
+    // (libjade/pijade_settings.c, PERSISTED_NAMESPACES).  The callers bound the uri before the user
+    // is asked to confirm it; this is the buffer's own contract, and the reason it can be fixed.
+    if (uri_len >= OTP_MAX_URI_LEN) {
+        JADE_LOGE("OTP uri too long to persist: %zu", uri_len);
+        return false;
+    }
+
     bool ret = false;
-    uint8_t encrypted[AES_ENCRYPTED_LEN(uri_len)];
+    // BBB-AIRGAP: sized from the fixed cap, not from uri_len.  Sizing it from the caller's length
+    // made this a variable-length array over a host-controlled number, and the encrypted length is
+    // passed explicitly below because aes_encrypt_bytes() asserts it matches the payload exactly
+    // (main/aes.c).
+    const size_t encrypted_len = AES_ENCRYPTED_LEN(uri_len);
+    uint8_t encrypted[AES_ENCRYPTED_LEN(OTP_MAX_URI_LEN)];
+    JADE_ASSERT(encrypted_len <= sizeof(encrypted));
 
     uint8_t aeskey[AES_KEY_LEN_256];
     SENSITIVE_PUSH(&aeskey, sizeof(aeskey));
@@ -792,12 +809,12 @@ bool otp_save_uri(const char* otp_name, const char* uri, const size_t uri_len)
         goto cleanup;
     }
 
-    if (!aes_encrypt_bytes(aeskey, sizeof(aeskey), (const uint8_t*)uri, uri_len, encrypted, sizeof(encrypted))) {
+    if (!aes_encrypt_bytes(aeskey, sizeof(aeskey), (const uint8_t*)uri, uri_len, encrypted, encrypted_len)) {
         JADE_LOGE("Failed to encrypt otp bytes");
         goto cleanup;
     }
 
-    if (!storage_set_otp_data(otp_name, encrypted, sizeof(encrypted))) {
+    if (!storage_set_otp_data(otp_name, encrypted, encrypted_len)) {
         JADE_LOGE("Failed to persist encrypted otp details");
         goto cleanup;
     }
