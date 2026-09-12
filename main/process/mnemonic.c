@@ -1458,7 +1458,15 @@ static size_t get_word_number_words(
 
             const uint32_t word_number = get_entry_as_number(&digit_entry);
             if (word_number == 0 || word_number > BIP39_WORDLIST_LEN) {
-                await_error("Invalid word number");
+                // BBB-AIRGAP: this notice belongs to the entry surface behind it, so KEY3 on it
+                // means what KEY3 means there - nothing.  The flag is cleared rather than left
+                // standing because it would otherwise outlive the notice and be collected by
+                // select_final_word_action() on the next turn of the loop, which reads it as
+                // 'abandon the recovery' and would discard every word entered so far.
+                const char* message[] = { "Invalid word number" };
+                if (await_message_escaped(message, 1)) {
+                    gui_escape_clear();
+                }
                 continue;
             }
 
