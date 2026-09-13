@@ -14,7 +14,7 @@
 The `master` branch is kept as a mirror of upstream; no change is ever written on top of `master`.
 All work happens on `bbb-airgap`.
 
-## 2. Divergence inventory (2026-09-13 15:07, at `b1b14575`)
+## 2. Divergence inventory (2026-09-13 15:23, at `3a39079c`)
 
 > The numbers were measured with `git diff --numstat fdb67a3f..HEAD -- . ':(exclude)pijade'`.
 > `fdb67a3f` is the branch point. `pijade/` is ours and has no upstream counterpart, so it does
@@ -67,7 +67,7 @@ All work happens on `bbb-airgap`.
 | `main/entropy_sources.h` | +113 / -0 | **New file** | Same |
 | `main/button_events.h` | +113 / -8 | Upstream file | Enum additions, and removals in two rounds: the fork had already dropped the two `Settings` submenu pairs, and on 2026-09-13 `BTN_CONNECT_VIA_USB`, `_VIA_BLE`, `_VIA_QR` and `BTN_CONNECT_HELP` went with the `Select Connection` menu and the wallet-app help screen, with a comment in their place recording what upstream raises them for (`BTN_CONNECT_SELECT_BACK` went too, but it was the fork's own addition, so it nets out of the count against the branch point). Additions are still the kind of change least likely to conflict; `BTN_SETTINGS_OTP_SET_CLOCK` included; `BTN_IO_TEST_BUTTONS` included |
 | `main/qrcode.c` | +107 / -33 | Upstream file | QR version 3 (29x29, a 6x6 grid) and a context module frame in the fragment icons; 29 does not divide evenly, so the last row and column carry a strip of empty modules inside the mask (the same behaviour as SeedSigner) |
-| `main/bbqr.h` | +102 / -0 | **New file** | The collector's contract, with the frame format and the reasoning behind the two extra rules written at the head of the file |
+| `main/bbqr.h` | +103 / -0 | **New file** | The collector's contract, with the frame format and the reasoning behind the two extra rules written at the head of the file |
 | `main/ui.h` | +105 / -0 | Upstream file | The `await_choice_activity()` declaration; `io_test_mark_t` (the mark array of the Buttons check). |
 | `main/camera.c` | +102 / -11 | Upstream file | Capture at VGA rather than QVGA, because the scan window 320x240 implied was too small for a version 14 code; the display path rescales on its own, so the field of view is unchanged. Also: the camera image at full width, and all four rotations compiled and chosen at runtime |
 | `main/process/register_otp.c` | +100 / -2 | Upstream file | The OTP name is user data; only its length is logged |
