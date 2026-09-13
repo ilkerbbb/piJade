@@ -176,10 +176,9 @@ gui_activity_t* make_home_screen_activity(const char* device_name, const char* f
 
 // Temporary screens while connecting
 gui_activity_t* make_connect_activity(void);
-gui_activity_t* make_connect_to_activity(const char* device_name, jade_msg_source_t initialisation_source);
+gui_activity_t* make_connect_to_activity(void);
 
 // GUI screens
-gui_activity_t* make_select_connection_activity_if_required(bool temporary_restore);
 gui_activity_t* make_connect_qrmode_activity(const char* device_name);
 gui_activity_t* make_confirm_qrmode_activity(void);
 
@@ -783,64 +782,60 @@ static bool offer_pinserver_qr_unlock(void)
     return auth_qr_mode();
 }
 
-// Screen to select whether the initial connection is via USB, BLE or QR
+// BBB-AIRGAP: a cancel at this step forgets a wallet that was derived but never saved or
+// authenticated.  Leaving one in memory violates the dashboard's authenticated-wallet assertion,
+// so it goes with the same keychain_clear() operation BTN_SESSION_LOGOUT uses.  A wallet that
+// already has a source belongs to whoever loaded it and is left alone.  Both callers hold exactly
+// one wallet by the time they reach this step, so clearing the table takes nothing else with it.
+static void forget_unsourced_wallet(void)
+{
+    if (keychain_get() && keychain_get_userdata() == SOURCE_NONE) {
+        keychain_clear();
+    }
+}
+
+// Secure the newly initialised wallet.
+// BBB-AIRGAP: upstream opens a 'Select Connection' menu here - USB, Bluetooth where the build has
+// it, and QR - and assumes USB when the menu is not needed.  This port has no USB data path and no
+// radio (see pijade/host/pijade_host.c), so the menu had one live entry, a dead default selection,
+// and a dead arm behind it; all three are gone and the QR flow is entered directly.  The one screen
+// that still precedes it is the 'QR Mode' double-check, which now follows its own flag rather than
+// the menu's existence - upstream gated it on both, so deleting the menu alone would have dropped
+// the question silently.  The two ways of backing out of the QR flow reach the same cleanup the
+// menu's back button used.
 static void select_initial_connection(const bool offer_qr_temporary)
 {
     // Don't offer temporary (qr-mode) if already a temporary wallet
     JADE_ASSERT(!offer_qr_temporary || !keychain_has_temporary());
 
-    // If there are connection options, the user must choose one
-    // Otherwise this call returns null and we default to USB
-    gui_activity_t* const act_select = make_select_connection_activity_if_required(keychain_has_temporary());
-    gui_activity_t* act = act_select;
+    initialisation_source = SOURCE_NONE;
+    show_connect_screen = false;
+
+    if (!offer_qr_temporary) {
+        // Nothing of our own to show - the QR flow is the whole step, and the user declining it
+        // (ie. backing out of its first screen) leaves the step rather than returning to a menu.
+        if (!auth_qr_mode()) {
+            forget_unsourced_wallet();
+        }
+        return;
+    }
 
     // In advanced-setup, when choosing QRs double check re: temporary-restore/'QR Mode'
-    gui_activity_t* const act_confirm_qr_mode
-        = (act_select && offer_qr_temporary) ? make_confirm_qrmode_activity() : NULL;
+    gui_activity_t* const act_confirm_qr_mode = make_confirm_qrmode_activity();
 
-    // If no BLE and no camera/QR-scan (ie. no selection screen created) then assume USB
-    initialisation_source = act_select ? SOURCE_NONE : SOURCE_SERIAL;
-    show_connect_screen = initialisation_source != SOURCE_NONE;
-    bool cancelled = false;
-
-    while (initialisation_source == SOURCE_NONE && !cancelled) {
+    while (initialisation_source == SOURCE_NONE) {
         // BBB-AIRGAP: KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
         if (gui_escape_pending()) {
-            // BBB-AIRGAP: use the same cleanup as BTN_CONNECT_SELECT_BACK. A newly derived
-            // SOURCE_NONE wallet left here violates the dashboard's authenticated-wallet assertion.
-            if (keychain_get() && keychain_get_userdata() == SOURCE_NONE) {
-                keychain_clear();
-            }
-            cancelled = true;
-            break;
+            forget_unsourced_wallet();
+            return;
         }
 
-        gui_set_current_activity(act);
+        gui_set_current_activity(act_confirm_qr_mode);
 
-        const int32_t ev_id = gui_activity_wait_button(act, BTN_CONNECT_VIA_USB);
-        if (ev_id == BTN_CONNECT_VIA_USB) {
-            // Set USB/SERIAL source
-            initialisation_source = SOURCE_SERIAL;
-            show_connect_screen = true;
-        } else if (ev_id == BTN_CONNECT_VIA_BLE) {
-            // Set BLE source and ensure ble enabled now and by default
-            initialisation_source = SOURCE_BLE;
-            show_connect_screen = true;
-            if (!ble_enabled()) {
-                const uint8_t ble_flags = storage_get_ble_flags() | BLE_ENABLED;
-                storage_set_ble_flags(ble_flags);
-                ble_start();
-            }
-        } else if (ev_id == BTN_CONNECT_VIA_QR) {
-            // Offer pinserver via qr with urls etc
-            if (act_confirm_qr_mode) {
-                // Double check re: temporary-restore/'QR Mode'
-                act = act_confirm_qr_mode;
-            } else if (auth_qr_mode()) {
-                JADE_ASSERT(initialisation_source == SOURCE_INTERNAL);
-                JADE_ASSERT(show_connect_screen == !keychain_has_temporary());
-            }
-        } else if (ev_id == BTN_CONNECT_QR_PIN) {
+        // BBB-AIRGAP: an unattended-CI build returns this default immediately rather than waiting,
+        // so it has to be the arm that leaves the loop without starting a pinserver exchange.
+        const int32_t ev_id = gui_activity_wait_button(act_confirm_qr_mode, BTN_CONNECT_QR_BACK);
+        if (ev_id == BTN_CONNECT_QR_PIN) {
             // Offer pinserver via qr with urls etc
             if (auth_qr_mode()) {
                 JADE_ASSERT(initialisation_source == SOURCE_INTERNAL);
@@ -856,21 +851,11 @@ static void select_initial_connection(const bool offer_qr_temporary)
                     JADE_ASSERT(show_connect_screen == !keychain_has_temporary());
                 }
             }
-        } else if (ev_id == BTN_CONNECT_QR_BACK) {
-            act = act_select;
         } else if (ev_id == BTN_CONNECT_QR_HELP) {
             await_qr_help_activity("blkstrm.com/qrmode");
-        } else if (ev_id == BTN_CONNECT_SELECT_BACK) {
-            // BBB-AIRGAP: Upstream has no exit here.  initialise_wallet() always holds a new
-            // SOURCE_NONE wallet, while the Connect-To caller can hold either a sourced wallet or
-            // a newly derived SOURCE_NONE wallet.  Forgetting only the latter avoids the dashboard
-            // assertion, using the same keychain_clear() operation as BTN_SESSION_LOGOUT.  Both
-            // callers hold exactly one wallet by the time they reach this screen, so clearing the
-            // table takes nothing else with it.
-            if (keychain_get() && keychain_get_userdata() == SOURCE_NONE) {
-                keychain_clear();
-            }
-            cancelled = true;
+        } else if (ev_id == BTN_CONNECT_QR_BACK) {
+            forget_unsourced_wallet();
+            return;
         }
     }
 }
@@ -3728,8 +3713,11 @@ static void handle_btn(const int32_t btn)
         show_connect_screen = false;
         break;
 
-    case BTN_CONNECT_HELP:
-        await_qr_help_activity("blkstrm.com/jadewallets");
+    // BBB-AIRGAP: the locked-home 'connect' screen and the setup 'connect-to' screen share this
+    // dispatcher, and both now point at QR mode.  Upstream sent the latter to its wallet-app list
+    // over BTN_CONNECT_HELP; no screen raises that id any more.
+    case BTN_CONNECT_QR_HELP:
+        await_qr_help_activity("blkstrm.com/qrmode");
         break;
 
     default:
@@ -3957,7 +3945,7 @@ void dashboard_process(void* process_ptr)
                 act_dashboard = display_processing_message_activity();
             } else if (initial_keychain) {
                 JADE_LOGI("Wallet/keys initialised but not yet saved/authed - showing Connect-To screen");
-                act_dashboard = make_connect_to_activity(device_name, initialisation_source);
+                act_dashboard = make_connect_to_activity();
                 gui_activity_register_event(
                     act_dashboard, GUI_BUTTON_EVENT, ESP_EVENT_ANY_ID, sync_wait_event_handler, event_data);
             } else {

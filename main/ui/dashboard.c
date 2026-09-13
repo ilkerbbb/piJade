@@ -115,43 +115,33 @@ gui_activity_t* make_home_screen_activity(const char* device_name, const char* f
 
 gui_activity_t* make_connect_activity(void)
 {
+    // BBB-AIRGAP: upstream sends the locked user to a wallet app over USB/BLE.  Neither channel
+    // exists here (see pijade/host/pijade_host.c), so this screen points at the only unlock paths
+    // the fork has, and its help QR goes to the QR-mode page rather than the wallet-app list.
     btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_CONNECT_BACK },
-        { .txt = "?", .font = GUI_TITLE_FONT, .ev_id = BTN_CONNECT_HELP } };
+        { .txt = "?", .font = GUI_TITLE_FONT, .ev_id = BTN_CONNECT_QR_HELP } };
 
     const char* message[]
-        = { "Open your wallet app.", "If needed, the app", "will prompt you to", "connect via USB/BLE." };
+        = { "This wallet is locked.", "Select 'QR Mode' to", "unlock with your PIN", "or scan a SeedQR." };
 
-    return make_show_message_activity(message, 4, "Ready to Pair", hdrbtns, 2, NULL, 0);
+    return make_show_message_activity(message, 4, "Wallet Locked", hdrbtns, 2, NULL, 0);
 }
 
-gui_activity_t* make_connect_to_activity(const char* device_name, const jade_msg_source_t initialisation_source)
+// BBB-AIRGAP: upstream tells the user here to connect the device to a wallet app over USB or to
+// pair it over BLE, and reaches this screen from the 'Select Connection' menu.  Neither channel
+// nor that menu exists on this port (see pijade/host/pijade_host.c), but the screen itself stays
+// live: the dashboard raises it whenever a derived wallet still has no source, which here means
+// the QR PIN setup was abandoned or failed.  So it reports that instead, and its help goes to the
+// QR-mode page rather than the wallet-app list.  The back button retries the PIN setup.
+gui_activity_t* make_connect_to_activity(void)
 {
-    JADE_ASSERT(device_name);
-    JADE_ASSERT(initialisation_source != SOURCE_INTERNAL);
-
     btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_CONNECT_TO_BACK },
-        { .txt = "?", .font = GUI_TITLE_FONT, .ev_id = BTN_CONNECT_HELP } };
+        { .txt = "?", .font = GUI_TITLE_FONT, .ev_id = BTN_CONNECT_QR_HELP } };
 
-    const char* message[] = { NULL, NULL, NULL };
-    if (initialisation_source == SOURCE_BLE) {
-        char select_device[32];
-        const int ret = snprintf(select_device, sizeof(select_device), "Select %s on", device_name);
-        JADE_ASSERT(ret > 0 && ret < sizeof(select_device));
+    const char* message[]
+        = { "PIN setup did not", "finish. This wallet is", "only in memory. Go", "back to try again." };
 
-        message[0] = select_device;
-        message[1] = "the companion app to";
-        message[2] = "pair it";
-    } else {
-        char connect_device[32];
-        const int ret = snprintf(connect_device, sizeof(connect_device), "Connect %s", device_name);
-        JADE_ASSERT(ret > 0 && ret < sizeof(connect_device));
-
-        message[0] = connect_device;
-        message[1] = "to a compatible wallet";
-        message[2] = "app";
-    }
-
-    return make_show_message_activity(message, 3, device_name, hdrbtns, 2, NULL, 0);
+    return make_show_message_activity(message, 4, "Wallet Not Saved", hdrbtns, 2, NULL, 0);
 }
 
 gui_activity_t* make_connect_qrmode_activity(const char* device_name)
@@ -167,77 +157,25 @@ gui_activity_t* make_connect_qrmode_activity(const char* device_name)
     return make_menu_activity("QR Mode", hdrbtns, 2, menubtns, 2);
 }
 
-gui_activity_t* make_select_connection_activity_if_required(const bool temporary_restore)
-{
-    // Two or three buttons, depending on whether QR and/or Bluetooth are available in the build
-    // NOTE: if neither QR or BLE are an available, then the only option is USB, and this call returns null.
-    // Also, a 'recovery phrase login' puts 'QR'(mode) first, whereas a standard initialisation puts QR last!
-
-    // Initially placeholders
-    btn_data_t menubtns[] = { { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE },
-        { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE },
-        { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
-    btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_CONNECT_SELECT_BACK },
-        { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
-    size_t ibtn = 0;
-
-    // Temporary restore has QR first (Camera-Enabled hw only)
-#ifdef CONFIG_HAS_CAMERA
-    if (temporary_restore) {
-        menubtns[ibtn].txt = "QR";
-        menubtns[ibtn].ev_id = BTN_CONNECT_VIA_QR;
-        ++ibtn;
-    }
-#endif
-
-    // USB is always available
-    menubtns[ibtn].txt = "USB";
-    menubtns[ibtn].ev_id = BTN_CONNECT_VIA_USB;
-    ++ibtn;
-
-    // BLE if enabled in fw
-#ifdef CONFIG_BT_ENABLED
-    menubtns[ibtn].txt = "Bluetooth";
-    menubtns[ibtn].ev_id = BTN_CONNECT_VIA_BLE;
-    ++ibtn;
-#endif
-
-    // If not temporary restore, QR is last (Camera-Enabled hw only)
-#ifdef CONFIG_HAS_CAMERA
-    if (!temporary_restore) {
-        menubtns[ibtn].txt = "QR";
-        menubtns[ibtn].ev_id = BTN_CONNECT_VIA_QR;
-        ++ibtn;
-    }
-#endif
-
-    // For non-jade hw without BLE enabled, USB might be the only option,
-    // in which case we don't really need this screen at all!
-    // In this case return null here.
-    if (ibtn < 2) {
-        return NULL;
-    }
-
-    // Otherwise make a menu and return that
-    gui_activity_t* const act = make_menu_activity("Select Connection", hdrbtns, 2, menubtns, ibtn);
-    // BBB-AIRGAP: The new title button must not steal the screen's existing first menu selection.
-    gui_set_activity_initial_selection(menubtns[0].btn);
-    return act;
-}
-
 gui_activity_t* make_confirm_qrmode_activity(void)
 {
     btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_CONNECT_QR_BACK },
         { .txt = "?", .font = GUI_TITLE_FONT, .ev_id = BTN_CONNECT_QR_HELP } };
 
-    const char* message[] = { "Save and encrypt wallet", "with PIN or scan a", "SeedQR every session?" };
+    // BBB-AIRGAP: upstream asks this in three lines whose first one, "Save and encrypt wallet", is
+    // 23 characters and loses its last one off the right edge of a 240px screen (measured).  The
+    // question is the same; it is laid out over the fourth line this screen has room for
+    // (make_show_message_activity() takes up to four, main/ui/dialogs.c:765, and four rows of
+    // MESSAGE_LINE_ROW_HEIGHT fit the 55% left between the title bar and the footer buttons), so
+    // no line here exceeds 21 characters and the font is untouched.
+    const char* message[] = { "Save this wallet", "encrypted with a PIN,", "or scan a SeedQR", "every session?" };
 
     btn_data_t ftrbtns[] = {
         { .txt = "PIN", .font = GUI_DEFAULT_FONT, .ev_id = BTN_CONNECT_QR_PIN, .borders = GUI_BORDER_TOPRIGHT },
         { .txt = "SeedQR", .font = GUI_DEFAULT_FONT, .ev_id = BTN_CONNECT_QR_SCAN, .borders = GUI_BORDER_TOPLEFT }
     };
 
-    return make_show_message_activity(message, 3, NULL, hdrbtns, 2, ftrbtns, 2);
+    return make_show_message_activity(message, 4, NULL, hdrbtns, 2, ftrbtns, 2);
 }
 
 gui_activity_t* make_bip39_passphrase_prefs_activity(

@@ -122,12 +122,11 @@ typedef enum {
 
     BTN_CONNECT_TO_BACK,
 
-    BTN_CONNECT_SELECT_BACK,
-    BTN_CONNECT_VIA_USB,
-    BTN_CONNECT_VIA_BLE,
-    BTN_CONNECT_VIA_QR,
+    // BBB-AIRGAP: upstream also has BTN_CONNECT_SELECT_BACK / _VIA_USB / _VIA_BLE / _VIA_QR for its
+    // 'Select Connection' menu, and BTN_CONNECT_HELP for that screen's wallet-app help.  With no USB
+    // data path and no radio the menu has gone and both connect screens use the QR-mode help, so
+    // nothing raises any of the five.
     BTN_CONNECT_BACK,
-    BTN_CONNECT_HELP,
 
     BTN_CONNECT_QR_BACK,
     BTN_CONNECT_QR_HELP,
