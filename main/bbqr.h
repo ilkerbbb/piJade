@@ -6,9 +6,10 @@
 #include <stdint.h>
 
 // BBB-AIRGAP: reader for BBQr, the animated multi-frame QR format Coldcard and Passport emit.
-// Ported from coinkite/BBQr (python/bbqr/join.py and python/bbqr/utils.py), which the project
-// places in the public domain.  Reading only: piJade never produces BBQr frames, its own
-// multi-frame output stays bc-ur (main/bcur.c).
+// Ported from coinkite/BBQr (python/bbqr/join.py and python/bbqr/utils.py), which that project
+// places in the public domain: UNLICENSE.md at its root, and the header of each of those two
+// files says so again.  Reading only: piJade never produces BBQr frames, its own multi-frame
+// output stays bc-ur (main/bcur.c).
 //
 // A frame is a fixed 8-character header followed by the encoded payload:
 //
