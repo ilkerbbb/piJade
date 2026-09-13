@@ -1151,3 +1151,56 @@ with a 484-byte CBOR reply (`JADE_VERSION 1.0.41-pijade`, `JADE_CONFIG NORADIO`)
 means the entropy work in the security plan (the camera characterisation, and anything measuring
 the CSPRNG mix) must not be run on macOS: the source under measurement would be a different one
 from the device's.
+
+## 28. Running the upstream test suite against this fork's network rule
+
+**The rule the suite runs into.** This fork registers a multisig or descriptor record for exactly
+one bitcoin network, the one the device is set to: `main/process/register_multisig.c:49` and
+`main/process/register_descriptor.c:44` both read
+`keychain_get_network_type_restriction() == NETWORK_TYPE_TEST ? NETWORK_BITCOIN_TESTNET :
+NETWORK_BITCOIN`, and refuse anything else before any other validation runs. Upstream's suite
+registers mainnet, testnet and liquid records in one run, so on this fork it stopped at the first
+testnet fixture and never reached its tail.
+
+**Why the suite could not simply set the network.** The restriction lives in one variable
+(`main/keychain.c:53`) with three writers: `:435` clears it, `:446` sets it, `:963` reads it back
+from the card. Of the two callers that set it, `main/process/auth_user.c:474-480` is behind
+`#ifndef CONFIG_DEBUG_MODE`, so on a debug build the only remaining writer is
+`main/process/dashboard.c:2458-2459`, the `Settings > Network` screen, which needs a button press.
+An unset restriction is not neutral here: the expression above reads `none` as mainnet.
+
+**The handler.** `main/process/debug_set_network.c` is that screen and nothing more; the two calls
+it makes are the two `handle_network_type()` makes, so the emulator keeps the shipped behaviour. It
+refuses when no wallet is loaded, because the in-memory write is gated on `keychain_data` and the
+caller would otherwise get an `ok` reply and no change. `none` restores the unrestricted state a
+debug build starts in.
+
+It is a debug handler in the sense `debug_set_mnemonic.c` is, and the same gate keeps it out of the
+shipped image: `pijade/images/build-armv6.sh:54` passes `-DDEBUG_MODE=0`,
+`libjade/CMakeLists.txt:102-103` turns that into `-DCONFIG_LIBJADE_NO_DEBUG_MODE`, and
+`libjade/include/sdkconfig.h:10-12` defines `CONFIG_DEBUG_MODE` only when that macro is absent. In
+the production image the whole file compiles to nothing.
+
+**The Python side.** `jadepy/jade.py` `set_network_restriction()` wraps the call; its docstring
+carries both conditions (debug build, wallet loaded).
+
+**Running it.**
+
+```
+docker exec jade-dev sh -lc 'cd /jade && LD_LIBRARY_PATH=/jade/build_linux_log \
+  timeout 2400 python3 test_jade.py --libjade'
+```
+
+`test_jade.py` sets the device to each fixture's own network and always restores `none` afterwards,
+because the restriction outlives the test that set it: `keychain_clear()` does not touch that
+variable, so a stray `testnet` would silently change the network every later test runs on. A failed
+restore is reported rather than swallowed. The fork's own constants sit together at the top of the
+file (`FORK_BITCOIN_NETWORKS` and the three refusal messages).
+
+**What the suite now measures as a refusal rather than a success.** Two paths rest on records this
+fork will not register, so the refusal is the whole test: the liquid 2of2 comparison against GA
+signatures (`test_generic_multisig_matches_ga_signatures_liquid`), and the one multisig file
+carrying a master blinding key inside `test_generic_multisig_files`. Signing against a wallet that
+cannot be registered would only measure the missing record. This is not a regression on this fork,
+but it is a change in what the suite covers, and it is written here so it is read rather than
+discovered.

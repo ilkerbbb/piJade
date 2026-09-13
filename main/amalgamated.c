@@ -83,6 +83,7 @@ void __wrap_abort(void);
 #include "./process/debug_handshake.c"
 #include "./process/debug_scan_qr.c"
 #include "./process/debug_set_mnemonic.c"
+#include "./process/debug_set_network.c"
 #include "./process/get_bip85_entropy.c"
 #include "./process/get_bip85_pubkey.c"
 #include "./process/get_blinding_factor.c"

@@ -11,6 +11,7 @@ import logging
 import math
 import argparse
 import subprocess
+import contextlib
 import threading
 import _thread
 
@@ -20,6 +21,20 @@ import wallycore as wally
 from jadepy.jade import JadeAPI, JadeError
 
 LIQUID_DESCRIPTORS = True
+
+# BBB-AIRGAP: this fork registers a multisig or descriptor record only for the one bitcoin
+# network the device setting names, and refuses every other network up front
+# (main/process/register_multisig.c, main/process/register_descriptor.c).  Upstream's suite
+# assumes an unrestricted debug keychain that accepts any network in the same run, so every
+# test that registers a record has to put the device on the fixture's own network first, the
+# way Settings > Network does, and has to expect a refusal for the networks this fork does not
+# support at all.  On a debug build nothing else can move that setting: auth_user.c restricts
+# only on a release build, which leaves the settings screen as the sole writer, hence the
+# debug_set_network handler this suite drives (main/process/debug_set_network.c).
+FORK_BITCOIN_NETWORKS = ['mainnet', 'testnet']
+FORK_MULTISIG_NETWORK_REFUSAL = 'Multisig network does not match device setting'
+FORK_MULTISIG_BLINDING_KEY_REFUSAL = 'Master blinding key not supported on bitcoin network'
+FORK_DESCRIPTOR_NETWORK_REFUSAL = 'Descriptor network does not match device setting'
 
 # Enable jade logging
 jadehandler = logging.StreamHandler()
@@ -990,18 +1005,72 @@ def _test_good_params(jade, rpc_args):
     return reply['result']
 
 
-def _test_bad_params(jade, rpc_args, expected_error):
-    request = jade.build_request(*rpc_args)
+def _set_device_network(jade, network):
+    # BBB-AIRGAP: the debug counterpart of Settings > Network - see FORK_BITCOIN_NETWORKS above.
+    # Returns False when the device refuses the call, so a caller that set a restriction can
+    # tell whether it managed to put the device back.
+    request = jade.build_request('setnetwork', 'debug_set_network', {'network': network})
     reply = jade.make_rpc_call(request)
+    return 'result' in reply
 
-    # Assert bad-parameters response
-    assert reply['id'] == request['id']
-    assert 'result' not in reply
-    assert 'error' in reply
-    error = reply['error']
-    assert error['code'] == JadeError.BAD_PARAMETERS, f"{error['code']}: {rpc_args}"
-    assert 'message' in error
-    assert expected_error in error['message'], f"{error['message']} != {expected_error}: {rpc_args}"
+
+@contextlib.contextmanager
+def _with_device_network(jadeapi, network):
+    # BBB-AIRGAP: context manager form for the api-level tests.  Always restores 'none', the
+    # state a debug build starts in, because the restriction outlives the test that set it:
+    # keychain_clear() does not touch it (main/keychain.c), so a stray 'testnet' would silently
+    # change the network every later test runs on.
+    assert _set_device_network(jadeapi.jade, network), 'Device refused network: ' + network
+    try:
+        yield
+    finally:
+        if not _set_device_network(jadeapi.jade, 'none'):
+            logger.error('Failed to restore the device network restriction to none')
+            # Report it, but never mask an exception that is already on its way out - that
+            # one is the failure the run is about.
+            if sys.exc_info()[0] is None:
+                raise AssertionError('Device refused to restore network: none')
+
+
+def _check_registration_refused(call, expected_error):
+    # BBB-AIRGAP: the fork does not support this fixture's network at all, so the registration
+    # itself is the behaviour under test.  Asserting the refusal keeps the fixture exercising
+    # the fork's own rule rather than dropping out of the run as a skip.
+    try:
+        call()
+        assert False, 'Expected refusal: ' + expected_error
+    except JadeError as e:
+        assert e.code == JadeError.BAD_PARAMETERS, f'{e.code}: {e.message}'
+        assert e.message == expected_error, f'{e.message} != {expected_error}'
+
+
+def _test_bad_params(jade, rpc_args, expected_error):
+    # BBB-AIRGAP: put the device on the network this case names before sending it, so the case
+    # reaches the parameter error it is written to test instead of the fork's network refusal.
+    # Only the two networks this fork supports are set, which is also all the Settings > Network
+    # screen offers; a case naming any other network is left alone, because the device is then
+    # unrestricted and the fork's refusal is itself the answer that case expects.
+    params = rpc_args[2] if len(rpc_args) > 2 else None
+    network = params.get('network') if isinstance(params, dict) else None
+    restricted = network in FORK_BITCOIN_NETWORKS and _set_device_network(jade, network)
+    try:
+        request = jade.build_request(*rpc_args)
+        reply = jade.make_rpc_call(request)
+
+        # Assert bad-parameters response
+        assert reply['id'] == request['id']
+        assert 'result' not in reply
+        assert 'error' in reply
+        error = reply['error']
+        assert error['code'] == JadeError.BAD_PARAMETERS, f"{error['code']}: {rpc_args}"
+        assert 'message' in error
+        assert expected_error in error['message'], \
+            f"{error['message']} != {expected_error}: {rpc_args}"
+    finally:
+        if restricted and not _set_device_network(jade, 'none'):
+            logger.error('Failed to restore the device network restriction to none')
+            if sys.exc_info()[0] is None:
+                raise AssertionError('Device refused to restore network: none')
 
 
 def test_bad_params(jade):
@@ -3162,6 +3231,37 @@ def test_sign_psbt(jadeapi, cases, has_psram):
 
 # Helper to check a multisig registration
 def _check_multisig_registration(jadeapi, multisig_data):
+    # BBB-AIRGAP: see FORK_BITCOIN_NETWORKS.  A fixture on a network this fork supports is run
+    # with the device set to it; the liquid fixtures have no such setting to move to, so their
+    # registration is checked to be refused instead of being dropped from the run.
+    inputdata = multisig_data['input']
+    network = inputdata['network']
+    if network not in FORK_BITCOIN_NETWORKS:
+        _check_multisig_registration_refused(jadeapi, inputdata)
+        return
+
+    with _with_device_network(jadeapi, network):
+        _check_multisig_registration_on_device(jadeapi, multisig_data)
+
+
+def _check_multisig_registration_refused(jadeapi, inputdata):
+    # BBB-AIRGAP: the network check runs before every other check in register_multisig(), so a
+    # fixture on a network this fork does not support always fails on the network, whatever else
+    # it carries.
+    descriptor = inputdata['descriptor']
+    _check_registration_refused(
+        lambda: jadeapi.register_multisig(
+            inputdata['network'],
+            inputdata['multisig_name'],
+            descriptor['variant'],
+            descriptor['sorted'],
+            descriptor['threshold'],
+            descriptor['signers'],
+            master_blinding_key=descriptor.get('master_blinding_key')),
+        FORK_MULTISIG_NETWORK_REFUSAL)
+
+
+def _check_multisig_registration_on_device(jadeapi, multisig_data):
     # Register the multisig
     inputdata = multisig_data['input']
     descriptor = inputdata['descriptor']
@@ -3256,23 +3356,42 @@ def test_generic_multisig_registration(jadeapi):
     for multisig_data in _get_test_cases('multisig_reg_1of1.json'):
         inputdata = multisig_data['input']
         descriptor = inputdata['descriptor']
-        rslt = jadeapi.register_multisig(inputdata['network'],
-                                         inputdata['multisig_name'],
-                                         descriptor['variant'],
-                                         descriptor['sorted'],
-                                         descriptor['threshold'],
-                                         descriptor['signers'],
-                                         master_blinding_key=descriptor.get('master_blinding_key'))
-        assert rslt
+        # BBB-AIRGAP: on the fixture's own network - see FORK_BITCOIN_NETWORKS.
+        with _with_device_network(jadeapi, inputdata['network']):
+            rslt = jadeapi.register_multisig(
+                inputdata['network'],
+                inputdata['multisig_name'],
+                descriptor['variant'],
+                descriptor['sorted'],
+                descriptor['threshold'],
+                descriptor['signers'],
+                master_blinding_key=descriptor.get('master_blinding_key'))
+            assert rslt
 
 
 def test_generic_multisig_files(jadeapi):
+    # BBB-AIRGAP: the network comes from the file's own derivation rather than the fixture, and
+    # every one of these files derives from m/48'/0' - ie. mainnet - so the device is set to it
+    # for the whole block.  See FORK_BITCOIN_NETWORKS.
+    with _with_device_network(jadeapi, 'mainnet'):
+        _test_generic_multisig_files_on_device(jadeapi)
+
+
+def _test_generic_multisig_files_on_device(jadeapi):
     # Check these multisig files load ok
     for multisig_file_test in _get_test_cases(MULTI_REG_FILE_TESTS):
         expected_result = multisig_file_test['expected_result']
         multisig_filename = multisig_file_test['input']['multisig_file']
         with open('./test_data/' + multisig_filename, 'r') as f:
             multisig_file = f.read()
+
+        # BBB-AIRGAP: a blinding key belongs to liquid, and this fork registers bitcoin records
+        # only, so the one file carrying one is checked to be refused rather than loaded.
+        if expected_result.get('master_blinding_key'):
+            _check_registration_refused(
+                lambda: jadeapi.register_multisig_file(multisig_file),
+                FORK_MULTISIG_BLINDING_KEY_REFUSAL)
+            continue
 
         rslt = jadeapi.register_multisig_file(multisig_file)
         assert rslt
@@ -3322,90 +3441,110 @@ def test_generic_multisig_matches_ga_addresses(jadeapi):
     matching_ga_msigs = list(_get_test_cases('multisig_reg_*matches_ga_*.json'))
 
     for ga_msig in matching_ga_msigs:
+        # BBB-AIRGAP: on the fixture's own network, or a checked refusal where this fork has no
+        # such network to move to - see FORK_BITCOIN_NETWORKS.
         inputdata = ga_msig['input']
-        signers = inputdata['descriptor']['signers']
+        network = inputdata['network']
+        if network not in FORK_BITCOIN_NETWORKS:
+            _check_multisig_registration_refused(jadeapi, inputdata)
+            continue
 
-        # Register multisig wallet
-        descriptor = inputdata['descriptor']
-        rslt = jadeapi.register_multisig(inputdata['network'],
-                                         inputdata['multisig_name'],
-                                         descriptor['variant'],
-                                         descriptor['sorted'],
-                                         descriptor['threshold'],
-                                         descriptor['signers'],
-                                         master_blinding_key=descriptor.get('master_blinding_key'))
-        assert rslt is True
+        with _with_device_network(jadeapi, network):
+            _check_ga_multisig_addresses(jadeapi, ga_msig)
 
-        # Check this test looks good - ie. 2of2 or 2of3
-        assert inputdata['descriptor']['threshold'] == 2
-        assert len(signers) == 2 or len(signers) == 3
-        user_signer = signers[1]  # signers[0] is ga-service
 
-        # Handle subaccounts
-        if len(user_signer['derivation']) == 1:
-            subaccount = 0
-            branch = user_signer['derivation'][0]
-        elif len(user_signer['derivation']) == 3:
-            assert user_signer['derivation'][0] == 2147483651  # 3'
-            assert user_signer['derivation'][1] > 2147483648  # subaccount'
-            subaccount = user_signer['derivation'][1] - 2147483648  # unharden
-            branch = user_signer['derivation'][2]
-        else:
-            assert False, 'Unexpected derivation for ga-multisig wallet'
+def _check_ga_multisig_addresses(jadeapi, ga_msig):
+    inputdata = ga_msig['input']
+    signers = inputdata['descriptor']['signers']
 
-        user_xpub = jadeapi.get_xpub(inputdata['network'], user_signer['derivation'])
-        assert user_xpub == user_signer['xpub']   # checks our xpub entry
-        recovery_xpub = signers[2]['xpub'] if len(signers) == 3 else None
+    # Register multisig wallet
+    descriptor = inputdata['descriptor']
+    rslt = jadeapi.register_multisig(inputdata['network'],
+                                     inputdata['multisig_name'],
+                                     descriptor['variant'],
+                                     descriptor['sorted'],
+                                     descriptor['threshold'],
+                                     descriptor['signers'],
+                                     master_blinding_key=descriptor.get('master_blinding_key'))
+    assert rslt is True
 
-        # Check receive addresses fetched using normal green call matches the
-        # expected results (which are tested as a generic multisig address above)
-        for addr_test in ga_msig['address_tests']:
-            ptr = addr_test['paths'][0][0]
-            # check all signers have same single-entry path (ie. 'ptr')
-            assert all(p == [ptr] for p in addr_test['paths'])
-            rslt = jadeapi.get_receive_address(inputdata['network'], subaccount, branch, ptr,
-                                               recovery_xpub=recovery_xpub)
-            assert rslt == addr_test['expected_address']
+    # Check this test looks good - ie. 2of2 or 2of3
+    assert inputdata['descriptor']['threshold'] == 2
+    assert len(signers) == 2 or len(signers) == 3
+    user_signer = signers[1]  # signers[0] is ga-service
 
-        # ... and maybe blinding key tests ...
-        for blinding_test in ga_msig.get('blinding_key_tests', []):
-            rslt = jadeapi.get_blinding_key(blinding_test['script'])
-            assert rslt == blinding_test['expected_blinding_key']
+    # Handle subaccounts
+    if len(user_signer['derivation']) == 1:
+        subaccount = 0
+        branch = user_signer['derivation'][0]
+    elif len(user_signer['derivation']) == 3:
+        assert user_signer['derivation'][0] == 2147483651  # 3'
+        assert user_signer['derivation'][1] > 2147483648  # subaccount'
+        subaccount = user_signer['derivation'][1] - 2147483648  # unharden
+        branch = user_signer['derivation'][2]
+    else:
+        assert False, 'Unexpected derivation for ga-multisig wallet'
 
-            rslt = jadeapi.get_shared_nonce(blinding_test['script'],
-                                            blinding_test['their_pubkey'])
-            assert rslt == blinding_test['expected_shared_nonce']
+    user_xpub = jadeapi.get_xpub(inputdata['network'], user_signer['derivation'])
+    assert user_xpub == user_signer['xpub']   # checks our xpub entry
+    recovery_xpub = signers[2]['xpub'] if len(signers) == 3 else None
 
-            rslt = jadeapi.get_shared_nonce(blinding_test['script'],
-                                            blinding_test['their_pubkey'],
-                                            include_pubkey=True)
-            assert rslt['blinding_key'] == blinding_test['expected_blinding_key']
-            assert rslt['shared_nonce'] == blinding_test['expected_shared_nonce']
+    # Check receive addresses fetched using normal green call matches the
+    # expected results (which are tested as a generic multisig address above)
+    for addr_test in ga_msig['address_tests']:
+        ptr = addr_test['paths'][0][0]
+        # check all signers have same single-entry path (ie. 'ptr')
+        assert all(p == [ptr] for p in addr_test['paths'])
+        rslt = jadeapi.get_receive_address(inputdata['network'], subaccount, branch, ptr,
+                                           recovery_xpub=recovery_xpub)
+        assert rslt == addr_test['expected_address']
 
-        # ... and blinding/commitments tests!
-        for blinding_test in ga_msig.get('commitments_tests', []):
-            for bf_type, rslt_key in [('ASSET', 'abf'), ('VALUE', 'vbf')]:
-                rslt = jadeapi.get_blinding_factor(blinding_test['hash_prevouts'],
-                                                   blinding_test['output_index'],
-                                                   bf_type)
-                assert rslt == blinding_test[rslt_key]
+    # ... and maybe blinding key tests ...
+    for blinding_test in ga_msig.get('blinding_key_tests', []):
+        rslt = jadeapi.get_blinding_key(blinding_test['script'])
+        assert rslt == blinding_test['expected_blinding_key']
 
-            rslt = jadeapi.get_commitments(blinding_test['asset_id'],
-                                           blinding_test['value'],
-                                           blinding_test['hash_prevouts'],
-                                           blinding_test['output_index'],
-                                           multisig_name=inputdata['multisig_name'])
-            assert rslt['abf'] == blinding_test['abf']
-            assert rslt['vbf'] == blinding_test['vbf']
-            assert rslt['asset_generator'] == blinding_test['asset_generator']
-            assert rslt['value_commitment'] == blinding_test['value_commitment']
+        rslt = jadeapi.get_shared_nonce(blinding_test['script'],
+                                        blinding_test['their_pubkey'])
+        assert rslt == blinding_test['expected_shared_nonce']
+
+        rslt = jadeapi.get_shared_nonce(blinding_test['script'],
+                                        blinding_test['their_pubkey'],
+                                        include_pubkey=True)
+        assert rslt['blinding_key'] == blinding_test['expected_blinding_key']
+        assert rslt['shared_nonce'] == blinding_test['expected_shared_nonce']
+
+    # ... and blinding/commitments tests!
+    for blinding_test in ga_msig.get('commitments_tests', []):
+        for bf_type, rslt_key in [('ASSET', 'abf'), ('VALUE', 'vbf')]:
+            rslt = jadeapi.get_blinding_factor(blinding_test['hash_prevouts'],
+                                               blinding_test['output_index'],
+                                               bf_type)
+            assert rslt == blinding_test[rslt_key]
+
+        rslt = jadeapi.get_commitments(blinding_test['asset_id'],
+                                       blinding_test['value'],
+                                       blinding_test['hash_prevouts'],
+                                       blinding_test['output_index'],
+                                       multisig_name=inputdata['multisig_name'])
+        assert rslt['abf'] == blinding_test['abf']
+        assert rslt['vbf'] == blinding_test['vbf']
+        assert rslt['asset_generator'] == blinding_test['asset_generator']
+        assert rslt['value_commitment'] == blinding_test['value_commitment']
 
 
 def test_generic_multisig_matches_ga_signatures(jadeapi):
-    # Sign txns using generic multisig registration - should get same sigs as ga
+    # BBB-AIRGAP: registration and both signing fixtures are on the same network, so one
+    # setting covers the whole test - see FORK_BITCOIN_NETWORKS.
     ga_2of2_multisig_data = list(_get_test_cases('multisig_reg_matches_ga_2of2.json'))
     assert len(ga_2of2_multisig_data) == 1
-    inputdata = ga_2of2_multisig_data[0]['input']
+    with _with_device_network(jadeapi, ga_2of2_multisig_data[0]['input']['network']):
+        _check_ga_multisig_signatures(jadeapi, ga_2of2_multisig_data[0])
+
+
+def _check_ga_multisig_signatures(jadeapi, ga_2of2_multisig_case):
+    # Sign txns using generic multisig registration - should get same sigs as ga
+    inputdata = ga_2of2_multisig_case['input']
     descriptor = inputdata['descriptor']
     rslt = jadeapi.register_multisig(inputdata['network'],
                                      inputdata['multisig_name'],
@@ -3445,46 +3584,15 @@ def test_generic_multisig_matches_ga_signatures(jadeapi):
 
 
 def test_generic_multisig_matches_ga_signatures_liquid(jadeapi):
-    # Sign liquid txns using generic multisig registration - should get same sigs as ga
+    # BBB-AIRGAP: this whole test rests on a liquid multisig registration, and this fork
+    # registers bitcoin records only - see FORK_BITCOIN_NETWORKS.  The registration refusal is
+    # therefore the whole test; signing against a wallet that cannot be registered would only
+    # measure the missing record.
     ga_2of2_multisig_data = list(_get_test_cases('multisig_reg_liquid_matches_ga_2of2.json'))
     assert len(ga_2of2_multisig_data) == 1
     inputdata = ga_2of2_multisig_data[0]['input']
-    descriptor = inputdata['descriptor']
-    rslt = jadeapi.register_multisig(inputdata['network'],
-                                     inputdata['multisig_name'],
-                                     descriptor['variant'],
-                                     descriptor['sorted'],
-                                     descriptor['threshold'],
-                                     descriptor['signers'],
-                                     master_blinding_key=descriptor.get('master_blinding_key'))
-    assert rslt
-
-    ga_2of2_multisig_name = inputdata['multisig_name']
-    MULTISIG_SIGN_TXS = ['liquid_txn_lowr_nochange.json', 'liquid_txn_noncsv.json']
-    ga_2of2_multisig_txns = (list(_get_test_cases(testcase))[0] for testcase in MULTISIG_SIGN_TXS)
-    for ga_msig in ga_2of2_multisig_txns:
-        inputdata = ga_msig['input']
-
-        # Doctor the change paths to include the registered multisig name, but not
-        # the multisig xpub root (ie. to only contain the final 'ptr' part)
-        # (as the subact/branch is part of the multisig registration)
-        for change in inputdata['change'] or []:
-            if change is not None:
-                path = change.pop('path')
-                change['paths'] = [path[-1:]] * 2
-                change['multisig_name'] = ga_2of2_multisig_name
-
-        rslt = jadeapi.sign_liquid_tx(inputdata['network'],
-                                      inputdata['txn'],
-                                      inputdata.get('inputs'),
-                                      inputdata['trusted_commitments'],
-                                      inputdata['change'],
-                                      inputdata.get('use_ae_signatures'),
-                                      inputdata.get('asset_info'),
-                                      inputdata.get('additional_info'))
-
-        # Check returned signatures
-        _check_tx_signatures(jadeapi, ga_msig, rslt)
+    assert inputdata['network'] not in FORK_BITCOIN_NETWORKS
+    _check_multisig_registration_refused(jadeapi, inputdata)
 
 
 def test_generic_multisig_ss_signer(jadeapi):
@@ -3496,6 +3604,13 @@ def test_generic_multisig_ss_signer(jadeapi):
         # main test mnemonic fails (as must be registered by accessing wallet)
         inputdata = multisig_data['input']
         descriptor = inputdata['descriptor']
+
+        # BBB-AIRGAP: a fixture on a network this fork does not support was refused under the
+        # main test mnemonic too, so there is no record to be unreadable here - the device
+        # reports the name as absent instead.  See FORK_BITCOIN_NETWORKS.
+        expected_error = ('Cannot de-serialise multisig wallet data'
+                          if inputdata['network'] in FORK_BITCOIN_NETWORKS
+                          else 'Cannot find named multisig wallet')
         try:
             for addr_test in multisig_data['address_tests']:
                 rslt = jadeapi.get_receive_address(inputdata['network'],
@@ -3504,7 +3619,7 @@ def test_generic_multisig_ss_signer(jadeapi):
                 assert False, 'Accessing other wallet multisig should fail'
         except JadeError as e:
             assert e.code == JadeError.BAD_PARAMETERS
-            assert e.message == 'Cannot de-serialise multisig wallet data', e.message
+            assert e.message == expected_error, e.message
 
         # If we register the same multisig description to this wallet, it should produce
         # the same addresses as it did previously (for the other signatory)
@@ -3513,60 +3628,78 @@ def test_generic_multisig_ss_signer(jadeapi):
 
 def test_miniscript_descriptor_registration(jadeapi, pattern):
     for descriptor_data in _get_test_cases(pattern):
-        # Register the descriptor
+        # BBB-AIRGAP: on the fixture's own network, or a checked refusal where this fork has no
+        # such network to move to - see FORK_BITCOIN_NETWORKS.
         inputdata = descriptor_data['input']
+        network = inputdata['network']
+        if network not in FORK_BITCOIN_NETWORKS:
+            _check_registration_refused(
+                lambda: jadeapi.register_descriptor(network,
+                                                    inputdata['descriptor_name'],
+                                                    inputdata['descriptor'],
+                                                    inputdata.get('datavalues')),
+                FORK_DESCRIPTOR_NETWORK_REFUSAL)
+            continue
 
-        rslt = jadeapi.register_descriptor(inputdata['network'],
-                                           inputdata['descriptor_name'],
-                                           inputdata['descriptor'],
-                                           inputdata.get('datavalues'))
+        with _with_device_network(jadeapi, network):
+            _check_descriptor_registration(jadeapi, descriptor_data)
+
+
+def _check_descriptor_registration(jadeapi, descriptor_data):
+    # Register the descriptor
+    inputdata = descriptor_data['input']
+
+    rslt = jadeapi.register_descriptor(inputdata['network'],
+                                       inputdata['descriptor_name'],
+                                       inputdata['descriptor'],
+                                       inputdata.get('datavalues'))
+    assert rslt is True
+
+    # Pull the data back, then reload (roundtrip) - should be a no-op
+    roundtrip = jadeapi.get_registered_descriptor(inputdata['descriptor_name'])
+    assert roundtrip is not None
+    assert roundtrip['descriptor'] == inputdata['descriptor']
+    assert roundtrip.get('datavalues') == inputdata.get('datavalues')
+
+    roundtrip['network'] = inputdata['network']  # the only item not roundtripped
+    rslt = jadeapi._jadeRpc('register_descriptor', roundtrip)  # push result structure back
+    assert rslt
+
+    # Check present and correct in 'get_registered_multisigs' also
+    registered_descriptors = jadeapi.get_registered_descriptors()
+    descriptor_desc = registered_descriptors.get(inputdata['descriptor_name'])
+    assert descriptor_desc is not None
+    assert descriptor_desc['descriptor_len'] == len(inputdata['descriptor'])
+    assert descriptor_desc['num_datavalues'] == len(inputdata.get('datavalues', []))
+
+    # This includes 'get receive address' tests ...
+    for addr_test in descriptor_data['address_tests']:
+        rslt = jadeapi.get_receive_address(inputdata['network'],
+                                           addr_test['branch'],
+                                           addr_test['pointer'],
+                                           descriptor_name=inputdata['descriptor_name'])
+        assert rslt == addr_test['expected_address']
+
+    # Check multisig equivalent if provided
+    if 'multisig_equivalent' in inputdata:
+        # Register the multisig equivalent
+        descriptor = inputdata['multisig_equivalent']['descriptor']
+        rslt = jadeapi.register_multisig(inputdata['network'],
+                                         inputdata['descriptor_name'],
+                                         descriptor['variant'],
+                                         descriptor['sorted'],
+                                         descriptor['threshold'],
+                                         descriptor['signers'],
+                                         None)  # blinding key
         assert rslt is True
 
-        # Pull the data back, then reload (roundtrip) - should be a no-op
-        roundtrip = jadeapi.get_registered_descriptor(inputdata['descriptor_name'])
-        assert roundtrip is not None
-        assert roundtrip['descriptor'] == inputdata['descriptor']
-        assert roundtrip.get('datavalues') == inputdata.get('datavalues')
-
-        roundtrip['network'] = inputdata['network']  # the only item not roundtripped
-        rslt = jadeapi._jadeRpc('register_descriptor', roundtrip)  # push result structure back
-        assert rslt
-
-        # Check present and correct in 'get_registered_multisigs' also
-        registered_descriptors = jadeapi.get_registered_descriptors()
-        descriptor_desc = registered_descriptors.get(inputdata['descriptor_name'])
-        assert descriptor_desc is not None
-        assert descriptor_desc['descriptor_len'] == len(inputdata['descriptor'])
-        assert descriptor_desc['num_datavalues'] == len(inputdata.get('datavalues', []))
-
-        # This includes 'get receive address' tests ...
+        # Check the receive addresses are the same
         for addr_test in descriptor_data['address_tests']:
+            paths = [[addr_test['branch'], addr_test['pointer']]] * len(descriptor['signers'])
             rslt = jadeapi.get_receive_address(inputdata['network'],
-                                               addr_test['branch'],
-                                               addr_test['pointer'],
-                                               descriptor_name=inputdata['descriptor_name'])
+                                               paths,
+                                               multisig_name=inputdata['descriptor_name'])
             assert rslt == addr_test['expected_address']
-
-        # Check multisig equivalent if provided
-        if 'multisig_equivalent' in inputdata:
-            # Register the multisig equivalent
-            descriptor = inputdata['multisig_equivalent']['descriptor']
-            rslt = jadeapi.register_multisig(inputdata['network'],
-                                             inputdata['descriptor_name'],
-                                             descriptor['variant'],
-                                             descriptor['sorted'],
-                                             descriptor['threshold'],
-                                             descriptor['signers'],
-                                             None)  # blinding key
-            assert rslt is True
-
-            # Check the receive addresses are the same
-            for addr_test in descriptor_data['address_tests']:
-                paths = [[addr_test['branch'], addr_test['pointer']]] * len(descriptor['signers'])
-                rslt = jadeapi.get_receive_address(inputdata['network'],
-                                                   paths,
-                                                   multisig_name=inputdata['descriptor_name'])
-                assert rslt == addr_test['expected_address']
 
 
 def test_descriptor_slip77_network_rules(jadeapi):
@@ -3576,28 +3709,25 @@ def test_descriptor_slip77_network_rules(jadeapi):
 Z9vavB5JSA3F9s5E4cXuCte5rvBs5N4DjfxYssQk1L82Bq4FE"
     blinding_key = TEST_MNEMONIC_MASTER_BLINDING_KEY
 
-    if LIQUID_DESCRIPTORS:
-        # Liquid descriptor with SLIP-77 should pass
-        assert jadeapi.register_descriptor(
-            'localtest-liquid', 'liqs77ok', descriptor_with_slip77,
-            {'@B': blinding_key, '@0': signer}) is True
+    # BBB-AIRGAP: liquid never reaches the slip77 rules on this fork.  register_descriptor()
+    # checks the network first and refuses anything that is not the bitcoin network the device
+    # setting names, LIQUID_DESCRIPTORS or not - see FORK_BITCOIN_NETWORKS.  The liquid halves of
+    # this test therefore assert that refusal; the bitcoin halves still exercise the slip77 rule
+    # itself, with the device on the fixture's testnet.
+    _test_bad_params(
+        jadeapi.jade,
+        ('liq_s77_ok', 'register_descriptor',
+         {'network': 'localtest-liquid', 'descriptor_name': 'liqs77ok',
+          'descriptor': descriptor_with_slip77,
+          'datavalues': {'@B': blinding_key, '@0': signer}}),
+        FORK_DESCRIPTOR_NETWORK_REFUSAL)
 
-        # Liquid descriptor without SLIP-77 should fail.
-        _test_bad_params(
-            jadeapi.jade,
-            ('liq_s77_miss', 'register_descriptor',
-             {'network': 'localtest-liquid', 'descriptor_name': 'liqnos77',
-              'descriptor': descriptor_no_slip77, 'datavalues': {'@0': signer}}),
-            'must use slip77 blinding for liquid network')
-    else:
-        # Liquid descriptors disabled: reject liquid descriptors up-front
-        _test_bad_params(
-            jadeapi.jade,
-            ('liq_s77_off', 'register_descriptor',
-             {'network': 'localtest-liquid', 'descriptor_name': 'liqoff77',
-              'descriptor': descriptor_with_slip77,
-              'datavalues': {'@B': blinding_key, '@0': signer}}),
-            'not supported on liquid')
+    _test_bad_params(
+        jadeapi.jade,
+        ('liq_s77_miss', 'register_descriptor',
+         {'network': 'localtest-liquid', 'descriptor_name': 'liqnos77',
+          'descriptor': descriptor_no_slip77, 'datavalues': {'@0': signer}}),
+        FORK_DESCRIPTOR_NETWORK_REFUSAL)
 
     # Non-liquid descriptor with SLIP-77 should fail
     _test_bad_params(
@@ -3609,8 +3739,9 @@ Z9vavB5JSA3F9s5E4cXuCte5rvBs5N4DjfxYssQk1L82Bq4FE"
         'Descriptor must not be confidential for bitcoin network')
 
     # Non-liquid descriptor without SLIP-77 should pass.
-    assert jadeapi.register_descriptor(
-      'testnet', 'btcnos77', descriptor_no_slip77, {'@0': signer}) is True
+    with _with_device_network(jadeapi, 'testnet'):
+        assert jadeapi.register_descriptor(
+          'testnet', 'btcnos77', descriptor_no_slip77, {'@0': signer}) is True
 
 
 def test_12word_mnemonic(jadeapi):

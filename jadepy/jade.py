@@ -692,6 +692,27 @@ class JadeAPI:
         params = {'seed': seed}
         return self._jadeRpc('debug_set_mnemonic', params)
 
+    def set_network_restriction(self, network):
+        """
+        RPC call to set the device's main/test network restriction, as the
+        Settings > Network screen does when the user picks a network.
+        NOTE: Only available in a DEBUG build of the firmware.
+        NOTE: a wallet must be loaded, as the restriction applies to the loaded keys.
+
+        Parameters
+        ----------
+        network : str
+            The network whose type (main or test) the device is restricted to,
+            or 'none' to restore the unrestricted state a debug build starts in.
+
+        Returns
+        -------
+        bool
+            True on success.
+        """
+        params = {'network': network}
+        return self._jadeRpc('debug_set_network', params)
+
     def get_bip85_bip39_entropy(self, num_words, index, pubkey):
         """
         RPC call to fetch encrypted bip85-bip39 entropy.
