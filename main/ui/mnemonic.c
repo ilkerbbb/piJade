@@ -75,17 +75,24 @@ gui_activity_t* make_restore_mnemonic_activity(const bool temporary_restore)
                                  .ev_id = temporary_restore ? BTN_MNEMONIC_EXIT : BTN_MNEMONIC_METHOD },
         { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
 
-    btn_data_t menubtns[] = { { .txt = "12 Words", .font = GUI_DEFAULT_FONT, .ev_id = BTN_RESTORE_MNEMONIC_12 },
-        { .txt = "24 Words", .font = GUI_DEFAULT_FONT, .ev_id = BTN_RESTORE_MNEMONIC_24 },
-        { .txt = "Scan QR", .font = GUI_DEFAULT_FONT, .ev_id = BTN_RESTORE_MNEMONIC_QR } };
-
+    // BBB-AIRGAP: SeedXOR joins this menu, which make_menu_activity() caps at four rows
+    // (dialogs.c) - with the camera row that is exactly full.  The rows are counted rather than
+    // listed so that the cameraless build drops only the camera row: SeedXOR is the last entry in
+    // both, and 'Scan QR' keeps the place it has always had.
+    btn_data_t menubtns[4];
+    size_t nbtns = 0;
+    menubtns[nbtns++] = (btn_data_t){ .txt = "12 Words", .font = GUI_DEFAULT_FONT, .ev_id = BTN_RESTORE_MNEMONIC_12 };
+    menubtns[nbtns++] = (btn_data_t){ .txt = "24 Words", .font = GUI_DEFAULT_FONT, .ev_id = BTN_RESTORE_MNEMONIC_24 };
 #ifdef CONFIG_HAS_CAMERA
-    const size_t nbtns = 3;
-    const size_t selected = temporary_restore ? 2 : 0;
+    const size_t qr_index = nbtns;
+    menubtns[nbtns++] = (btn_data_t){ .txt = "Scan QR", .font = GUI_DEFAULT_FONT, .ev_id = BTN_RESTORE_MNEMONIC_QR };
+    const size_t selected = temporary_restore ? qr_index : 0;
 #else
-    const size_t nbtns = 2;
     const size_t selected = 0;
 #endif
+    menubtns[nbtns++]
+        = (btn_data_t){ .txt = "SeedXOR", .font = GUI_DEFAULT_FONT, .ev_id = BTN_RESTORE_MNEMONIC_SEEDXOR };
+    JADE_ASSERT(nbtns <= sizeof(menubtns) / sizeof(menubtns[0]));
 
     gui_activity_t* const act = make_menu_activity("Restore Wallet", hdrbtns, 2, menubtns, nbtns);
 

@@ -13,6 +13,7 @@
 #include "../qrscan.h"
 #include "../random.h"
 #include "../seedqr.h"
+#include "../seedxor.h"
 #include "../sensitive.h"
 #include "../storage.h"
 #include "../ui.h"
@@ -598,6 +599,30 @@ cleanup:
     return mnemonic_confirmed;
 }
 
+// BBB-AIRGAP: write the mnemonic for 'entropy' into the caller's buffer, wiping wally's own copy
+// on the way out.  Lifted out of import_compactseedqr() when the SeedXOR combine flow needed the
+// same three steps; both callers hold entropy that is a wallet, so neither may leave a second copy
+// of the words behind.
+// NOTE: only the English wordlist is supported.
+static void mnemonic_from_entropy(
+    const uint8_t* entropy, const size_t entropy_len, char* buf, const size_t buf_len, size_t* written)
+{
+    JADE_ASSERT(entropy && entropy_len && buf && buf_len);
+    JADE_INIT_OUT_SIZE(written);
+
+    char* mnemonic = NULL;
+    JADE_WALLY_VERIFY(bip39_mnemonic_from_bytes(NULL, entropy, entropy_len, &mnemonic));
+    JADE_ASSERT(mnemonic);
+    const size_t mnemonic_len = strnlen(mnemonic, buf_len);
+    JADE_ASSERT(mnemonic_len < buf_len); // buffer should be large enough for any mnemonic
+
+    strcpy(buf, mnemonic);
+    *written = mnemonic_len + 1; // Report actual number of bytes written including the nul-terminator
+
+    JADE_WALLY_VERIFY(wally_bzero(mnemonic, mnemonic_len));
+    JADE_WALLY_VERIFY(wally_free_string(mnemonic));
+}
+
 // BBB-AIRGAP: the backup screens exist only where the entropy does, and entropy is held only on a
 // device with a camera (see derive_keychain below) - so the whole surface is built under the same
 // condition rather than laid out and then never reached.
@@ -680,6 +705,116 @@ static void verify_wallet_words(char* mnemonic, const size_t mnemonic_len, const
     }
 }
 
+// BBB-AIRGAP: split the wallet in use into Seed XOR parts, each of which is a valid, empty wallet
+// of its own.  The parts are shown and quizzed one at a time, exactly as the setup flow shows and
+// quizzes a new phrase, because that is what each part is.
+//
+// The claim, stated so that neither this screen nor the documentation grows a larger one: a part
+// found on its own is an empty wallet and says nothing about the others, and this device keeps no
+// record that the split happened.  That is all.  Every part is needed - lose one and the seed is
+// gone, there is no threshold here (SLIP-39 is a separate matter) - and against someone who knows
+// the scheme was used and holds all the parts it protects nothing at all.
+static void split_wallet_seedxor(char* mnemonic, const size_t mnemonic_len, const size_t nwords)
+{
+    JADE_ASSERT(mnemonic);
+    JADE_ASSERT(mnemonic_len == strlen(mnemonic));
+    JADE_ASSERT(is_valid_mnemonic_length(nwords));
+
+    const char* intro[] = { "Each part is a valid", "empty wallet. ALL are", "needed to rebuild this" };
+    if (!await_continueback_activity("SeedXOR", intro, 3, true, NULL)) {
+        return;
+    }
+
+    const list_item_t part_items[] = { { .txt = "2 Parts", .ev_id = BTN_SEEDXOR_SPLIT_PARTS },
+        { .txt = "3 Parts", .ev_id = BTN_SEEDXOR_SPLIT_PARTS },
+        { .txt = "4 Parts", .ev_id = BTN_SEEDXOR_SPLIT_PARTS } };
+    const size_t num_part_items = sizeof(part_items) / sizeof(part_items[0]);
+    // The rows ARE the range of part counts; widening the range without a row here would map the
+    // selected index onto a count nobody offered.
+    JADE_STATIC_ASSERT(
+        SEEDXOR_MAX_SPLIT_PARTS - SEEDXOR_MIN_SPLIT_PARTS + 1 == sizeof(part_items) / sizeof(part_items[0]));
+
+    // One event id for all three rows; which row was taken is the selected index, which is what
+    // run_list_activity() reports anyway.
+    size_t selected = 0;
+    if (run_list_activity("SeedXOR", BTN_SEEDXOR_SPLIT_EXIT, part_items, num_part_items, &selected)
+        != BTN_SEEDXOR_SPLIT_PARTS) {
+        return;
+    }
+    const size_t num_parts = SEEDXOR_MIN_SPLIT_PARTS + selected;
+    JADE_ASSERT(num_parts >= SEEDXOR_MIN_SPLIT_PARTS && num_parts <= SEEDXOR_MAX_SPLIT_PARTS);
+
+    const size_t entropy_len = nwords == 12 ? BIP39_ENTROPY_LEN_128 : BIP39_ENTROPY_LEN_256;
+    uint8_t entropy[BIP39_ENTROPY_LEN_256];
+    SENSITIVE_PUSH(entropy, sizeof(entropy));
+    size_t written = 0;
+    JADE_WALLY_VERIFY(bip39_mnemonic_to_bytes(NULL, mnemonic, entropy, sizeof(entropy), &written));
+    JADE_ASSERT(written == entropy_len);
+
+    uint8_t parts[SEEDXOR_MAX_SPLIT_PARTS * BIP39_ENTROPY_LEN_256];
+    SENSITIVE_PUSH(parts, sizeof(parts));
+    bool shown_all = false;
+    bool words_reached_screen = false;
+    if (!seedxor_split(entropy, entropy_len, num_parts, parts)) {
+        // seedxor_split() wipes what it wrote when it cannot rebuild the seed from it, so there is
+        // nothing here for the user to write down and nothing for this screen to offer.
+        await_error("Split failed");
+        goto cleanup;
+    }
+
+    char part_mnemonic[MNEMONIC_BUFLEN];
+    SENSITIVE_PUSH(part_mnemonic, sizeof(part_mnemonic));
+    for (size_t i = 0; i < num_parts; ++i) {
+        char label[24];
+        const int label_len = snprintf(label, sizeof(label), "Part %c of %u", (char)('A' + i), (unsigned)num_parts);
+        JADE_ASSERT(label_len > 0 && (size_t)label_len < sizeof(label));
+        const char* heading[] = { label, "Write them down" };
+        if (!await_continueback_activity("SeedXOR", heading, 2, true, NULL)) {
+            break;
+        }
+
+        mnemonic_from_entropy(parts + (i * entropy_len), entropy_len, part_mnemonic, sizeof(part_mnemonic), &written);
+        // Set before the screens rather than after them: the flag decides whether an abandoned
+        // split tells the user to destroy what they wrote, and being told to destroy nothing costs
+        // nothing, while not being told after seeing words is the failure that matters.
+        words_reached_screen = true;
+
+        // Shows the words and then quizzes them, the same screens a new wallet gets.  NOTE: it
+        // replaces the spaces in the buffer it is given, which is why each part gets a fresh one.
+        if (!display_confirm_mnemonic(nwords, part_mnemonic, written - 1)) {
+            break;
+        }
+        shown_all = (i + 1 == num_parts);
+    }
+    SENSITIVE_POP(part_mnemonic);
+
+    if (!shown_all) {
+        // A part or two on paper and the rest abandoned is worse than nothing: it is seed material
+        // written down that rebuilds no wallet.  Say so rather than leaving quietly.  Leaving
+        // before any part was shown is an ordinary cancel and gets no screen.
+        if (words_reached_screen) {
+            await_error_2("Split abandoned", "Destroy the parts");
+        }
+        goto cleanup;
+    }
+
+    // The final word of the wallet's own phrase is what a combine screen will show when the parts
+    // are put back together, on this device or on another that speaks the scheme.  It is the check
+    // this scheme gives its users, so it is offered here to be written down with the parts.
+    char check_word[MNEMONIC_MAX_WORD_LEN + 12];
+    SENSITIVE_PUSH(check_word, sizeof(check_word));
+    const char* const final_word = strrchr(mnemonic, ' ');
+    JADE_ASSERT(final_word);
+    const int check_len = snprintf(check_word, sizeof(check_word), "Word %u:%s", (unsigned)nwords, final_word);
+    JADE_ASSERT(check_len > 0 && (size_t)check_len < sizeof(check_word));
+    await_message_3("Combined, the parts end", "with this word:", check_word);
+    SENSITIVE_POP(check_word);
+
+cleanup:
+    SENSITIVE_POP(parts);
+    SENSITIVE_POP(entropy);
+}
+
 // BBB-AIRGAP: the backup screens for the wallet in use, grouped the way SeedSigner groups them
 // (View words / Export SeedQR / Verify backup).  All three need the words, which exist only for a
 // wallet whose slot still holds the entropy they were built from, so the caller offers this menu
@@ -693,11 +828,15 @@ void handle_wallet_backup(void)
         if (gui_escape_pending()) {
             return;
         }
-        list_item_t items[3];
+        list_item_t items[4];
         size_t num_items = 0;
         items[num_items++] = (list_item_t){ .txt = "View Words", .ev_id = BTN_WALLET_BACKUP_VIEW };
         items[num_items++] = (list_item_t){ .txt = "Export SeedQR", .ev_id = BTN_WALLET_BACKUP_SEEDQR };
         items[num_items++] = (list_item_t){ .txt = "Verify Backup", .ev_id = BTN_WALLET_BACKUP_VERIFY };
+        // BBB-AIRGAP: splitting is a way of holding the backup rather than a way of taking it, so
+        // it sits at the end.  This is a scrolling list, not the four-row menu, so there is no
+        // ceiling to run into here.
+        items[num_items++] = (list_item_t){ .txt = "Split (SeedXOR)", .ev_id = BTN_WALLET_BACKUP_SPLIT };
         JADE_ASSERT(num_items <= sizeof(items) / sizeof(items[0]));
 
         const int32_t ev_id = run_list_activity("Backup", BTN_WALLET_BACKUP_EXIT, items, num_items, &selected);
@@ -712,6 +851,10 @@ void handle_wallet_backup(void)
 
         case BTN_WALLET_BACKUP_VERIFY:
             with_wallet_words(verify_wallet_words);
+            break;
+
+        case BTN_WALLET_BACKUP_SPLIT:
+            with_wallet_words(split_wallet_seedxor);
             break;
 
         case BTN_WALLET_BACKUP_EXIT:
@@ -1532,6 +1675,110 @@ static bool mnemonic_recover(const size_t nwords, const bool advanced_mode, cons
     return true;
 }
 
+// BBB-AIRGAP: combine Seed XOR parts into the wallet they were split from.  Each part is entered
+// through the same word screens the ordinary restore path uses, turned into its entropy, xored
+// into a running total and then forgotten; only the total survives from one part to the next, so
+// no part is left waiting in memory while the next one is typed.
+//
+// Said plainly, because this scheme is easy to over-read: a part found on its own is a valid,
+// empty wallet, and the device keeps no record that Seed XOR was used at all.  That is the whole
+// of what it gives.  It is not a threshold scheme - every part is needed, and losing one loses the
+// seed - and it hides nothing from someone who knows the scheme was used and holds all the parts.
+//
+// Between parts the screen shows the final word of the phrase the parts make so far, not the
+// wallet fingerprint.  That word is the token this scheme's users are told to write down when they
+// split (Coldcard recommends it), so it is the one a person can check against the paper in their
+// hand; the fingerprint that the rest of this fork identifies wallets by is on the session screen
+// once the wallet is loaded, which is where the check that matters belongs anyway.
+static bool mnemonic_seedxor(const bool advanced_mode, char* mnemonic, const size_t mnemonic_len)
+{
+    JADE_ASSERT(mnemonic);
+    JADE_ASSERT(mnemonic_len == MNEMONIC_BUFLEN);
+
+    const size_t nwords = await_new_mnemonic_nwords();
+    if (!nwords) {
+        // 'back' out of the word-count screen
+        return false;
+    }
+    JADE_ASSERT(is_valid_mnemonic_length(nwords));
+    const size_t entropy_len = nwords == 12 ? BIP39_ENTROPY_LEN_128 : BIP39_ENTROPY_LEN_256;
+
+    uint8_t total[BIP39_ENTROPY_LEN_256];
+    SENSITIVE_PUSH(total, sizeof(total));
+    memset(total, 0, sizeof(total));
+
+    bool combined = false;
+    size_t num_parts = 0;
+    while (!combined) {
+        // Every part is entered and validated exactly as a whole recovery phrase would be, because
+        // that is what a part is.  An abandoned entry abandons the parts already taken with it.
+        if (!mnemonic_recover(nwords, advanced_mode, RECOVERY_WORDS, mnemonic, mnemonic_len)) {
+            break;
+        }
+
+        uint8_t part[BIP39_ENTROPY_LEN_256];
+        SENSITIVE_PUSH(part, sizeof(part));
+        size_t part_len = 0;
+        JADE_WALLY_VERIFY(bip39_mnemonic_to_bytes(NULL, mnemonic, part, sizeof(part), &part_len));
+        JADE_ASSERT(part_len == entropy_len);
+        seedxor_accumulate(total, part, entropy_len);
+        SENSITIVE_POP(part);
+        ++num_parts;
+
+        char check_word[MNEMONIC_MAX_WORD_LEN + 12]; // 'Word nn: ' and the word
+        SENSITIVE_PUSH(check_word, sizeof(check_word));
+        char counted[24];
+        const int counted_len = snprintf(counted, sizeof(counted), "Parts entered: %u", (unsigned)num_parts);
+        JADE_ASSERT(counted_len > 0 && (size_t)counted_len < sizeof(counted));
+
+        const char* message[3];
+        size_t num_message = 0;
+        message[num_message++] = counted;
+
+        if (num_parts < SEEDXOR_MIN_SPLIT_PARTS) {
+            // One part is just that part's own wallet; there is nothing to show about it that the
+            // user did not type, and nothing to offer but the next part.
+            message[num_message++] = "Enter the next part";
+        } else {
+            // Write the phrase the parts make back over the part just entered: it is what the
+            // caller needs if the user stops here, and its final word is what this screen shows.
+            size_t written = 0;
+            mnemonic_from_entropy(total, entropy_len, mnemonic, mnemonic_len, &written);
+            const char* const final_word = strrchr(mnemonic, ' ');
+            JADE_ASSERT(final_word);
+            const int check_len = snprintf(check_word, sizeof(check_word), "Word %u:%s", (unsigned)nwords, final_word);
+            JADE_ASSERT(check_len > 0 && (size_t)check_len < sizeof(check_word));
+            message[num_message++] = check_word;
+
+            if (seedxor_is_zero(total, entropy_len)) {
+                // Every bit cancelled, which is a doubled part rather than a wallet.  Said, not
+                // refused: the user may yet add the part that makes it a wallet.
+                message[num_message++] = "Parts cancel out!";
+            }
+        }
+        JADE_ASSERT(num_message <= sizeof(message) / sizeof(message[0]));
+
+        const bool add_another = await_choice_activity("SeedXOR", message, num_message, "Add Part",
+            num_parts < SEEDXOR_MIN_SPLIT_PARTS ? "Cancel" : "Done", true, NULL);
+        SENSITIVE_POP(check_word);
+
+        // An escape returns 'false' from that question just as 'Done' does, so it is the flag that
+        // tells them apart; without this check KEY3 would finish the combine instead of leaving it.
+        if (gui_escape_pending()) {
+            break;
+        }
+        if (!add_another) {
+            combined = num_parts >= SEEDXOR_MIN_SPLIT_PARTS;
+            if (!combined) {
+                break;
+            }
+        }
+    }
+
+    SENSITIVE_POP(total);
+    return combined;
+}
+
 // Take a nul terminated string of space-separated mnemonic-word prefixes, and populate a string of
 // space-separated full mnemonic words (also nul terminated).
 // Returns true if it works!  Returns false if any of the prefixes are not a prefix for exactly one
@@ -1688,19 +1935,7 @@ static bool import_compactseedqr(
         return false;
     }
 
-    // Convert binary entropy to mnemonic string
-    char* mnemonic = NULL;
-    JADE_WALLY_VERIFY(bip39_mnemonic_from_bytes(NULL, bytes, bytes_len, &mnemonic));
-    JADE_ASSERT(mnemonic);
-    const size_t mnemonic_len = strnlen(mnemonic, buf_len);
-    JADE_ASSERT(mnemonic_len < buf_len); // buffer should be large enough for any mnemonic
-
-    // Copy into output buffer and zero and free wally string
-    strcpy(buf, mnemonic);
-    *written = mnemonic_len + 1; // Report actual number of bytes written including the nul-terminator
-
-    JADE_WALLY_VERIFY(wally_bzero(mnemonic, mnemonic_len));
-    JADE_WALLY_VERIFY(wally_free_string(mnemonic));
+    mnemonic_from_entropy(bytes, bytes_len, buf, buf_len, written);
     return true;
 }
 
@@ -2280,6 +2515,14 @@ void initialise_with_mnemonic(const bool temporary_restore, const bool force_qr_
             case BTN_RESTORE_MNEMONIC_QR:
                 got_mnemonic = mnemonic_qr(mnemonic, sizeof(mnemonic));
                 qr_scanned = got_mnemonic;
+                break;
+
+            // BBB-AIRGAP: Seed XOR parts combine into an ordinary recovery phrase, so the result
+            // rejoins the flow here rather than branching around it: the validation below, the
+            // passphrase question, the SeedQR export offer and the choice between a temporary and
+            // a persistent wallet are all the ones every other restore method gets.
+            case BTN_RESTORE_MNEMONIC_SEEDXOR:
+                got_mnemonic = mnemonic_seedxor(advanced_mode, mnemonic, sizeof(mnemonic));
                 break;
             default:
                 // Unknown event, ignore

@@ -82,6 +82,8 @@ typedef enum {
     BTN_RESTORE_MNEMONIC_WORD_NUMBERS_12,
     BTN_RESTORE_MNEMONIC_WORD_NUMBERS_24,
     BTN_RESTORE_MNEMONIC_QR,
+    // BBB-AIRGAP: combine Seed XOR parts into the wallet they were split from
+    BTN_RESTORE_MNEMONIC_SEEDXOR,
 
     BTN_MNEMONIC_FINAL_WORD_EXISTING,
     BTN_MNEMONIC_FINAL_WORD_CALCULATE,
@@ -152,6 +154,11 @@ typedef enum {
     BTN_WALLET_BACKUP_VIEW,
     BTN_WALLET_BACKUP_SEEDQR,
     BTN_WALLET_BACKUP_VERIFY,
+    // BBB-AIRGAP: split this wallet into Seed XOR parts
+    BTN_WALLET_BACKUP_SPLIT,
+    // BBB-AIRGAP: rows of the 'how many parts' list, told apart by the selected index
+    BTN_SEEDXOR_SPLIT_PARTS,
+    BTN_SEEDXOR_SPLIT_EXIT,
     // BBB-AIRGAP: load a second wallet into a free slot from the Options list.  Upstream had no
     // such row because only one wallet fitted in memory; the slot table makes it an operation the
     // menu can name rather than a side effect of the generic QR scanner.

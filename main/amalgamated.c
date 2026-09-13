@@ -129,6 +129,7 @@ void __wrap_abort(void);
 #include "./registration_seal.c"
 #include "./rsa.c"
 #include "./seedqr.c"
+#include "./seedxor.c"
 #ifndef CONFIG_LIBJADE
 #include "./random.c"
 #include "./selfcheck.c"
