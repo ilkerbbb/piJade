@@ -27,6 +27,7 @@ void __wrap_abort(void);
 #include "./aes.c"
 #include "./assets.c"
 #include "./attestation/attestation.c"
+#include "./bbqr.c"
 #include "./bcur.c"
 #ifdef CONFIG_BT_ENABLED
 #include "./ble/ble.c"

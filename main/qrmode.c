@@ -1993,18 +1993,18 @@ static bool handle_bcur_bytes(const uint8_t* cbor, const size_t cbor_len)
 }
 
 // Parse a BC-UR PSBT and attempt to sign and display as BC-UR QR
-static bool parse_sign_display_bcur_psbt_qr(const uint8_t* cbor, const size_t cbor_len)
-{
-    JADE_ASSERT(cbor);
-    JADE_ASSERT(cbor_len);
+// BBB-AIRGAP: deserialise_psbt() has no header of its own; main/bcur.c and main/usbhmsc/usbmode.c
+// each carry the same forward declaration, and this is the third caller.
+bool deserialise_psbt(const uint8_t* bytes, size_t bytes_len, struct wally_psbt** psbt_out);
 
-    // Parse scanned QR data
-    struct wally_psbt* psbt = NULL;
-    if (!bcur_parse_psbt(cbor, cbor_len, &psbt)) {
-        // Unexpected type/format
-        await_error("Unsupported QR/PSBT format");
-        return false;
-    }
+// BBB-AIRGAP: the signing tail, split out because a PSBT now arrives by two routes - BC-UR, which
+// wraps it in CBOR, and BBQr, which carries the serialised PSBT as it stands.  Only the parsing
+// differs; signing and showing the result are the same work, and duplicating them would be two
+// places to keep in step.  Takes ownership of 'psbt' either way.
+// The signed PSBT is shown as BC-UR in both cases (scope decision, C4 design doc section 2).
+static bool sign_display_psbt(struct wally_psbt* psbt)
+{
+    JADE_ASSERT(psbt);
 
     // Try to sign extracted PSBT
     bool ret = false;
@@ -2036,6 +2036,36 @@ static bool parse_sign_display_bcur_psbt_qr(const uint8_t* cbor, const size_t cb
 cleanup:
     JADE_WALLY_VERIFY(wally_psbt_free(psbt));
     return ret;
+}
+
+// A PSBT wrapped in BC-UR/CBOR
+static bool parse_sign_display_bcur_psbt_qr(const uint8_t* cbor, const size_t cbor_len)
+{
+    JADE_ASSERT(cbor);
+    JADE_ASSERT(cbor_len);
+
+    struct wally_psbt* psbt = NULL;
+    if (!bcur_parse_psbt(cbor, cbor_len, &psbt)) {
+        // Unexpected type/format
+        await_error("Unsupported QR/PSBT format");
+        return false;
+    }
+    return sign_display_psbt(psbt);
+}
+
+// BBB-AIRGAP: a PSBT as BBQr carries it - the serialised transaction itself, with no CBOR wrapper,
+// so it goes straight to the deserialiser the BC-UR path reaches through bcur_parse_psbt().
+static bool parse_sign_display_raw_psbt_qr(const uint8_t* bytes, const size_t bytes_len)
+{
+    JADE_ASSERT(bytes);
+    JADE_ASSERT(bytes_len);
+
+    struct wally_psbt* psbt = NULL;
+    if (!deserialise_psbt(bytes, bytes_len, &psbt) || !psbt) {
+        await_error("Unsupported QR/PSBT format");
+        return false;
+    }
+    return sign_display_psbt(psbt);
 }
 
 void show_bip85_bip39_entropy_qr(const uint8_t* cbor, const size_t cbor_len)
@@ -2427,7 +2457,7 @@ static void handle_mining_start(void)
     char* type = NULL;
     uint8_t* data = NULL;
     size_t data_len = 0;
-    if (!bcur_scan_qr("Mining QR", &type, &data, &data_len, 0, NULL) || !data) {
+    if (!bcur_scan_qr("Mining QR", &type, &data, &data_len, 0, NULL, NULL) || !data) {
         // Scan aborted
         JADE_ASSERT(!type);
         JADE_ASSERT(!data);
@@ -2647,10 +2677,14 @@ void handle_scan_qr(const char* title, const char* help_url)
     JADE_ASSERT(help_url);
 
     // Scan QR - potentially a BC-UR/multi-frame QR
+    // BBB-AIRGAP: this is the one scanning path that takes BBQr as well.  The others read a single
+    // known message type and have nowhere to put a file type, so they pass NULL and keep today's
+    // behaviour for a 'B$' frame.
     char* type = NULL;
     uint8_t* data = NULL;
     size_t data_len = 0;
-    if (!bcur_scan_qr(title, &type, &data, &data_len, 0, help_url) || !data) {
+    char bbqr_file_type = '\0';
+    if (!bcur_scan_qr(title, &type, &data, &data_len, 0, help_url, &bbqr_file_type) || !data) {
         // Scan aborted
         JADE_ASSERT(!type);
         JADE_ASSERT(!data);
@@ -2704,6 +2738,31 @@ void handle_scan_qr(const char* title, const char* help_url)
             JADE_LOGW("Unhandled BC-UR type: %s", type);
             await_error("Unhandled UR message");
         }
+    } else if (bbqr_file_type) {
+        // BBB-AIRGAP: a completed BBQr transfer, routed on the file type its header declared.  The
+        // set is the standard's (main/bbqr.c is_known_file_type); what this device can do with a
+        // payload is a smaller set, and a type outside it is refused in as many words rather than
+        // pushed through a parser that would reject it with a vaguer message.
+        JADE_ASSERT(data[data_len] == '\0');
+        switch (bbqr_file_type) {
+        case 'P':
+            // PSBT, serialised rather than CBOR-wrapped
+            if (!parse_sign_display_raw_psbt_qr(data, data_len)) {
+                JADE_LOGE("Processing BBQr as PSBT failed");
+            }
+            break;
+        case 'U':
+            // Unicode text - the form Coldcard exports a multisig setup file in, which is what the
+            // undifferentiated bytes handler already knows how to read.
+            if (!handle_qr_bytes(data, data_len)) {
+                JADE_LOGW("Unhandled BBQr text message");
+            }
+            break;
+        default:
+            JADE_LOGW("Unhandled BBQr file type: %c", bbqr_file_type);
+            await_error("Unsupported BBQr type");
+            break;
+        }
     } else {
         // Non-BC-UR (single frame) undifferentiated bytes
         JADE_ASSERT(data[data_len] == '\0');
@@ -2744,7 +2803,7 @@ void handle_sign_message(void)
     // rather than assumed: the page's own code was run and the code it painted was fed to this
     // camera, which reached the confirm screen and produced a signature
     // (pijade/tools/t4148_help.sh, 2026-09-08).
-    if (!bcur_scan_qr("Message QR", &type, &data, &data_len, 0, PIJADE_HELP_SIGN_URL) || !data) {
+    if (!bcur_scan_qr("Message QR", &type, &data, &data_len, 0, PIJADE_HELP_SIGN_URL, NULL) || !data) {
         // Scan aborted
         JADE_ASSERT(!type);
         JADE_ASSERT(!data);
@@ -3138,7 +3197,7 @@ static bool scan_qr_post_in_message(const char* label, const char* expected_type
 
     // NOTE: we take ownership of 'type' and 'data'
     const uint32_t offset = 1; // Allow for a prefix message source byte
-    if (!bcur_scan_qr(label, &type, &data, &data_len, offset, "blkstrm.com/qrpin")) {
+    if (!bcur_scan_qr(label, &type, &data, &data_len, offset, "blkstrm.com/qrpin", NULL)) {
         JADE_LOGI("QR scanning failed or abandoned");
         return false;
     }

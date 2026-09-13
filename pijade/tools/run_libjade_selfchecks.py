@@ -19,6 +19,7 @@ SELFCHECKS = (
     ("descriptor", "Testing miniscript descriptors"),
     ("urldecode", "Testing validator and decoder for URL-encoded strings"),
     ("mining", "Testing bitcoin mining hash loop"),
+    ("bbqr", "Testing BBQr multi-frame QR collection"),
 )
 
 

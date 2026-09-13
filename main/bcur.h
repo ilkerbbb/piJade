@@ -64,8 +64,14 @@ WARN_UNUSED_RESULT bool bcur_build_cbor_crypto_psbt(
 // If not BC-UR, the scanned payload is returned with a type of NULL.
 // In either case the caller takes ownership, and must free the output data bytes and any type string.
 // Returns false if scanning fails or is abandoned - in which case there is nothing to free.
+// BBB-AIRGAP: if 'bbqr_file_type' is passed, BBQr frames are collected in the same camera session
+// (BBQr is the animated format Coldcard and Passport emit; see main/bbqr.h).  A completed BBQr
+// transfer is returned like a non-BC-UR payload - type NULL, caller owns the bytes - with the BBQr
+// file-type character written here, which is what tells the caller a BBQr transfer arrived and what
+// it claims to hold.  Passing NULL turns the collector off entirely, and a 'B$' frame is then taken
+// as a single raw frame exactly as it was before this fork understood the format.
 WARN_UNUSED_RESULT bool bcur_scan_qr(const char* prompt_text, char** output_type, uint8_t** output, size_t* output_len,
-    size_t offset, const char* help_url);
+    size_t offset, const char* help_url, char* bbqr_file_type);
 
 // BBB-AIRGAP: the scale factor that renders a version-N QR code as large as the panel allows,
 // keeping two modules of quiet zone per side where the split-layout floor still permits it.

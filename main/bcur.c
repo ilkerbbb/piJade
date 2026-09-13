@@ -1,5 +1,6 @@
 #ifndef AMALGAMATED_BUILD
 #include "bcur.h"
+#include "bbqr.h"
 #include "jade_assert.h"
 #include "keychain.h"
 #include "qrcode.h"
@@ -1240,11 +1241,23 @@ void bcur_build_cbor_crypto_account(const script_variant_t script_variant, const
     JADE_ASSERT(*written);
 }
 
+// BBB-AIRGAP: what collect_any_bcur() carries through qr_data->ctx.  Two collectors now share one
+// camera session - the BC-UR decoder this fork inherited and the BBQr collector (main/bbqr.c) - so
+// the context is a struct rather than the bare decoder it used to be.  'bbqr_enabled' travels here
+// because collect_any_bcur() cannot see its caller's arguments: without it BBQr would be collected
+// on every scanning path, including the ones that pass NULL and have no way to report a file type.
+typedef struct {
+    uint8_t urdecoder[URDECODER_SIZE];
+    bbqr_ctx_t bbqr;
+    bool bbqr_enabled;
+} scan_ctx_t;
+
 // Support scanning a bc-ur qr-code - single-frame or animated/multi-frame.
 // Adds a scanned bc-ur qr the bcur decoder - only returns true when the decoder is complete.
 // ie. collates multiple frames until the entire bc-ur data is complete.
 // If the qr-code scanned is not a bc-ur part, return success immediately.
 // Updates associated progress-bar as parts are scanned.
+// BBB-AIRGAP: a BBQr frame goes to the BBQr collector instead, on the same terms.
 static bool collect_any_bcur(qr_data_t* qr_data)
 {
     JADE_ASSERT(qr_data);
@@ -1252,6 +1265,35 @@ static bool collect_any_bcur(qr_data_t* qr_data)
     JADE_ASSERT(qr_data->ctx);
     JADE_ASSERT(qr_data->progress_bar);
     JADE_ASSERT(qr_data->data[qr_data->len] == '\0');
+
+    scan_ctx_t* const ctx = (scan_ctx_t*)qr_data->ctx;
+
+    // BBB-AIRGAP: BBQr frames, where the caller asked for them.  Tried before the BC-UR prefix
+    // because the two headers are disjoint ('B$' against 'ur:'), so the order costs nothing and
+    // keeps the BBQr rules in one place.
+    if (ctx->bbqr_enabled && bbqr_is_header(qr_data->data, qr_data->len)) {
+        if (urreceived_parts_count_decoder(ctx->urdecoder)) {
+            // A BC-UR transfer is already under way.  Feeding both would leave the session with two
+            // half-collected payloads and no way to say which one the user meant.
+            JADE_LOGW("Ignoring a BBQr frame while a BC-UR transfer is in progress");
+            return false;
+        }
+
+        const bbqr_collect_result_t result = bbqr_collect(&ctx->bbqr, qr_data->data, qr_data->len);
+        if (result == BBQR_REJECTED) {
+            return false;
+        }
+        update_progress_bar(qr_data->progress_bar, ctx->bbqr.num_parts, ctx->bbqr.num_seen);
+        return result == BBQR_COMPLETE;
+    }
+
+    // BBB-AIRGAP: a BBQr collection under way owns the session until it completes.  Without this an
+    // unrelated single frame would satisfy the scan, the parts collected so far would be dropped,
+    // and the user would be handed that stray frame as though it were what they had been scanning.
+    if (ctx->bbqr.num_parts) {
+        JADE_LOGW("Ignoring a frame that is not part of the BBQr transfer in progress");
+        return false;
+    }
 
     if (qr_data->len < sizeof(BCUR_PREFIX)
         || strncasecmp((const char*)qr_data->data, BCUR_PREFIX, sizeof(BCUR_PREFIX) - 1)) {
@@ -1266,22 +1308,22 @@ static bool collect_any_bcur(qr_data_t* qr_data)
         JADE_LOGW("Rejecting bcur part with a malformed sequence component");
         return false;
     }
-    const bool processed_part = urreceive_part_decoder(qr_data->ctx, (const char*)qr_data->data);
+    const bool processed_part = urreceive_part_decoder(ctx->urdecoder, (const char*)qr_data->data);
 
     // On hard failure, reset the decoder
-    if (uris_failure_decoder(qr_data->ctx)) {
+    if (uris_failure_decoder(ctx->urdecoder)) {
         JADE_LOGE("Failure to scan bcur data - resetting the decoder");
-        urfree_placement_decoder(qr_data->ctx);
-        urcreate_placement_decoder(qr_data->ctx, URDECODER_SIZE);
+        urfree_placement_decoder(ctx->urdecoder);
+        urcreate_placement_decoder(ctx->urdecoder, URDECODER_SIZE);
         return false;
     }
 
     // Update associated progress bar - be a bit defensive here
-    const bool decoded = uris_success_decoder(qr_data->ctx);
-    const size_t nreceived = urreceived_parts_count_decoder(qr_data->ctx);
+    const bool decoded = uris_success_decoder(ctx->urdecoder);
+    const size_t nreceived = urreceived_parts_count_decoder(ctx->urdecoder);
     if (processed_part && nreceived) {
         // NOTE: can only call 'expected' once we have received at least one part
-        const size_t nexpected = urexpected_part_count_decoder(qr_data->ctx);
+        const size_t nexpected = urexpected_part_count_decoder(ctx->urdecoder);
 
         // If fully decoded show full bar - but if not fully decoded
         // don't show a full bar - pause at 'almost done' if required.
@@ -1299,32 +1341,41 @@ static bool collect_any_bcur(qr_data_t* qr_data)
 }
 
 bool bcur_scan_qr(const char* prompt_text, char** output_type, uint8_t** output, size_t* output_len, size_t offset,
-    const char* help_url)
+    const char* help_url, char* bbqr_file_type)
 {
     // prompt_text is optional
     JADE_INIT_OUT_PPTR(output_type);
     JADE_INIT_OUT_PPTR(output);
     JADE_INIT_OUT_SIZE(output_len);
 
-    uint8_t urdecoder[URDECODER_SIZE];
-    urcreate_placement_decoder(urdecoder, sizeof(urdecoder));
+    // BBB-AIRGAP: bbqr_file_type is optional, and passing it is what asks for BBQr frames to be
+    // collected at all.  Cleared up front so a caller that scans something else cannot read a
+    // stale character out of it.
+    scan_ctx_t scan_ctx = { .bbqr_enabled = bbqr_file_type != NULL };
+    if (bbqr_file_type) {
+        *bbqr_file_type = '\0';
+    }
+
+    urcreate_placement_decoder(scan_ctx.urdecoder, sizeof(scan_ctx.urdecoder));
     progress_bar_t progress_bar = {};
-    qr_data_t qr_data = { .len = 0, .is_valid = collect_any_bcur, .ctx = urdecoder, .progress_bar = &progress_bar };
+    qr_data_t qr_data = { .len = 0, .is_valid = collect_any_bcur, .ctx = &scan_ctx, .progress_bar = &progress_bar };
 
     // Scan qr code using the bcur decoder to collate multiple frames if required
     if (!jade_camera_scan_qr(&qr_data, prompt_text, QR_GUIDE_SHOW, help_url)) {
-        // User exited without completing scanning
-        urfree_placement_decoder(urdecoder);
+        // User exited without completing scanning.  BBB-AIRGAP: a half-collected BBQr transfer holds
+        // an allocation of its own, and the user walking away is exactly when it has to be released.
+        urfree_placement_decoder(scan_ctx.urdecoder);
+        bbqr_free(&scan_ctx.bbqr);
         return false;
     }
 
     // Copy output into output params - caller takes ownership
-    if (uris_success_decoder(urdecoder)) {
+    if (uris_success_decoder(scan_ctx.urdecoder)) {
         // bcur message scanned - extract from decoder and return the payload
         uint8_t* result = NULL;
         size_t result_len = 0;
         const char* result_type = NULL;
-        urresult_ur_decoder(urdecoder, &result, &result_len, &result_type);
+        urresult_ur_decoder(scan_ctx.urdecoder, &result, &result_len, &result_type);
         JADE_ASSERT(result);
         JADE_ASSERT(result_len);
         JADE_ASSERT(result_type);
@@ -1341,6 +1392,34 @@ bool bcur_scan_qr(const char* prompt_text, char** output_type, uint8_t** output,
         (*output)[result_len + offset] = '\0';
         *output_len = result_len + offset;
         *output_type = strdup(result_type);
+    } else if (scan_ctx.bbqr.num_seen && scan_ctx.bbqr.num_seen == scan_ctx.bbqr.num_parts) {
+        // BBB-AIRGAP: a complete BBQr transfer.  This branch has to sit ahead of the raw one below,
+        // which would otherwise copy the single frame that happened to arrive last and hand back a
+        // fragment of the payload as though it were the whole of it.
+        // Only reachable with the collector enabled, which is to say with somewhere to put the type
+        JADE_ASSERT(bbqr_file_type);
+
+        const uint8_t* payload = NULL;
+        size_t payload_len = 0;
+        char file_type = '\0';
+        if (!bbqr_finalise(&scan_ctx.bbqr, &payload, &payload_len, &file_type)) {
+            // With every part present the only way this fails is the 'Z' encoding's decompression,
+            // so the user is told rather than left with a scan that appeared to finish and did
+            // nothing.  What went wrong is in the log; the payload itself is never logged.
+            await_error("Failed to decode BBQr");
+            urfree_placement_decoder(scan_ctx.urdecoder);
+            bbqr_free(&scan_ctx.bbqr);
+            return false;
+        }
+
+        // Copied out rather than handed over: bbqr_finalise() keeps ownership and the bytes live
+        // only until bbqr_free() below, which is the same contract the bc-ur branch works under.
+        *output = JADE_MALLOC_PREFER_SPIRAM(payload_len + offset + 1);
+        memcpy(*output + offset, payload, payload_len);
+        (*output)[payload_len + offset] = '\0';
+        *output_len = payload_len + offset;
+        *output_type = NULL;
+        *bbqr_file_type = file_type;
     } else {
         // Not a bc-ur code - copy straight payload and append a nul-terminator.
         // Leave bc-ur type as NULL to indicate data was not a bc-ur payload.
@@ -1352,7 +1431,8 @@ bool bcur_scan_qr(const char* prompt_text, char** output_type, uint8_t** output,
     }
 
     // Free the decoder and return true (as we scanned data successfully)
-    urfree_placement_decoder(urdecoder);
+    urfree_placement_decoder(scan_ctx.urdecoder);
+    bbqr_free(&scan_ctx.bbqr);
     return true;
 }
 

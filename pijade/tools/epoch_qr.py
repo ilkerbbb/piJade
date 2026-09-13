@@ -81,12 +81,21 @@ def write_png(path, matrix):
         output.write(png)
 
 
-def write_gray(path, matrix):
-    # See the scale note in pijade/tools/screen_qr_to_camera.py: quirc reads only the central
-    # scan window (SCAN_MARGIN, main/qrscan.c:13) and identifies nothing above 7 px per module
-    # (measured 2026-09-10), so cap the scale rather than filling the frame height.
+def frame_scale(matrix_side):
+    """Pixels per module for a QR of this many modules, quiet zone included.
+
+    See the scale note in pijade/tools/screen_qr_to_camera.py: quirc reads only the central
+    scan window (SCAN_MARGIN, main/qrscan.c:13) and identifies nothing above 7 px per module
+    (measured 2026-09-10), so cap the scale rather than filling the frame height.  A caller
+    rendering codes larger than this file's own single-part UR needs the number as well, to
+    check that a big matrix has not driven it under the 3 px floor.
+    """
     scan_window = min(CAMERA_WIDTH, CAMERA_HEIGHT) - 20
-    scale = min(6, scan_window // len(matrix))
+    return min(6, scan_window // matrix_side)
+
+
+def write_gray(path, matrix):
+    scale = frame_scale(len(matrix))
     side = len(matrix) * scale
     offset_x = (CAMERA_WIDTH - side) // 2
     offset_y = (CAMERA_HEIGHT - side) // 2
