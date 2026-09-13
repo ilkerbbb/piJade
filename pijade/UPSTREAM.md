@@ -14,7 +14,7 @@
 The `master` branch is kept as a mirror of upstream; no change is ever written on top of `master`.
 All work happens on `bbb-airgap`.
 
-## 2. Divergence inventory (2026-09-13 15:23, at `3a39079c`)
+## 2. Divergence inventory (2026-09-13 17:38, at `4a72d395`)
 
 > The numbers were measured with `git diff --numstat fdb67a3f..HEAD -- . ':(exclude)pijade'`.
 > `fdb67a3f` is the branch point. `pijade/` is ours and has no upstream counterpart, so it does
@@ -35,8 +35,8 @@ All work happens on `bbb-airgap`.
 |---|---|---|---|
 | `docs/sign/index.html` | +15071 / -0 | **New file** | docs: read the signature back on the sign page |
 | `main/qrmode.c` | +1688 / -145 | Upstream file | An error reply to the pinserver exchange is reported rather than falling into the payload check and being logged as a malformed message (the user abandoning PIN entry arrives as `CBOR_RPC_USER_CANCELLED`, and upstream has no arm for it). Wallet QR codes go full screen; the information screen and the code screen were separated. Also the xpub density/rate ladder: xpub transfer follows the user's QR setting, and a device with no setting is treated as Low. A completed transfer is now routed by what it is rather than by the single format the scanner used to return: the signing tail was split out so a PSBT can arrive either wrapped in BC-UR/CBOR or as the plain serialised transaction BBQr carries, a `U` file goes to the existing multisig registration parser, and every other BBQr file type is refused by name instead of being guessed at |
+| `main/process/mnemonic.c` | +1577 / -414 | Upstream file | Entropy source selection; the two SeedQR export formats (Compact and Standard), a bounds check against the silent overflow in `qrcode_initText()`, and not logging the word count. Seed XOR: the combine flow that joins parts into the wallet they were split from, the split flow that shows and quizzes each part, and the entropy-to-words helper the two share with the SeedQR import |
 | `main/process/dashboard.c` | +1394 / -219 | Upstream file | The main menu submenu; the camera rotation setting and its label; the `QR Settings` event branch; the same macro added to both board gates of the brightness handler; `select_initial_connection()` no longer builds a connection menu, because this board has neither channel it offered: the QR flow is entered directly, the `QR Mode` double-check follows its own flag rather than the menu's existence (upstream gated it on both, so deleting the menu alone would have dropped the question silently), and the cleanup the menu's back button did, forgetting a derived but sourceless wallet, is `forget_unsourced_wallet()`, shared by the QR back button and the KEY3 escape; `make_connect_to_activity()` is called with no arguments; `Session > Sleep` draws an information screen before shutting down (`#ifdef CONFIG_LIBJADE`; the Pi cannot cut its own supply, so the user learns of the shutdown from the screen, and the message deliberately does not say when the power may be pulled, with the reason written in a comment in the code); the `Set Clock` event first shows the page address on a back/continue screen, and on `Continue` opens the `handle_scan_qr()` flow and leaves the menu loop (a scan can also load a wallet, so screens the menu was holding may be released), while the back arrow keeps it in the menu; `handle_scan_qr()` now takes the help address as a parameter; the `Buttons` check (`handle_io_test_buttons()`): each input turns its own mark green, centre click and KEY2 produce the same event so both light up together, and KEY3 leaves the screen; the `debug_set_network` method branch and its forward declaration, both inside the existing `CONFIG_DEBUG_MODE` blocks |
-| `main/process/mnemonic.c` | +1322 / -402 | Upstream file | Entropy source selection; the two SeedQR export formats (Compact and Standard), a bounds check against the silent overflow in `qrcode_initText()`, and not logging the word count |
 | `components/miner/miner.c` | +1109 / -0 | **New file** | feat(miner): take in the mining component, write two sims, close three defects; fix(miner): close three P2 and three P3 findings from review round 1 |
 | `docs/clock/index.html` | +1032 / -0 | **New file** | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
 | `libjade/selfcheck/descriptor.c` | +990 / -0 | **New file** | test: descriptor tests moved into the libjade verification branch; bcur: correct skipping over tagged map values, and the descriptor selfcheck now covers the QR paths |
@@ -57,15 +57,16 @@ All work happens on `bbb-airgap`.
 | `main/idletimer.c` | +200 / -18 | Upstream file | The libjade branch: an exit path for the task (`idletimer_stop()`), on the same pattern as `gui_stop()`. The running flag is lowered by a POSIX cleanup handler; the lifecycle flags are `_Atomic bool`; `idletimer_register_activity()` returns `false` while the timer is not ready |
 | `libjade/selfcheck/urldecode.c` | +188 / -0 | **New file** | urldecode: add self-tests for validation and decode |
 | `libjade/include/freertos/semphr_darwin.h` | +164 / -0 | **New file** | Darwin has no unnamed POSIX semaphores. This header replaces `semphr.h` there, keeping the FreeRTOS semaphore API libjade uses while backing binary semaphores with libdispatch and mutexes with pthreads. It reuses the same include guard, so `semphr.h` itself needs no conditional body |
+| `libjade/selfcheck/seedxor.c` | +163 / -0 | **New file** | Five vectors for the Seed XOR core: the xor identity, the all-zero total that says the parts cancelled, the round trip through every split shape (two to four parts, 12 and 24 words), and the refusal paths |
 | `main/gui.h` | +141 / -6 | Upstream file | Declarations and macros; `gui_flags` encoding helpers; `HOME_SCREEN_SELECTED_TILE_PCT` (a 78/22 tile at 240 px width, with the font on upstream's rule; the longest home screen label, "Scan SeedQR", is 169 px); `HAVE_DISPLAY_BRIGHTNESS_SETTING`; vertical navigation, the ALT events and the input functions, plus the `gui_set_input_echo()` declaration. The `gui_get_activity_generation()`, `gui_get_jobs_posted()` and `gui_get_jobs_drained()` declarations. |
 | `main/ui/digit_entry.c` | +140 / -33 | Upstream file | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
+| `main/ui/mnemonic.c` | +134 / -89 | Upstream file | Opens the advanced-branch entropy source menu; icon ownership and label updates on the SeedQR fragment screen (icons carrying seed material are not handed to the plain `free()` path). The SeedQR overview screen uses `add_title_bar()` (the top strip is no longer empty; the screen name is set in `GUI_TITLE_FONT`); the code area of the fragment screen is `TFT_WHITE` (the same contrast as the full-screen SeedQR). The `Restore Wallet` menu is counted rather than listed, so the SeedXOR row can join it without the cameraless build losing anything but the camera row |
 | `main/ui/qrmode.c` | +132 / -85 | Upstream file | Two information-screen constructors and the full-screen code activity; a `QR Settings` shortcut in `Xpub Settings` |
 | `main/qrscan.c` | +132 / -54 | Upstream file | Two-pass recognition: the VGA window is tried as it is, and a scan that fails is retried on a half-scale copy, because quirc loses a code whose modules grow past roughly eight pixels; a second `quirc` instance holds the reduced image. Also: the scan box dimensions are logged at DEBUG rather than ERROR, since a line that says ERROR in a production log has to be a real error |
 | `main/process/register_multisig.c` | +124 / -45 | Upstream file | fix(multisig): network equality on registration, and hygiene for hidden data in the parser; multisig: record v4, body sealed with AES; the legacy v0-v2 read paths were removed; the same-record check happens in the clear |
-| `main/ui/mnemonic.c` | +120 / -82 | Upstream file | Opens the advanced-branch entropy source menu; icon ownership and label updates on the SeedQR fragment screen (icons carrying seed material are not handed to the plain `free()` path). The SeedQR overview screen uses `add_title_bar()` (the top strip is no longer empty; the screen name is set in `GUI_TITLE_FONT`); the code area of the fragment screen is `TFT_WHITE` (the same contrast as the full-screen SeedQR) |
+| `main/button_events.h` | +120 / -8 | Upstream file | Enum additions, and removals in two rounds: the fork had already dropped the two `Settings` submenu pairs, and on 2026-09-13 `BTN_CONNECT_VIA_USB`, `_VIA_BLE`, `_VIA_QR` and `BTN_CONNECT_HELP` went with the `Select Connection` menu and the wallet-app help screen, with a comment in their place recording what upstream raises them for (`BTN_CONNECT_SELECT_BACK` went too, but it was the fork's own addition, so it nets out of the count against the branch point). Additions are still the kind of change least likely to conflict; `BTN_SETTINGS_OTP_SET_CLOCK` included; `BTN_IO_TEST_BUTTONS` included; the five SeedXOR ids (one restore method, one backup row, the part-count rows and their exit) included |
 | `main/storage.c` | +117 / -7 | Upstream file | security: the duress PIN is not written to the card in the clear; fix(storage): on the erase PIN, delete the blob first and stay fail-closed if marking fails |
 | `main/entropy_sources.h` | +113 / -0 | **New file** | Same |
-| `main/button_events.h` | +113 / -8 | Upstream file | Enum additions, and removals in two rounds: the fork had already dropped the two `Settings` submenu pairs, and on 2026-09-13 `BTN_CONNECT_VIA_USB`, `_VIA_BLE`, `_VIA_QR` and `BTN_CONNECT_HELP` went with the `Select Connection` menu and the wallet-app help screen, with a comment in their place recording what upstream raises them for (`BTN_CONNECT_SELECT_BACK` went too, but it was the fork's own addition, so it nets out of the count against the branch point). Additions are still the kind of change least likely to conflict; `BTN_SETTINGS_OTP_SET_CLOCK` included; `BTN_IO_TEST_BUTTONS` included |
 | `main/qrcode.c` | +107 / -33 | Upstream file | QR version 3 (29x29, a 6x6 grid) and a context module frame in the fragment icons; 29 does not divide evenly, so the last row and column carry a strip of empty modules inside the mask (the same behaviour as SeedSigner) |
 | `main/bbqr.h` | +103 / -0 | **New file** | The collector's contract, with the frame format and the reasoning behind the two extra rules written at the head of the file |
 | `main/ui.h` | +105 / -0 | Upstream file | The `await_choice_activity()` declaration; `io_test_mark_t` (the mark array of the Buttons check). |
@@ -78,6 +79,7 @@ All work happens on `bbb-airgap`.
 | `main/process/register_descriptor.c` | +87 / -9 | Upstream file | qr: the descriptor QR path; plain text, Specter JSON and UR crypto-output wired into the registration flow; descriptor: record v1, body sealed with AES; the same-record check happens in the clear |
 | `main/qr_downscale.h` | +82 / -0 | **New file** | qrscan: retry a failed scan on a half-scale copy of the window |
 | `main/utils/urldecode.c` | +82 / -27 | Upstream file | urldecode: add validation for URL encoding |
+| `main/seedxor.c` | +79 / -0 | **New file** | The Seed XOR core: accumulate, the zero test, and the split, which draws every part but the last from the device rng and closes the xor with the last one |
 | `main/seedqr.c` | +77 / -0 | **New file** | Standard SeedQR digit-sequence generation; derived from the BIP39 definition (entropy \|\| SHA256 slices), not from the word list. The output is seed-equivalent, and therefore secret |
 | `main/process/debug_set_network.c` | +76 / -0 | **New file** | The debug counterpart of the `Settings > Network` screen, making the same two `keychain` calls it makes, so the test suite can register records on both bitcoin networks in one run and the emulator still behaves the way the device does. The production image is built with `-DDEBUG_MODE=0`, so none of it is compiled in; section 28 |
 | `main/process/sign_message.c` | +73 / -8 | Upstream file | feat(ui): add a Sign Message entry to the wallet menu |
@@ -91,6 +93,7 @@ All work happens on `bbb-airgap`.
 | `main/ui/camera.c` | +52 / -3 | Upstream file | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
 | `main/qrmode.h` | +51 / -1 | Upstream file | Declarations only; `handle_qr_settings()` |
 | `main/keychain.h` | +50 / -1 | Upstream file | fix(keychain): correct the connection lifecycle against the slot table; feat(keychain): list slots and take one into use with a click |
+| `main/seedxor.h` | +49 / -0 | **New file** | The contract, the part-count bounds, and the statement of what the scheme gives and what it does not |
 | `main/storage.h` | +48 / -1 | Upstream file | Two free bits for camera rotation, away from the theme mask |
 | `libjade/cxx_terminate.cpp` | +45 / -0 | **New file** | security: a C++ throw was killing the process without clearing keys |
 | `main/process/auth_user.c` | +44 / -6 | Upstream file | fix(storage): on the erase PIN, delete the blob first and stay fail-closed if marking fails; security: the duress PIN is not written to the card in the clear |
@@ -142,10 +145,10 @@ All work happens on `bbb-airgap`.
 | `test_data/msg_bbb_nul.json` | +13 / -0 | **New file** | camera: capture at VGA, and refuse a message the screen cannot show |
 | `components/esp32-quirc/lib/identify.c` | +12 / -3 | Vendored library | The same change, consumer side: `threshold()` takes the scratch from `struct quirc` instead of declaring a variable length array sized from `q->w` at run time, and zeroes it before returning, because the running sums it leaves behind come from the scanned frame |
 | `main/qrcode.h` | +12 / -2 | Upstream file | The `qrcode_toFragmentsIcons()` signature (a context module and a 16-bit target size) and `qrcode_fragmentsContextFits()` |
+| `main/amalgamated.c` | +12 / -4 | Upstream file | The `#include` of the entropy sources and `seedqr.c`; taking the keyboard screen and the idle timer out of the libjade build was reverted; the `#include` of `debug_set_network.c`; the `#include` of `bbqr.c`; the `#include` of `seedxor.c` |
 | `main/process.h` | +11 / -1 | Upstream file | libjade: fix deadlock between standard CBOR and libjade CBOR messages |
 | `main/process/get_receive_address.c` | +11 / -1 | Upstream file | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
 | `components/libwally-core/config.h` | +10 / -0 | Vendored library | macOS has no `explicit_bzero`, and this header's inline asm barrier is off, so falling through to a plain `memset` would leave the wipe elidable. The Apple branch selects `memset_s`, which cannot be optimised away; every other target, the shipping ARM Linux one included, keeps `explicit_bzero` exactly as it was |
-| `main/amalgamated.c` | +11 / -4 | Upstream file | The `#include` of the entropy sources and `seedqr.c`; taking the keyboard screen and the idle timer out of the libjade build was reverted; the `#include` of `debug_set_network.c`; the `#include` of `bbqr.c` |
 | `libjade/include/esp_log.h` | +9 / -4 | Emulator layer | fix(miner): close the indefinite hang in production, and fit the esp_log shim to the API |
 | `main/ui/multisig.c` | +9 / -0 | Upstream file | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
 | `main/jade_assert.h` | +8 / -1 | Upstream file | `JADE_STATIC_ASSERT` is built on C11 `_Static_assert` instead of the `sizeof(char[1 - 2 * !(cond)])` idiom. That idiom is silent about the one input it cannot handle: a condition that is not a constant expression turns the array into a variable length array, the code compiles, and nothing is checked (see `main/wallet.c`) |
@@ -199,14 +202,22 @@ All work happens on `bbb-airgap`.
 | `test_data/qr_vga_totp.json` | +1 / -1 | **New file** | Recorded at VGA; the QVGA recording it replaced was removed in `14afea47`, when capture moved to VGA. Git reports the pair as a rename because the payload is the same scene |
 | `docs/.nojekyll` | +0 / -0 | **New file** | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
 
-**Totals (measured 2026-09-13 at `c68c114d`):** 189 files, of which 162 are text
-(+32975 / -2613) and 27 are binary fixtures, listed below rather than in the table because
+**Totals (measured 2026-09-13 at `4a72d395`):** 195 files, of which 168 are text
+(+34783 / -2792) and 27 are binary fixtures, listed below rather than in the table because
 `--numstat` reports no line counts for them. A refresh on 2026-09-12 listed 175 files and 148 text
 files, and a later one the same day listed 187 and 160; the macOS port of libjade, the
 `_Static_assert` round, the quirc round and the test-suite network adaptation are the difference.
 The second of those refreshes went stale within hours, which is the argument for refreshing this
 table from a measurement rather than by hand: the count that matters is the one taken at the
 commit named in the heading.
+
+That trap caught this paragraph itself, which is worth recording rather than quietly fixing. It
+stood at 189 files, measured at `c68c114d`, while the table above had already been refreshed twice
+past that commit: the BBQr round added `main/bbqr.c`, `main/bbqr.h` and `libjade/selfcheck/bbqr.c`
+as rows without the totals being taken again. Measured at `838404c5` the count was already 192, and
+the Seed XOR round takes it to 195. The lesson is the same one the table carries: the rows and the
+totals are one measurement, and refreshing half of it leaves a number that reads as current and is
+not.
 
 **Binary fixtures (27).** These are the recorded camera frames the QR scan suite replays, and
 `--numstat` reports no line counts for them, so they are named here instead. Measured on
@@ -225,13 +236,13 @@ mnemonic flows (`main/ui/mnemonic.c`, `main/process/mnemonic.c`), and moving the
 out of `main/selfcheck.c` into `libjade/selfcheck/`. A rebase conflict is likelier in those files
 than anywhere else.
 
-**Breakdown by area (measured 2026-09-13 at `c68c114d`):** the `libjade/` emulator layer
-+3525 / -85 (27 files), Jade's own `main/` files +11497 / -2301 (93 files), the `components/miner/`
+**Breakdown by area (measured 2026-09-13 at `4a72d395`):** the `libjade/` emulator layer
++4204 / -85 (29 files), Jade's own `main/` files +12626 / -2480 (97 files), the `components/miner/`
 mining component +1151 / -0 (4 files), the vendored `components/esp32-quirc/` scanner +45 / -3
 (3 files), the vendored `components/libwally-core/` config header +10 / -0 (1 file), the helper
 pages under `docs/` +16226 / -0 (6 files), the recorded QR fixtures under `test_data/` +98 / -15
 (49 files), `jadepy/` +27 / -1 (2 files), and files at the repository root +396 / -208 (4 files).
-The nine areas add up to the 189 files above.
+The nine areas add up to the 195 files above.
 
 **A paragraph that aged, corrected on 2026-09-12.** It used to say that five files carried a
 one-line change on the same reason, that user data is not written to the log. Measured today, only
