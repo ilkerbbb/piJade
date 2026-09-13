@@ -3201,6 +3201,25 @@ static bool handle_jade_reply_http_request_show_qr(const char* message[], const 
         goto cleanup;
     }
 
+    // BBB-AIRGAP: an error reply ends the exchange as legitimately as a boolean result does.  The
+    // user abandoning PIN entry arrives here as CBOR_RPC_USER_CANCELLED (main/process/auth_user.c),
+    // and a pinserver or network failure as its own code (main/process/pinclient.c).  Upstream has
+    // no arm for either, so both fall into the payload check below and are logged as a malformed
+    // message while what the reply actually said is discarded.  Report the outcome instead; the
+    // error has already been put on screen by the process that raised it.
+    CborValue error;
+    if (rpc_get_map("error", &root, &error)) {
+        const char* errmsg = NULL;
+        size_t errmsg_len = 0;
+        rpc_get_string_ptr("message", &error, &errmsg, &errmsg_len);
+        if (!errmsg) {
+            errmsg = "no message";
+            errmsg_len = strlen(errmsg);
+        }
+        JADE_LOGI("Pinserver exchange ended: %.*s", (int)errmsg_len, errmsg);
+        goto cleanup;
+    }
+
     CborValue result;
     CborValue http_request;
     if (!rpc_get_map("result", &root, &result) || !rpc_get_map("http_request", &result, &http_request)) {
