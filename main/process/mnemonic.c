@@ -2289,6 +2289,14 @@ static bool slip39_share_words(const size_t nwords, slip39_share_t* share)
         const slip39_err_t rc = slip39_parse_share(words, strlen(words), share);
         if (rc != SLIP39_OK) {
             await_error(slip39_error_message(rc));
+            // BBB-AIRGAP: KEY3 on that screen means 'leave', and the flag has to be read HERE,
+            // before the next keypress clears it (main/ui/dialogs.c:905-912).  The keyboard this
+            // loop would otherwise reopen has escape disabled (:1235-1236), so the usual price of
+            // a dropped escape - one extra screen - is instead the whole share typed again, with
+            // backspacing off the first word as the only way out.
+            if (gui_escape_pending()) {
+                break;
+            }
             continue;
         }
         entered = true;
@@ -2413,6 +2421,14 @@ static bool restore_slip39(const bool scan_shares, const bool temporary_restore,
             // A refused share does not discard the set: mistyping the third share of five must
             // not cost the two already entered.  The next one simply replaces this one.
             await_error(slip39_error_message(rc));
+            // Same reason as in slip39_share_words(): when the shares are typed, the next turn of
+            // this loop reopens that escape-disabled keyboard.  Read unconditionally rather than
+            // only for the typed arm, because the scanner reaches the same answer one wasted
+            // screen later anyway - its loop head polls the same flag (main/camera.c:521) - and
+            // one condition is cheaper than two paths that must be kept in agreement.
+            if (gui_escape_pending()) {
+                break;
+            }
             continue;
         }
         ++num_shares;
