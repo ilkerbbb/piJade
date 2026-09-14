@@ -743,11 +743,11 @@ source.
 There are NO extra checks on the remaining fields, because there Jade defends itself. That is not an
 assumption: the consumption path of all 15 fields was traced, and this is what was measured.
 `brightness` is clamped to `BACKLIGHT_MIN..MAX` on the settings screen
-(`main/process/dashboard.c:1719-1726`) and clamped again on the host by `panel_set_backlight()`
+(`main/process/dashboard.c:1732-1739`) and clamped again on the host by `panel_set_backlight()`
 (`pijade/host/panel_st7789.c:384`). The `guiflags` theme value falls through to `default` inside
 `gui_set_highlight_color()` (`main/gui.c`), the camera rotation is taken modulo
 (`main/gui.c:277-281`), and the theme index is bounded on the settings screen
-(`main/process/dashboard.c:1869`). `qrflags` is a bit mask; the `account_index` derived from it comes
+(`main/process/dashboard.c:1882`). `qrflags` is a bit mask; the `account_index` derived from it comes
 from shifting a 32-bit value by 16, so it is already below `ACCOUNT_INDEX_MAX`
 (`main/qrmode.c:41-42,1147-1148`). `keyflags` is a pure bit mask. `idletimeout` is only compared
 (`main/idletimer.c:207-220`). If `counter` is greater than 3, `storage_decrement_counter()` deletes
@@ -1183,7 +1183,7 @@ testnet fixture and never reached its tail.
 (`main/keychain.c:53`) with three writers: `:435` clears it, `:446` sets it, `:963` reads it back
 from the card. Of the two callers that set it, `main/process/auth_user.c:474-480` is behind
 `#ifndef CONFIG_DEBUG_MODE`, so on a debug build the only remaining writer is
-`main/process/dashboard.c:2458-2459`, the `Settings > Network` screen, which needs a button press.
+`main/process/dashboard.c:2471-2472`, the `Settings > Network` screen, which needs a button press.
 An unset restriction is not neutral here: the expression above reads `none` as mainnet.
 
 **The handler.** `main/process/debug_set_network.c` is that screen and nothing more; the two calls
