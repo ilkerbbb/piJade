@@ -6,15 +6,16 @@
 >
 > **Line numbers:** every `file:line` reference in this document points at the tree as it stood
 > during the audit (2026-09-03 to 2026-09-06), and they are deliberately left there. Measured on
-> 2026-09-14: of the 177 references in this document not one points past the end of its file, and
-> the drift that does exist is concentrated in the three files the rounds since have grown the
-> most (`main/qrmode.c`, `main/process/dashboard.c`, `main/process/mnemonic.c`; 17 references
-> between them), while references into files those rounds did not touch still land where they did.
-> They are not being renumbered, and this is a decision rather than an omission: most of the
-> findings below were fixed in the rounds that followed, so a number carried to the current tree
-> would point at code where the described defect no longer is, and it would go stale again with
-> the next commit. The surrounding function and the quoted text are the anchors; read every
-> number as belonging to the audit tree.
+> 2026-09-14: this document carries 201 such references, 187 of them into the fork, 9 into
+> Coldcard's repository and 5 into SeedSigner's, each of those two named where it is cited. Every
+> one of the 201 resolves to a file that exists and to a line inside it. They are not being
+> renumbered, and this is a decision rather than an omission: most of the findings below were
+> fixed in the rounds that followed, so a number carried to the current tree would point at code
+> where the described defect no longer is, and it would go stale again with the next commit. How
+> far an individual number has drifted since the audit is not stated here, and cannot be: the
+> development commits were squashed away (see the next note), so the audit tree is no longer
+> reachable to diff against. The surrounding function and the quoted text are the anchors; read
+> every number as belonging to the audit tree.
 >
 > **Commit references:** the published history of the fork was later squashed into a single
 > starting commit, so the short hashes of the development commits this document was written
@@ -450,7 +451,7 @@ measurements themselves.
 
 | # | Finding | Status |
 |---|---|---|
-| A2 | A crafted UR frame can terminate the process: `stoul` is unbounded and production C++ is compiled with `-fno-exceptions` (`ur-decoder.cpp:145`, `CMakeLists.txt:93`) | **not verified**, plausible at source level |
+| A2 | A crafted UR frame can terminate the process: `stoul` is unbounded and production C++ is compiled with `-fno-exceptions` (`ur-decoder.cpp:145`, `libjade/CMakeLists.txt:93`) | **not verified**, plausible at source level |
 | A3 | A one-byte out-of-bounds read on the `ur:bytes` path | **VERIFIED** (below) |
 | A4 | Loading a scanned seed defaults to `Yes` and shows no fingerprint (`dialogs.c:925`) | **not verified** |
 | A5 | Camera frame buffers and the BC-UR heap load are left unwiped | **not verified** |
