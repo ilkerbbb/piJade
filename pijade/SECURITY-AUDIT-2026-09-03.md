@@ -651,15 +651,21 @@ silent):
 | `main/selfcheck.c:882` | `public_key_hash` | test vector |
 | `main/process/pinclient.c:62` | `privkey` | covered |
 
-**Four of these rows cite a buffer that is not in the tree, and the anchor rule above cannot
-recover them.** `pin_erase` is not a symbol this fork has carried: the family is named
-`wallet_erase_pin`, `main/process/auth_user.c:36` calls `storage_verify_wallet_erase_pin()`, and
-the buffer the digits are entered into is the `pin` of `set_wallet_erase_pin()`.
-`hmac_calculated` is real but it lives in `main/registration_seal.c`; `descriptor.c` and
-`multisig.c` reach it through `registration_open()` instead of declaring one of their own. A
-fifth row, `main/process/dashboard.c:1338`, is a second entry for `pinstr`, which the table also
-lists under "not a secret". The remaining forty-nine rows all name a buffer that is declared in
-the file they name, which is what the anchor rule needs; how far each number has moved is the
+**Five of these rows cite a buffer that is no longer in the tree, and the anchor rule has to
+reach back to the fork base to find it.** All five are in `fdb67a3f`, at numbers the table's own
+arithmetic lands on: `main/process/auth_user.c:36` (`pin_erase`), `main/descriptor.c:642` and
+`main/multisig.c:295` (`hmac_calculated`) sit on exactly those lines there, and the two
+`dashboard.c` rows `:1335` (`pin_erase`) and `:1338` (`pinstr`) sit forty-five lines earlier,
+the same offset that puts the `:1298` `pin` row on its own declaration in that base. Later fork
+work removed the five. Phase 3 replaced the readable duress PIN with a salted verifier, so the
+`pin_erase` that was read back off the card and the `pinstr` that `format_pin()` wrote are both
+gone; the screen in `handle_wallet_erase_pin()` now says only whether a PIN is set. The
+registration seal was folded into one place, so `descriptor.c` and `multisig.c` reach
+`hmac_calculated` through `registration_open()` in `main/registration_seal.c` rather than
+declaring one of their own. The `pinstr` at `:1338` and the one at `:683` are two different
+buffers, not one row entered twice: the first held the stored duress PIN, the second holds the
+factory-reset confirmation code. The other forty-eight rows still name a buffer declared in the
+file they name, which is what the anchor rule needs; how far each number has moved is the
 question the note at the top of this document answers.
 
 ---
