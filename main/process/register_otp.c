@@ -330,6 +330,7 @@ bool register_otp_kb_entry(void)
     if (keychain_get()->seed_len == 0) {
         JADE_LOGE("No wallet seed available.  Wallet must be re-initialised from mnemonic.");
         await_error("Feature requires Jade reset");
+        return false;
     }
 
     bool ret = false;
