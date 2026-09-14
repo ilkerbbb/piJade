@@ -838,7 +838,7 @@ int sign_psbt(jade_process_t* process, CborValue* params, const network_t networ
     // slot activation does not touch (main/keychain.c:53) - if that restriction ever becomes
     // per-wallet, this ordering has to be revisited.
     //
-    // A NULL process means the psbt came from a scan (main/qrmode.c:2034) or from usb storage
+    // A NULL process means the psbt came from a scan (main/qrmode.c:2176) or from usb storage
     // (main/usbhmsc/usbmode.c:843), ie. the user is at the device.  The rpc entry point has
     // already asserted that its own interface unlocked the wallet in use
     // (ASSERT_KEYCHAIN_UNLOCKED_BY_MESSAGE_SOURCE, main/process/process_utils.h:100); switching

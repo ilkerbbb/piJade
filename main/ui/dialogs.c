@@ -608,7 +608,7 @@ int32_t run_list_activity(
     // handlers once they go live, silently activating a row nobody pressed here (row 0 = Export
     // Xpub on the Wallet list that opens next). Everything in event_data at this point is that
     // kind of leftover, so it is safe to discard - until the queue is quiet for 10ms, the same
-    // idle timeout main/camera.c:579 and main/qrmode.c:977 use.
+    // idle timeout main/camera.c:579 and main/qrmode.c:1086 use.
     while (sync_wait_event(event_data, NULL, NULL, NULL, 10 / portTICK_PERIOD_MS) == ESP_OK) {
         // discard - see comment above
     }

@@ -80,8 +80,8 @@ gui_activity_t* make_xpub_qr_options_activity(
 
 gui_activity_t* make_show_otp_qr_actvity(const char* otp_name, Icon* qr_icon);
 
-gui_activity_t* make_search_verify_address_activity(
-    const char* root_label, gui_view_node_t** label_text, progress_bar_t* progress_bar, gui_view_node_t** index_text);
+gui_activity_t* make_search_verify_address_activity(const char* root_label, bool show_options,
+    gui_view_node_t** label_text, progress_bar_t* progress_bar, gui_view_node_t** index_text);
 gui_activity_t* make_search_address_options_activity(bool show_script, bool show_account, bool show_change,
     gui_view_node_t** script_textbox, gui_view_node_t** account_textbox, gui_view_node_t** change_textbox);
 
@@ -865,6 +865,115 @@ static void get_descriptor_search_roots(const descriptor_data_t* descriptor, con
     pathstr[len - 1] = is_change ? '1' : '0';
 }
 
+// BBB-AIRGAP: the verify search used to cover one account and one branch, and made the user turn
+// menu rows to reach any other.  That asks the wrong question - the person holding the address
+// knows it is theirs, not which branch or which account it came from.  The search now covers
+// accounts 0, 1 and 2 plus whichever account the last xpub export used, on both the receive and
+// the change branch; Coldcard's ownership scan settles on the same kind of fixed candidate set.
+#define VERIFY_SEARCH_ACCOUNTS 3
+#define VERIFY_SEARCH_MAX_ACCOUNTS (VERIFY_SEARCH_ACCOUNTS + 1)
+#define VERIFY_SEARCH_MAX_TARGETS (VERIFY_SEARCH_MAX_ACCOUNTS * 2)
+
+// One (account, branch) pair the search covers.  A registered wallet record carries its own keys
+// and has no account of its own, so for those only the branch varies.
+typedef struct {
+    uint16_t account_index;
+    bool is_change;
+} address_search_target_t;
+
+// Accounts to search: 0, 1 and 2, plus the last exported account if it is not already one of them
+static size_t get_search_accounts(const uint16_t account_index, uint16_t* accounts, const size_t accounts_len)
+{
+    JADE_ASSERT(accounts);
+    JADE_ASSERT(accounts_len == VERIFY_SEARCH_MAX_ACCOUNTS);
+
+    size_t num_accounts = 0;
+    for (uint16_t i = 0; i < VERIFY_SEARCH_ACCOUNTS; ++i) {
+        accounts[num_accounts++] = i;
+    }
+    if (account_index >= VERIFY_SEARCH_ACCOUNTS) {
+        accounts[num_accounts++] = account_index;
+    }
+    return num_accounts;
+}
+
+// Derive one target's search root(s) and write the label that names it
+static void get_search_target(const script_variant_t variant, const multisig_data_t* multisig_data,
+    const descriptor_data_t* descriptor, const address_search_target_t* target, char* label, const size_t label_len,
+    struct ext_key* search_roots, const size_t roots_per_target)
+{
+    JADE_ASSERT(target);
+
+    if (multisig_data) {
+        get_multisig_search_roots(multisig_data, target->is_change, label, label_len, search_roots, roots_per_target);
+    } else if (descriptor) {
+        // Not actually any search roots - but updates label string
+        get_descriptor_search_roots(descriptor, target->is_change, label, label_len, NULL, 0);
+    } else {
+        get_singlesig_search_root(
+            variant, target->account_index, target->is_change, label, label_len, search_roots, roots_per_target);
+    }
+}
+
+// Build the whole set of targets and their search roots in one pass.  'search_roots' must hold
+// VERIFY_SEARCH_MAX_TARGETS * roots_per_target keys, not num_targets * roots_per_target: the
+// options screen can add an account after this has run, and that grows the set.
+// NOTE: 'label' is left holding the last target's label, and is rebuilt for whichever target
+// eventually matches - naming one root while eight are being searched would be a false claim.
+static size_t build_search_targets(const script_variant_t variant, const uint16_t account_index,
+    const multisig_data_t* multisig_data, const descriptor_data_t* descriptor, char* label, const size_t label_len,
+    address_search_target_t* targets, const size_t targets_len, struct ext_key* search_roots,
+    const size_t roots_per_target)
+{
+    JADE_ASSERT(targets);
+    JADE_ASSERT(targets_len == VERIFY_SEARCH_MAX_TARGETS);
+
+    uint16_t accounts[VERIFY_SEARCH_MAX_ACCOUNTS] = { 0 };
+    const bool registered_wallet = multisig_data || descriptor;
+    const size_t num_accounts
+        = registered_wallet ? 1 : get_search_accounts(account_index, accounts, VERIFY_SEARCH_MAX_ACCOUNTS);
+
+    size_t num_targets = 0;
+    for (size_t i = 0; i < num_accounts; ++i) {
+        for (size_t change = 0; change < 2; ++change) {
+            JADE_ASSERT(num_targets < targets_len);
+            address_search_target_t* const target = targets + num_targets;
+            target->account_index = accounts[i];
+            target->is_change = (change != 0);
+            get_search_target(variant, multisig_data, descriptor, target, label, label_len,
+                search_roots ? search_roots + (num_targets * roots_per_target) : NULL, roots_per_target);
+            ++num_targets;
+        }
+    }
+    return num_targets;
+}
+
+// The root row on the search screen names the shape of the search rather than one path, since
+// every account and branch element below is being covered: m/84'/0'/*'/* , or 'wallet/*'.
+static void get_search_root_display(
+    const char* label, const bool registered_wallet, char* display, const size_t display_len)
+{
+    JADE_ASSERT(label);
+    JADE_ASSERT(display);
+    JADE_ASSERT(display_len);
+
+    int ret = snprintf(display, display_len, "%s", label);
+    JADE_ASSERT(ret > 0 && ret < display_len);
+
+    // Trim the branch element - and, for singlesig, the account element under it - then name both
+    // with wildcards.  A registered record's label is 'name/<branch>', so it only loses the one.
+    const size_t num_wildcards = registered_wallet ? 1 : 2;
+    for (size_t i = 0; i < num_wildcards; ++i) {
+        char* const separator = strrchr(display, '/');
+        JADE_ASSERT(separator);
+        *separator = '\0';
+    }
+
+    const size_t len = strlen(display);
+    ret = snprintf(display + len, display_len - len, registered_wallet ? "/*" : "/*'/*");
+    JADE_ASSERT(ret > 0 && ret < display_len - len);
+}
+
 // BBB-AIRGAP: 'script_flags' is optional.  The verify flow reads the script type off the address
 // being checked and so passes NULL; the address explorer has no such address and has to be told,
 // so it passes the same script-type bits the xpub export uses (see xpub_script_variant_from_flags)
@@ -1090,9 +1199,7 @@ static bool verify_address(const address_data_t* const addr_data)
     uint16_t account_index = 0;
     descriptor_data_t* descriptor = NULL;
     multisig_data_t* multisig_data = NULL;
-    bool is_change = false;
     struct ext_key* search_roots = NULL;
-    size_t search_roots_len = 0;
 
     // If it is (or might be) multisig, ask the user to select one, and load details
     if (script_type == WALLY_SCRIPT_TYPE_P2SH || script_type == WALLY_SCRIPT_TYPE_P2WSH) {
@@ -1113,27 +1220,12 @@ static bool verify_address(const address_data_t* const addr_data)
                 return false;
             }
             JADE_ASSERT(!multisig_data != !descriptor); // Must be one or the other
-
-            if (multisig_data) {
-                // Calculate the key search roots (ie. up to the final leaf)
-                search_roots_len = multisig_data->num_xpubs;
-                search_roots = JADE_CALLOC(search_roots_len, sizeof(struct ext_key));
-                get_multisig_search_roots(
-                    multisig_data, is_change, label, sizeof(label), search_roots, search_roots_len);
-            } else {
-                // Not actually any search roots - but updates label string
-                get_descriptor_search_roots(
-                    descriptor, is_change, label, sizeof(label), search_roots, search_roots_len);
-            }
         }
     }
 
     // If not multisig or descriptor, must be singlesig
     const bool registered_wallet = multisig_data || descriptor;
     if (!registered_wallet) {
-        JADE_ASSERT(!search_roots);
-        JADE_ASSERT(!search_roots_len);
-
         // BBB-AIRGAP: KEY3 on the registered-wallet question is not 'No, derive singlesig'.
         if (gui_escape_pending()) {
             return false;
@@ -1146,19 +1238,31 @@ static bool verify_address(const address_data_t* const addr_data)
         // Default search root account to the last exported xpub
         const uint32_t qr_flags = storage_get_qr_flags();
         account_index = qr_flags >> ACCOUNT_INDEX_FLAGS_SHIFT;
-
-        // Calculate the key search root (ie. up to the final leaf)
-        search_roots_len = 1;
-        search_roots = JADE_CALLOC(search_roots_len, sizeof(struct ext_key));
-        get_singlesig_search_root(
-            variant, account_index, is_change, label, sizeof(label), search_roots, search_roots_len);
     }
 
+    // BBB-AIRGAP: derive every search root up front - at most four accounts on two branches for
+    // singlesig, or the two branches of a registered record.  The keys are allocated for the
+    // largest set the options screen can ask for, not the set being searched now.
+    address_search_target_t targets[VERIFY_SEARCH_MAX_TARGETS];
+    const size_t roots_per_target = multisig_data ? multisig_data->num_xpubs : (descriptor ? 0 : 1);
+    const size_t max_targets = registered_wallet ? 2 : VERIFY_SEARCH_MAX_TARGETS;
+    if (roots_per_target) {
+        search_roots = JADE_CALLOC(max_targets * roots_per_target, sizeof(struct ext_key));
+    }
+    size_t num_targets = build_search_targets(variant, account_index, multisig_data, descriptor, label, sizeof(label),
+        targets, VERIFY_SEARCH_MAX_TARGETS, search_roots, roots_per_target);
+    JADE_ASSERT(num_targets && num_targets <= max_targets);
+
     // Create the main search progress screen
+    char display[sizeof(label)];
+    get_search_root_display(label, registered_wallet, display, sizeof(display));
     gui_view_node_t* label_text = NULL;
     gui_view_node_t* index_text = NULL;
     progress_bar_t progress_bar = {};
-    gui_activity_t* const act = make_search_verify_address_activity(label, &label_text, &progress_bar, &index_text);
+    // BBB-AIRGAP: a registered record has nothing left to edit - both branches are covered and it
+    // has no account of its own - so that flow gets 'Skip' alone rather than an empty menu.
+    gui_activity_t* const act
+        = make_search_verify_address_activity(display, !registered_wallet, &label_text, &progress_bar, &index_text);
     JADE_ASSERT(label_text);
     JADE_ASSERT(index_text);
 
@@ -1171,6 +1275,7 @@ static bool verify_address(const address_data_t* const addr_data)
 
     size_t index = 0;
     size_t confirmed_at_index = index;
+    size_t matched_target = 0;
     bool verified = false;
     const size_t address_search_batch_size = ADDRESS_SEARCH_BATCH_SIZE(registered_wallet);
     const size_t num_indexes_to_reconfirm = NUM_INDEXES_TO_RECONFIRM(registered_wallet);
@@ -1189,44 +1294,77 @@ static bool verify_address(const address_data_t* const addr_data)
         update_progress_bar(&progress_bar, num_indexes_to_reconfirm, index - confirmed_at_index);
         gui_update_text(index_text, idx_txt);
 
-        // Search a small batch of paths for the address script
-        // NOTE: 'index' is updated as we go along
-        if (multisig_data) {
-            JADE_ASSERT(search_roots);
-            JADE_ASSERT(search_roots_len);
-            verified = wallet_search_for_multisig_script(multisig_data->variant, multisig_data->sorted,
-                multisig_data->threshold, search_roots, search_roots_len, &index, address_search_batch_size,
-                addr_data->script, addr_data->script_len);
-        } else if (descriptor) {
-            JADE_ASSERT(!search_roots);
-            JADE_ASSERT(!search_roots_len);
-            const uint32_t multi_index = is_change ? 1 : 0;
-            verified = wallet_search_for_descriptor_script(addr_data->network_id, label, descriptor, multi_index,
-                &index, address_search_batch_size, addr_data->script, addr_data->script_len);
-        } else {
-            JADE_ASSERT(search_roots);
-            JADE_ASSERT(search_roots_len == 1);
-            JADE_ASSERT(variant != GREEN);
-            verified = wallet_search_for_singlesig_script(addr_data->network_id, variant, &search_roots[0], &index,
-                address_search_batch_size, addr_data->script, addr_data->script_len);
+        // Search a small batch of paths for the address script, on every root before moving the
+        // window on.  BBB-AIRGAP: breadth first, because depth first would leave a change address
+        // at index 3 waiting behind five hundred receive addresses - and that wait is the whole
+        // reason the user was being asked to pick the branch by hand before.
+        for (size_t i = 0; i < num_targets && !verified && !gui_escape_pending(); ++i) {
+            size_t target_index = index;
+            if (multisig_data) {
+                JADE_ASSERT(search_roots);
+                verified = wallet_search_for_multisig_script(multisig_data->variant, multisig_data->sorted,
+                    multisig_data->threshold, search_roots + (i * roots_per_target), roots_per_target, &target_index,
+                    address_search_batch_size, addr_data->script, addr_data->script_len);
+            } else if (descriptor) {
+                JADE_ASSERT(!search_roots);
+                // BBB-AIRGAP: the name is a label rather than a key (parse_descriptor logs it and
+                // nothing else reads it), but it ends in the branch character, so move it onto the
+                // branch actually being searched instead of leaving it on the last one built.
+                get_descriptor_search_roots(descriptor, targets[i].is_change, label, sizeof(label), NULL, 0);
+                verified = wallet_search_for_descriptor_script(addr_data->network_id, label, descriptor,
+                    targets[i].is_change ? 1 : 0, &target_index, address_search_batch_size, addr_data->script,
+                    addr_data->script_len);
+            } else {
+                JADE_ASSERT(search_roots);
+                JADE_ASSERT(variant != GREEN);
+                verified = wallet_search_for_singlesig_script(addr_data->network_id, variant, search_roots + i,
+                    &target_index, address_search_batch_size, addr_data->script, addr_data->script_len);
+            }
+
+            if (verified) {
+                // NOTE: 'target_index' holds the matching index, the others were left at the end
+                // of the batch - so it is only copied back when this root is the one that matched
+                matched_target = i;
+                index = target_index;
+            }
         }
 
         if (verified) {
             // Address script found and matched - verified
-            // NOTE: 'index' will hold the relevant value
-            JADE_LOGI("Found script at index: %u", index);
+            JADE_LOGI("Found script at index: %u, account: %u, %s", index, targets[matched_target].account_index,
+                targets[matched_target].is_change ? "change" : "receive");
             break;
         }
+
+        // BBB-AIRGAP: the loop above stops on escape too; leave before the window moves on, so
+        // that a KEY3 landing on a batch boundary is not answered with the 'check next' question.
+        if (gui_escape_pending()) {
+            break;
+        }
+        index += address_search_batch_size;
 
         // Every so often suggest to user that they might want to abandon the search
         if (index >= confirmed_at_index + num_indexes_to_reconfirm) {
             char next_n_addrs[32];
-            const int ret
-                = snprintf(next_n_addrs, sizeof(next_n_addrs), "next %u addresses?", num_indexes_to_reconfirm);
+            int ret = snprintf(next_n_addrs, sizeof(next_n_addrs), "Check next %u?", num_indexes_to_reconfirm);
             JADE_ASSERT(ret > 0 && ret < sizeof(next_n_addrs));
 
-            const char* message[] = { "Failed to verify, check", next_n_addrs };
-            if (!await_yesno_activity("Verify Address", message, 2, true, "blkstrm.com/scanaddress")) {
+            // BBB-AIRGAP: say what has already been covered.  Without it the user leaves this
+            // question for 'Edit Root' to look for a branch the search has been walking all along.
+            char accounts_txt[32];
+            const char* message[4] = { "Address not found." };
+            size_t message_len = 1;
+            message[message_len++] = registered_wallet ? "Checked both branches." : "Checked both branches,";
+            if (!registered_wallet) {
+                ret = account_index >= VERIFY_SEARCH_ACCOUNTS
+                    ? snprintf(accounts_txt, sizeof(accounts_txt), "accounts 0,1,2,%u.", account_index)
+                    : snprintf(accounts_txt, sizeof(accounts_txt), "accounts 0,1 and 2.");
+                JADE_ASSERT(ret > 0 && ret < sizeof(accounts_txt));
+                message[message_len++] = accounts_txt;
+            }
+            message[message_len++] = next_n_addrs;
+
+            if (!await_yesno_activity("Verify Address", message, message_len, true, "blkstrm.com/scanaddress")) {
                 // Abandon - exit loop
                 break;
             }
@@ -1247,19 +1385,17 @@ static bool verify_address(const address_data_t* const addr_data)
                     index = confirmed_at_index + num_indexes_to_reconfirm;
                     confirmed_at_index = index;
                 } else if (ev_id == BTN_SCAN_ADDRESS_OPTIONS) {
-                    if (handle_address_options(!registered_wallet, &account_index, &is_change, NULL)) {
-                        // Recreate the search root(s) and update the screen label
-                        if (multisig_data) {
-                            get_multisig_search_roots(
-                                multisig_data, is_change, label, sizeof(label), search_roots, search_roots_len);
-                        } else if (descriptor) {
-                            get_descriptor_search_roots(
-                                descriptor, is_change, label, sizeof(label), search_roots, search_roots_len);
-                        } else {
-                            get_singlesig_search_root(variant, account_index, is_change, label, sizeof(label),
-                                search_roots, search_roots_len);
-                        }
-                        gui_update_text(label_text, label);
+                    // BBB-AIRGAP: no change row here any more - both branches are already being
+                    // searched, so a row to pick one could only narrow the search.  The account
+                    // row stays: it adds an account the scanned set does not reach.
+                    JADE_ASSERT(!registered_wallet);
+                    if (handle_address_options(true, &account_index, NULL, NULL)) {
+                        // Recreate the search roots and update the screen label
+                        num_targets = build_search_targets(variant, account_index, multisig_data, descriptor, label,
+                            sizeof(label), targets, VERIFY_SEARCH_MAX_TARGETS, search_roots, roots_per_target);
+                        JADE_ASSERT(num_targets && num_targets <= max_targets);
+                        get_search_root_display(label, registered_wallet, display, sizeof(display));
+                        gui_update_text(label_text, display);
 
                         // Restart search from index 0
                         confirmed_at_index = 0;
@@ -1278,10 +1414,16 @@ static bool verify_address(const address_data_t* const addr_data)
     if (gui_escape_pending()) {
         verified = false;
     } else if (verified) {
+        // BBB-AIRGAP: name the root that actually matched, not the one the screen was showing -
+        // the screen was showing a wildcard because several roots were being searched at once.
+        get_search_target(variant, multisig_data, descriptor, targets + matched_target, label, sizeof(label),
+            search_roots ? search_roots + (matched_target * roots_per_target) : NULL, roots_per_target);
+
         char pathstr[48];
         const int ret = snprintf(pathstr, sizeof(pathstr), "%s/%u", label, index);
         JADE_ASSERT(ret > 0 && ret < sizeof(pathstr));
-        await_message_2("Address verified:", pathstr);
+        await_message_3(
+            "Address verified:", pathstr, targets[matched_target].is_change ? "(change address)" : "(receive address)");
     } else {
         await_error("Address NOT verified!");
     }
@@ -2269,7 +2411,7 @@ static gui_activity_t* make_mining_activity(const char* title, const uint64_t re
 static bool confirm_mining_template(const mining_template_t* t)
 {
     JADE_ASSERT(t);
-    char title[24]; // same size and pattern as the 'Address %u' title, main/qrmode.c:1331-1332
+    char title[24]; // same size and pattern as the 'Address %u' title, main/qrmode.c:1473-1474
     const int ret = snprintf(title, sizeof(title), "Mine block %u", (unsigned)t->height);
     JADE_ASSERT(ret > 0 && ret < sizeof(title));
 

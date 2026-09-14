@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a single-part epoch UR QR for Jade (ur:jade-epoch; main/qrmode.c:2725).
+"""Generate a single-part epoch UR QR for Jade (ur:jade-epoch; main/qrmode.c:2867).
 
 Usage: epoch_qr.py [--epoch N] <output.png> [<output.gray>]
 (gray: 640x480 emulator camera frame). Recipe and evidence: pijade/UPSTREAM.md section 25.

@@ -1787,7 +1787,7 @@ static bool show_otp_code(otpauth_ctx_t* otp_ctx)
         // BBB-AIRGAP: upstream sends the user to the Blockstream companion app over USB or
         // Bluetooth.  Neither exists here - the radio is physically cut and the port is QR only -
         // so the message named a route this device does not have.  The route it does have is the
-        // epoch message over a scanned QR (main/qrmode.c:2586, ur:jade-epoch; the host side is
+        // epoch message over a scanned QR (main/qrmode.c:2728, ur:jade-epoch; the host side is
         // pijade/tools/epoch_qr.py).
         await_error_3("Clock not set.", "Scan a time QR", "to set it.");
         return false;
@@ -3245,7 +3245,7 @@ static void handle_settings(const bool startup_menu)
 
 #ifdef CONFIG_HAS_CAMERA
         // BBB-AIRGAP: reuses the existing scan flow rather than adding a second dispatcher; an
-        // epoch QR lands in handle_epoch_qr() (main/qrmode.c:2586) which reports the time it set.
+        // epoch QR lands in handle_epoch_qr() (main/qrmode.c:2728) which reports the time it set.
         // Sets 'done' for the same reason the pinserver QR case above does: the scan is generic, so
         // a psbt or a wallet QR can also arrive here, and those screens free the managed activities
         // this loop is holding in 'act' - coming back to the OTP menu would use freed memory.  The

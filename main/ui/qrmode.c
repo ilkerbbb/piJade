@@ -130,8 +130,8 @@ gui_activity_t* make_xpub_qr_options_activity(
     return make_menu_activity("Xpub Settings", hdrbtns, 2, menubtns, 4);
 }
 
-gui_activity_t* make_search_verify_address_activity(
-    const char* root_label, gui_view_node_t** label_text, progress_bar_t* progress_bar, gui_view_node_t** index_text)
+gui_activity_t* make_search_verify_address_activity(const char* root_label, const bool show_options,
+    gui_view_node_t** label_text, progress_bar_t* progress_bar, gui_view_node_t** index_text)
 {
     JADE_ASSERT(label_text);
     JADE_ASSERT(progress_bar);
@@ -181,18 +181,22 @@ gui_activity_t* make_search_verify_address_activity(
     gui_set_parent(*label_text, node);
 
     // buttons
+    // BBB-AIRGAP: 'Edit Root' is left off when the caller has nothing for it to edit.  The verify
+    // flow searches both branches by itself now, and a registered wallet record has no account of
+    // its own, so that screen would open a menu with no rows in it (make_menu_activity asserts).
     btn_data_t ftrbtns[] = { { .txt = "Skip",
                                  .font = GUI_DEFAULT_FONT,
                                  .ev_id = BTN_SCAN_ADDRESS_SKIP_ADDRESSES,
-                                 .borders = GUI_BORDER_TOPRIGHT },
+                                 .borders = show_options ? GUI_BORDER_TOPRIGHT : GUI_BORDER_TOP },
         { .txt = "Edit Root",
             .font = GUI_DEFAULT_FONT,
             .ev_id = BTN_SCAN_ADDRESS_OPTIONS,
             .borders = GUI_BORDER_TOPLEFT } };
-    add_buttons(vsplit, UI_ROW, ftrbtns, 2);
+    const size_t num_ftrbtns = show_options ? 2 : 1;
+    add_buttons(vsplit, UI_ROW, ftrbtns, num_ftrbtns);
 
-    // Select 'Edit Root' button by default
-    gui_set_activity_initial_selection(ftrbtns[1].btn);
+    // Select 'Edit Root' button by default, or 'Skip' when it is the only one
+    gui_set_activity_initial_selection(ftrbtns[num_ftrbtns - 1].btn);
 
     return act;
 }
