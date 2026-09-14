@@ -5,9 +5,16 @@
 > separate work, done after approval.
 >
 > **Line numbers:** every `file:line` reference in this document points at the tree as it stood
-> during the audit (2026-09-03 to 2026-09-06). Rounds since then have grown several of these files,
-> so a reference may now sit a few lines off; the surrounding function and the quoted text are the
-> reliable anchors. Re-measuring them against the current tree is outstanding work.
+> during the audit (2026-09-03 to 2026-09-06), and they are deliberately left there. Measured on
+> 2026-09-14: of the 177 references in this document not one points past the end of its file, and
+> the drift that does exist is concentrated in the three files the rounds since have grown the
+> most (`main/qrmode.c`, `main/process/dashboard.c`, `main/process/mnemonic.c`; 17 references
+> between them), while references into files those rounds did not touch still land where they did.
+> They are not being renumbered, and this is a decision rather than an omission: most of the
+> findings below were fixed in the rounds that followed, so a number carried to the current tree
+> would point at code where the described defect no longer is, and it would go stale again with
+> the next commit. The surrounding function and the quoted text are the anchors; read every
+> number as belonging to the audit tree.
 >
 > **Commit references:** the published history of the fork was later squashed into a single
 > starting commit, so the short hashes of the development commits this document was written
