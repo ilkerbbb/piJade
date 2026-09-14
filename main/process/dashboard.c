@@ -1255,6 +1255,19 @@ static void handle_registered_wallets(void)
                         continue;
                     }
 
+                    // BBB-AIRGAP: the leak the single-xpub export already warns about, multiplied
+                    // by the number of signers - this file carries the account key of every one of
+                    // them (multisig_create_export_file()).  It rides on the one 'Warnings' flag
+                    // like the other two screens, and comes before the unsorted note below because
+                    // this is the one of the two that can still be answered with 'no'.
+                    if (storage_get_feature_flags() & FEATURE_FLAGS_HARSH_WARNINGS) {
+                        const char* warning[] = { "This code holds every", "signer's key. Whoever",
+                            "scans it sees every", "payment, forever." };
+                        if (!await_continueback_activity(NULL, warning, 4, true, "blkstrm.com/xpub")) {
+                            continue;
+                        }
+                    }
+
                     // Warning for unsorted multisig, as this is not strictly handled by the origial
                     // common file format and may not be supported by the imprting wallet.
                     if (!multisig_data.sorted) {

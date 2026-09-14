@@ -144,7 +144,7 @@ column is that SeedSigner splits its three warnings across two settings and this
 | **BIP-85 child seeds** on/off | ADVANCED / **off** | `:663-668` | **Present.** `Features > BIP85` (`dashboard.c:2463`), read where the row is laid out (`:3444`). Default is on here, off there |
 | **Electrum seeds** on/off | ADVANCED / off | `:670-676` | **Absent** (so is the feature itself) |
 | **Message signing** on/off | ADVANCED / **off** | `:686-690` | **Present.** `Features > Sign Msg` (`dashboard.c:2464`), read where the row is laid out (`:3437`). Default is on here, off there |
-| **Show privacy warnings** | ADVANCED / on | `:692-697`; skips the xpub leak warning (`seed_views.py:863`) | **Partly: the screen exists, the separate switch does not.** `Export Xpub` opens a privacy warning before either branch (`qrmode.c:663-673`), worded for a 240px panel: "Whoever scans this / sees every address / and payment of this / wallet, forever." SeedSigner keeps this warning on a setting of its own; here it answers to `Features > Warnings` along with the dire ones, so a device cannot silence one and keep the other |
+| **Show privacy warnings** | ADVANCED / on | `:692-697`; skips the xpub leak warning (`seed_views.py:863`) | **Partly: the screen exists, the separate switch does not.** `Export Xpub` opens a privacy warning before either branch (`qrmode.c:663-673`), worded for a 240px panel: "Whoever scans this / sees every address / and payment of this / wallet, forever." The same account keys leave by a second door, and that one warns too: exporting a registered multisig record (`dashboard.c:1257-1267`) says "This code holds every / signer's key. Whoever / scans it sees every / payment, forever." before it draws the code, and before the unsorted-multisig note, because that note cannot be answered with 'no'. SeedSigner has no counterpart to that screen at all: it scans a wallet descriptor (`tools_views.py:506`) and never exports one, so the only two exports it warns in front of are the xpub and the SeedQR. SeedSigner keeps this warning on a setting of its own; here it answers to `Features > Warnings` along with the dire ones, so a device cannot silence one and keep the other |
 | **Show dire warnings** | ADVANCED / on | `:699-704`; skips the word-display warning (`seed_views.py:1019` -> `:1025`) and the SeedQR one (`:1491` -> `:1497-1498`) | **Partly: both warnings exist, one switch covers three.** `Features > Warnings` (`dashboard.c:2465`) guards the word banner in two places, at setup (`mnemonic.c:475-477`) and before the words screen (`:668-670`), and the SeedQR export as well (`:94-105`): "This code is your / wallet. Never scan or / photograph it into a / connected device." It is shown after the user accepts the export rather than before the offer, so a user who skips drawing never reads it. The same switch also carries the privacy warning in the row above, which SeedSigner keeps separate |
 | **Show QR brightness tips** | ADVANCED / on | `:706-710` | **Absent.** SeedSigner conditionally overlays Brighter / Darker tips (`gui/screens/screen.py:791-844`). This fork has a brightness button (`ui/qrmode.c:31`, "P"), but no equivalent tip overlay or switch |
 | **Camera rotation** | ADVANCED / 180 degrees | `:648-655` | **Present** (`Display > Camera Rotation`, `ui/dashboard.c:284`) |
@@ -232,10 +232,13 @@ off, and (section B) viewing a loaded wallet's words. The eighth, "settings to s
 screens", turned out to be the wrong shape: SeedSigner guards three warnings across two settings
 (`seed_views.py:863`, `:1019`, `:1491`), so the question was never a missing switch but the two
 screens behind it. Both have since been written - the xpub privacy warning (`qrmode.c:663-673`)
-and the SeedQR transcription warning (`mnemonic.c:94-105`) - and both answer to the one
-`Features > Warnings` flag this port has, alongside the word banner it already carried
-(`mnemonic.c:475`, `:668`). What remains is the shape of the switch, recorded in section 3.1
-rather than here: one flag covers all three, so these warnings cannot be silenced separately.
+and the SeedQR transcription warning (`mnemonic.c:94-105`) - and a third was written where
+SeedSigner has no screen to compare against, in front of the registered-multisig export
+(`dashboard.c:1257-1267`), because that file carries the account key of every signer and this
+port, unlike SeedSigner, can export one. All three answer to the one `Features > Warnings` flag,
+alongside the word banner it already carried (`mnemonic.c:475`, `:668`). What remains is the
+shape of the switch, recorded in section 3.1 rather than here: one flag covers them all, so
+these warnings cannot be silenced separately.
 The rest of the list is what the settings comparison in section 3.1 turned up.
 
 **A. Real gaps that can be closed without an architectural decision**
