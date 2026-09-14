@@ -1229,8 +1229,9 @@ offers a configurable set of duress actions where this fork offers exactly one. 
 proposal. The behaviour of the duress path does not change, by decision; what follows is the record
 of what the configurable set contains, what this fork has, and what the difference rests on.
 
-**The configurable set, measured.** Coldcard keeps up to 14 trick PIN slots
-(`shared/trick_pins.py:18`) and gives each slot a flag word (`shared/trick_pins.py:29-39`):
+**The configurable set, measured.** The Coldcard lines cited in this section were read in its
+firmware repository (`github.com/Coldcard/firmware`) at `948dc10`. Coldcard keeps up to 14 trick PIN
+slots (`shared/trick_pins.py:18`) and gives each slot a flag word (`shared/trick_pins.py:29-39`):
 `TC_WIPE`, `TC_BRICK`, `TC_FAKE_OUT`, `TC_WORD_WALLET`, `TC_XPRV_WALLET`, `TC_DELTA_MODE`,
 `TC_REBOOT`, `TC_FW_DEFINED`, and two the firmware handles rather than the boot ROM,
 `TC_BLANK_WALLET` and `TC_COUNTDOWN`. The menu turns those into nine top level entries
@@ -1254,13 +1255,14 @@ does untouched (3.5).
 **What the difference rests on.** Coldcard's set is a property of its hardware. The trick PIN slots
 live in SE2, its second secure element (Coldcard's `docs/secure-elements.md:98`), and the boot ROM
 tests them before the true PIN ever reaches SE1 (Coldcard's `docs/security-model.md:57-61`); a
-decoy wallet's seed sits in those same protected pages. This device has neither a secure element
-nor a boot ROM of its own. The duress record is a field in the settings file on the SD card, beside
-the encrypted wallet blob it would erase, and six digits are about 20 bits (the point made at the
-head of phase 3). A brick action would be a flag on a card that can be rewritten; a decoy wallet
-would be a second seed stored next to the first; a faked wrong PIN would be a branch the attacker
-reads in the same file. Each of those actions carries a guarantee on Coldcard that comes from parts
-this device does not have, so copying the menu would copy the appearance and not the guarantee.
+decoy wallet's seed sits in those same protected pages. This device has no secure element, and no
+secure boot chain in which an earlier stage could test a PIN before the system that reads the card
+starts. The duress record is a field in the settings file on the SD card, beside the encrypted
+wallet blob it would erase, and six digits are about 20 bits (the point made at the head of phase
+3). A brick action would be a flag on a card that can be rewritten; a decoy wallet would be a
+second seed stored next to the first; a faked wrong PIN would be a branch the attacker reads in the
+same file. Each of those actions carries a guarantee on Coldcard that comes from parts this device
+does not have, so copying the menu would copy the appearance and not the guarantee.
 
 **Status.** Record only. No code changed, so no emulator round applies. The silent-retry variant of
 this path was answered separately and stays out, by decision, as does any change to the screen text

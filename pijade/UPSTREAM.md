@@ -14,7 +14,7 @@
 The `master` branch is kept as a mirror of upstream; no change is ever written on top of `master`.
 All work happens on `bbb-airgap`.
 
-## 2. Divergence inventory (2026-09-13 17:38, at `4a72d395`)
+## 2. Divergence inventory (2026-09-14 13:10, at `51ffc54f`)
 
 > The numbers were measured with `git diff --numstat fdb67a3f..HEAD -- . ':(exclude)pijade'`.
 > `fdb67a3f` is the branch point. `pijade/` is ours and has no upstream counterpart, so it does
@@ -125,7 +125,7 @@ All work happens on `bbb-airgap`.
 | `main/descriptor_text.h` | +22 / -0 | **New file** | descriptor: a parser reducing text and Specter JSON descriptors to wally's canonical policy-template form |
 | `main/selfcheck.c` | +21 / -642 | Upstream file | test: descriptor tests moved into the libjade verification branch; multisig: record v4, body sealed with AES; the legacy v0-v2 read paths were removed; the same-record check happens in the clear |
 | `jadepy/jade.py` | +21 / -0 | Upstream file | `set_network_restriction()`, the client side of the debug handler above; section 28 |
-| `libjade/include/esp_attr.h` | +20 / -0 | **New file** | feat(miner): take in the mining component, write two sims, close three defects |
+| `libjade/include/esp_attr.h` | +19 / -0 | **New file** | feat(miner): take in the mining component, write two sims, close three defects |
 | `main/multisig.h` | +20 / -7 | Upstream file | multisig: record v4, body sealed with AES; the legacy v0-v2 read paths were removed; the same-record check happens in the clear |
 | `main/process/pinclient.c` | +20 / -1 | Upstream file | security: the pinserver AES key and the decrypted padding are cleared |
 | `main/process/process_utils.c` | +20 / -0 | Upstream file | The RAM flag holding whether the clock was set during this boot sits right next to the success of `settimeofday()`; all three paths that change the clock (the epoch QR, the `set_epoch` RPC, unlocking) pass through here, so the coverage is structural |
