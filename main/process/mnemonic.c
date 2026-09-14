@@ -2312,7 +2312,11 @@ static bool slip39_share_words(const size_t nwords, slip39_share_t* share)
 // secret and not a phrase.  Dropped here: bip39 validation (no phrase to validate), the SeedQR
 // export offer (no entropy to draw) and keychain_cache_mnemonic_entropy() (same reason - a
 // persisted SLIP-0039 wallet is stored as the serialised keychain instead, which is the branch
-// keychain_store() has always had and nothing but selfcheck has ever taken).
+// keychain_store() has always had and nothing but selfcheck has ever taken).  That branch does
+// not carry a seed, so a wallet reloaded from it has none; the seed derived below is cleared
+// before keychain_set() for a persisted wallet so this session matches every session after a
+// restart instead of granting OTP/identity use once and losing it on reload - both are out of
+// scope for SLIP-0039 in this fork, not a session-one privilege.
 static bool slip39_load_wallet(const slip39_ctx_t* ctx, const bool temporary_restore, const bool advanced_mode)
 {
     JADE_ASSERT(ctx);
@@ -2358,6 +2362,13 @@ static bool slip39_load_wallet(const slip39_ctx_t* ctx, const bool temporary_res
     // than a failure.  The fingerprint on the session screen is the user's only check of that,
     // which is the format's own shape rather than a gap here.  C2 design note section 4.2.
     keychain_derive_from_seed(master_secret, ctx->value_len, &keydata);
+
+    // See the function comment above for why; a temporary wallet is never written to the card,
+    // so it keeps the seed this derivation made.
+    if (!temporary_restore) {
+        JADE_WALLY_VERIFY(wally_bzero(keydata.seed, sizeof(keydata.seed)));
+        keydata.seed_len = 0;
+    }
 
     // The two settings every other restore method also applies (see derive_keychain()): the
     // blinding-key question follows the mode this wallet was set up in, and the network-type

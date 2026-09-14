@@ -2777,7 +2777,10 @@ static int32_t run_options_list(size_t* selected)
     // OTP records are encrypted under a key derived from the seed of the wallet in use
     // (get_otp_encryption_key(), main/otpauth.c), and a wallet read back from the blob as a
     // serialised xpriv carries no seed - so with one of those loaded every record would fail to
-    // decrypt and be offered for deletion.  The row follows what the screen can actually do.
+    // decrypt and be offered for deletion.  A persisted SLIP-0039 wallet is deliberately made
+    // seedless the same way (main/process/mnemonic.c, slip39_load_wallet), so this reads false
+    // for it from the moment it is loaded, not only after the next reload.  The row follows what
+    // the screen can actually do.
     const bool otp_usable = wallet_loaded && keychain_get()->seed_len;
 
     list_item_t items[10];
