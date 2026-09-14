@@ -874,7 +874,7 @@ were not touched.
 | Bound | Source | Why |
 |---|---|---|
 | Name 1-15 bytes, all ASCII 33-126 | `libjade/nvs_flash.c:243`, `storage_key_name_valid()` in `main/storage.c` | A name of 16 bytes or more calls `abort()` when the menu lists records. The range is the device's own rule; it also rules out a name with an embedded NUL (such a record could not be matched by C string searches, and so could not be deleted) |
-| Multisig 114-3281 | `libjade/pijade_settings.c:108`, `main/multisig.c:20`, `main/registration_seal.c:64` | Since the v4 seal the length is a gate, not an assert: a record shorter than the floor is reported as not readable and the device stays up |
+| Multisig 114-3281 | `libjade/pijade_settings.c:108`, `main/multisig.c:20`, `main/registration_seal.c:64` | Since the v4 seal the length is a gate, not an assert: a record that clears the file floor but does not fit the sealed layout is reported as not readable and the device stays up |
 | Descriptor **41**-3281 | `libjade/pijade_settings.c:111`, `main/descriptor.c:24-25`, `main/registration_seal.c:64` | Same gate. The floor is the pre-sealing record size, kept so that a record written by an older image is refused by `registration_open()` rather than taking the whole settings file down |
 | OTP 32-288, a multiple of 16 | `main/aes.c:45,51`, `main/otpauth.c:855` | The stored length goes straight into the `aes_decrypt_bytes()` asserts |
 | HOTP counter exactly 8 | `main/storage.c:888-891` | A `uint64_t`, through `read_blob_fixed` |
