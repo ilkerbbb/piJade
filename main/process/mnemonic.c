@@ -91,6 +91,19 @@ static bool mnemonic_export_qr(const char* mnemonic, bool* export_qr_verified)
         return true;
     }
 
+    // BBB-AIRGAP: after the offer rather than before it, so the user who was going to skip the
+    // whole step is not made to read a dire warning to get there.  SeedSigner shows its version of
+    // this at the same point; here it rides on the single 'Warnings' feature flag, like the banner
+    // in front of the written words.  'false' is the 'back' the two callers already handle - the
+    // setup flow reopens the offer, the backup menu leaves the export.
+    if (storage_get_feature_flags() & FEATURE_FLAGS_HARSH_WARNINGS) {
+        const char* warning[]
+            = { "This code is your", "wallet. Never scan or", "photograph it into a", "connected device." };
+        if (!await_continueback_activity(NULL, warning, 4, true, "blkstrm.com/seedqr")) {
+            return false;
+        }
+    }
+
     // CompactSeedQR is simply the mnemonic entropy; the Standard format is a digit string
     // derived from it.  Only 12 or 24 word mnemonics are supported (ie. 128 & 256 bit entropy)
     size_t entropy_len = 0;

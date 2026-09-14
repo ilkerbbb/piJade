@@ -645,6 +645,13 @@ void handle_qr_settings(void)
 // Display xpub qr code
 void display_xpub_qr(void)
 {
+    // BBB-AIRGAP: read before the warning below, not after.  await_yesno_activity_loop() returns
+    // from inside its own loop (main/ui/dialogs.c), so the warning screen is still the current
+    // activity when it comes back; asking gui_current_activity() after it would hand the code the
+    // warning to return to, and closing the code would flash the warning up a second time - the
+    // very fault the comment further down describes for the details screen.
+    gui_activity_t* const return_to = gui_current_activity();
+
     uint32_t qr_flags = qr_flags_with_defaults(storage_get_qr_flags());
 
     // BBB-AIRGAP: same narrowing the options screen does, and for the same reason - what this
@@ -652,6 +659,18 @@ void display_xpub_qr(void)
     // handle_xpub_options(): the user reaches the code from here without necessarily opening that.
     const uint8_t feature_flags = storage_get_feature_flags();
     pin_wallettype_to_features(&qr_flags, feature_flags);
+
+    // BBB-AIRGAP: an xpub is not one payment, it is every address this wallet will ever use, so
+    // whoever scans this code can follow the wallet from here on.  SeedSigner puts a warning in
+    // front of the same export and keeps a setting for it; this port has the single 'Warnings'
+    // flag, so the screen rides on that rather than adding a second one.
+    if (feature_flags & FEATURE_FLAGS_HARSH_WARNINGS) {
+        const char* message[]
+            = { "Whoever scans this", "sees every address", "and payment of this", "wallet, forever." };
+        if (!await_continueback_activity(NULL, message, 4, true, "blkstrm.com/xpub")) {
+            return;
+        }
+    }
 
     // BBB-AIRGAP: the screen the loop below runs describes what is about to be exported - type,
     // derivation path - and the code itself is a screen further in.  A device set to skip that
@@ -661,7 +680,7 @@ void display_xpub_qr(void)
     // screen this setting exists to keep off the display - measured, not guessed.  The code returns
     // to the menu it was opened from instead, which is where this function returns to anyway.
     if (!(feature_flags & FEATURE_FLAGS_XPUB_DETAILS)) {
-        display_xpub_fullscreen_qr(gui_current_activity(), qr_flags);
+        display_xpub_fullscreen_qr(return_to, qr_flags);
         return;
     }
 

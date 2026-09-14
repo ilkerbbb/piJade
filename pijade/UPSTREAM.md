@@ -34,8 +34,8 @@ All work happens on `bbb-airgap`.
 | File | Added / removed | Kind | Reason |
 |---|---|---|---|
 | `docs/sign/index.html` | +15071 / -0 | **New file** | docs: read the signature back on the sign page |
-| `main/qrmode.c` | +1688 / -145 | Upstream file | An error reply to the pinserver exchange is reported rather than falling into the payload check and being logged as a malformed message (the user abandoning PIN entry arrives as `CBOR_RPC_USER_CANCELLED`, and upstream has no arm for it). Wallet QR codes go full screen; the information screen and the code screen were separated. Also the xpub density/rate ladder: xpub transfer follows the user's QR setting, and a device with no setting is treated as Low. A completed transfer is now routed by what it is rather than by the single format the scanner used to return: the signing tail was split out so a PSBT can arrive either wrapped in BC-UR/CBOR or as the plain serialised transaction BBQr carries, a `U` file goes to the existing multisig registration parser, and every other BBQr file type is refused by name instead of being guessed at |
-| `main/process/mnemonic.c` | +1577 / -414 | Upstream file | Entropy source selection; the two SeedQR export formats (Compact and Standard), a bounds check against the silent overflow in `qrcode_initText()`, and not logging the word count. Seed XOR: the combine flow that joins parts into the wallet they were split from, the split flow that shows and quizzes each part, and the entropy-to-words helper the two share with the SeedQR import |
+| `main/qrmode.c` | +1707 / -145 | Upstream file | An error reply to the pinserver exchange is reported rather than falling into the payload check and being logged as a malformed message (the user abandoning PIN entry arrives as `CBOR_RPC_USER_CANCELLED`, and upstream has no arm for it). Wallet QR codes go full screen; the information screen and the code screen were separated. Also the xpub density/rate ladder: xpub transfer follows the user's QR setting, and a device with no setting is treated as Low. A completed transfer is now routed by what it is rather than by the single format the scanner used to return: the signing tail was split out so a PSBT can arrive either wrapped in BC-UR/CBOR or as the plain serialised transaction BBQr carries, a `U` file goes to the existing multisig registration parser, and every other BBQr file type is refused by name instead of being guessed at. A privacy warning now stands in front of the xpub code when `Features > Warnings` is on; the activity to return to is read BEFORE that warning, because `await_yesno_activity_loop()` returns from inside its own loop and leaves the warning as the current activity |
+| `main/process/mnemonic.c` | +1590 / -414 | Upstream file | Entropy source selection; the two SeedQR export formats (Compact and Standard), a bounds check against the silent overflow in `qrcode_initText()`, and not logging the word count. Seed XOR: the combine flow that joins parts into the wallet they were split from, the split flow that shows and quizzes each part, and the entropy-to-words helper the two share with the SeedQR import. On the same `Warnings` flag, a screen saying the drawn code is the wallet itself, placed after the export is offered rather than before it, so a user who was going to skip the step is not made to read it |
 | `main/process/dashboard.c` | +1394 / -219 | Upstream file | The main menu submenu; the camera rotation setting and its label; the `QR Settings` event branch; the same macro added to both board gates of the brightness handler; `select_initial_connection()` no longer builds a connection menu, because this board has neither channel it offered: the QR flow is entered directly, the `QR Mode` double-check follows its own flag rather than the menu's existence (upstream gated it on both, so deleting the menu alone would have dropped the question silently), and the cleanup the menu's back button did, forgetting a derived but sourceless wallet, is `forget_unsourced_wallet()`, shared by the QR back button and the KEY3 escape; `make_connect_to_activity()` is called with no arguments; `Session > Sleep` draws an information screen before shutting down (`#ifdef CONFIG_LIBJADE`; the Pi cannot cut its own supply, so the user learns of the shutdown from the screen, and the message deliberately does not say when the power may be pulled, with the reason written in a comment in the code); the `Set Clock` event first shows the page address on a back/continue screen, and on `Continue` opens the `handle_scan_qr()` flow and leaves the menu loop (a scan can also load a wallet, so screens the menu was holding may be released), while the back arrow keeps it in the menu; `handle_scan_qr()` now takes the help address as a parameter; the `Buttons` check (`handle_io_test_buttons()`): each input turns its own mark green, centre click and KEY2 produce the same event so both light up together, and KEY3 leaves the screen; the `debug_set_network` method branch and its forward declaration, both inside the existing `CONFIG_DEBUG_MODE` blocks |
 | `components/miner/miner.c` | +1109 / -0 | **New file** | feat(miner): take in the mining component, write two sims, close three defects; fix(miner): close three P2 and three P3 findings from review round 1 |
 | `docs/clock/index.html` | +1032 / -0 | **New file** | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
@@ -94,7 +94,7 @@ All work happens on `bbb-airgap`.
 | `main/qrmode.h` | +51 / -1 | Upstream file | Declarations only; `handle_qr_settings()` |
 | `main/keychain.h` | +50 / -1 | Upstream file | fix(keychain): correct the connection lifecycle against the slot table; feat(keychain): list slots and take one into use with a click |
 | `main/seedxor.h` | +49 / -0 | **New file** | The contract, the part-count bounds, and the statement of what the scheme gives and what it does not |
-| `main/storage.h` | +48 / -1 | Upstream file | Two free bits for camera rotation, away from the theme mask |
+| `main/storage.h` | +50 / -1 | Upstream file | Two free bits for camera rotation, away from the theme mask. 0x04 is left unused on purpose: the xpub privacy warning answers to `FEATURE_FLAGS_HARSH_WARNINGS` rather than taking a bit of its own, so the hole stays open and the remaining bits keep their numbers |
 | `libjade/cxx_terminate.cpp` | +45 / -0 | **New file** | security: a C++ throw was killing the process without clearing keys |
 | `main/process/auth_user.c` | +44 / -6 | Upstream file | fix(storage): on the erase PIN, delete the blob first and stay fail-closed if marking fails; security: the duress PIN is not written to the card in the clear |
 | `main/otpauth.c` | +44 / -6 | Upstream file | The OTP account name and issuer are no longer logged; only their lengths are written (they identify the user's services); the TOTP clock check now starts from `clock_has_been_set()`; on a port with no RTC the 2020 threshold was not enough on its own |
@@ -604,7 +604,7 @@ Measured on 2026-08-27 in the 24-word Standard flow: a bounding box of 203x203 p
 ## 20. Running the device's own verification branch in the emulator
 
 The last step of the export flow reads the QR the user drew back through the camera and compares it
-(`main/process/mnemonic.c:265-268`). To run that in the emulator, the QR on the device's OWN screen
+(`main/process/mnemonic.c:315-319`). To run that in the emulator, the QR on the device's OWN screen
 is fed back to its camera:
 
 ```bash
@@ -749,7 +749,7 @@ assumption: the consumption path of all 15 fields was traced, and this is what w
 (`main/gui.c:277-281`), and the theme index is bounded on the settings screen
 (`main/process/dashboard.c:1869`). `qrflags` is a bit mask; the `account_index` derived from it comes
 from shifting a 32-bit value by 16, so it is already below `ACCOUNT_INDEX_MAX`
-(`main/qrmode.c:35-36,822`). `keyflags` is a pure bit mask. `idletimeout` is only compared
+(`main/qrmode.c:41-42,1147-1148`). `keyflags` is a pure bit mask. `idletimeout` is only compared
 (`main/idletimer.c:207-220`). If `counter` is greater than 3, `storage_decrement_counter()` deletes
 the blob (`main/storage.c:490-494`), so an inflated counter grants no extra attempts. `privatekey`
 is rejected by `wally_ec_private_key_verify` (`main/storage.c:446`) and `pinsvrpubkey` by
@@ -981,7 +981,7 @@ is 0. An error response, a missing response, a wrong epoch, an extra call or clo
 
 ## 25. Generating a `jade-epoch` QR and scanning it in the emulator
 
-Jade takes the epoch by QR as a `ur:jade-epoch` type (`main/qrmode.c:1401`); the body is directly the
+Jade takes the epoch by QR as a `ur:jade-epoch` type (`main/qrmode.c:2725`); the body is directly the
 CBOR map `{"id":"1","method":"set_epoch","params":{"epoch":N}}` (`handle_epoch_qr`,
 `bcur_parse_jade_message`, `params_set_epoch_time`). The generator is `pijade/tools/epoch_qr.py`
 (cbor2==6.1.2 and qrcode, in a virtualenv of your own). For a TOTP comparison it is generated immediately

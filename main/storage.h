@@ -45,9 +45,11 @@
 
 // BBB-AIRGAP: which optional wallet features are offered, kept in their own byte because gui_flags
 // above has none left (themes, camera rotation, orientation and wheel click take all eight bits).
-// 0x04 is deliberately unused: it was reserved for skipping an xpub privacy warning, but this
-// port's xpub flow has no such screen to skip (main/qrmode.c, display_xpub_qr()).  The hole is
-// left open rather than closed up, so the remaining bits keep the numbers the plan gave them.
+// 0x04 is deliberately unused: it was reserved for a separate xpub privacy warning flag, the way
+// SeedSigner keeps that warning apart from its dire ones.  There is such a screen now
+// (main/qrmode.c, display_xpub_qr()), but it answers to HARSH_WARNINGS below - one setting covers
+// both warnings here, so the bit stayed free.  The hole is left open rather than closed up, so the
+// remaining bits keep the numbers the plan gave them.
 #define FEATURE_FLAGS_BIP85 0x01
 #define FEATURE_FLAGS_SIGN_MESSAGE 0x02
 #define FEATURE_FLAGS_HARSH_WARNINGS 0x08
