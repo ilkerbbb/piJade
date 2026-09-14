@@ -651,6 +651,17 @@ silent):
 | `main/selfcheck.c:882` | `public_key_hash` | test vector |
 | `main/process/pinclient.c:62` | `privkey` | covered |
 
+**Four of these rows cite a buffer that is not in the tree, and the anchor rule above cannot
+recover them.** `pin_erase` is not a symbol this fork has carried: the family is named
+`wallet_erase_pin`, `main/process/auth_user.c:36` calls `storage_verify_wallet_erase_pin()`, and
+the buffer the digits are entered into is the `pin` of `set_wallet_erase_pin()`.
+`hmac_calculated` is real but it lives in `main/registration_seal.c`; `descriptor.c` and
+`multisig.c` reach it through `registration_open()` instead of declaring one of their own. A
+fifth row, `main/process/dashboard.c:1338`, is a second entry for `pinstr`, which the table also
+lists under "not a secret". The remaining forty-nine rows all name a buffer that is declared in
+the file they name, which is what the anchor rule needs; how far each number has moved is the
+question the note at the top of this document answers.
+
 ---
 
 ## Phase 1 ; measurements (2026-09-03)
