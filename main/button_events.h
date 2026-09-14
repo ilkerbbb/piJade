@@ -82,8 +82,19 @@ typedef enum {
     BTN_RESTORE_MNEMONIC_WORD_NUMBERS_12,
     BTN_RESTORE_MNEMONIC_WORD_NUMBERS_24,
     BTN_RESTORE_MNEMONIC_QR,
+    // BBB-AIRGAP: the schemes that rebuild a wallet from several pieces of paper share one
+    // submenu, because the Restore Wallet menu is full at four rows (see make_menu_activity).
+    BTN_RESTORE_MNEMONIC_SPLIT,
     // BBB-AIRGAP: combine Seed XOR parts into the wallet they were split from
     BTN_RESTORE_MNEMONIC_SEEDXOR,
+    // BBB-AIRGAP: recover a wallet from SLIP-0039 shares
+    BTN_RESTORE_MNEMONIC_SLIP39,
+    // BBB-AIRGAP: how the shares of a SLIP-0039 backup reach the device, and how long they are.
+    // A backup made by any standard tool is words on paper, so 'Word' is the row selected first.
+    BTN_SLIP39_WORDS,
+    BTN_SLIP39_QR,
+    BTN_SLIP39_SHARE_20,
+    BTN_SLIP39_SHARE_33,
 
     BTN_MNEMONIC_FINAL_WORD_EXISTING,
     BTN_MNEMONIC_FINAL_WORD_CALCULATE,

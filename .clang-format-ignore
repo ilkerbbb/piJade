@@ -1,0 +1,7 @@
+# BBB-AIRGAP: vendored verbatim from Trezor firmware; see each file's header block.
+# format.sh globs main/*.c and main/*.h, and reformatting these would destroy the one
+# property that makes them auditable - that they can be diffed against upstream.  This is
+# the same call libjade makes for miniz, expressed where any clang-format run will see it.
+main/shamir.c
+main/shamir.h
+main/slip39_english.c

@@ -21,6 +21,7 @@ SELFCHECKS = (
     ("mining", "Testing bitcoin mining hash loop"),
     ("bbqr", "Testing BBQr multi-frame QR collection"),
     ("seedxor", "Testing SeedXOR split and combine"),
+    ("slip39", "Testing SLIP39 share recovery"),
 )
 
 

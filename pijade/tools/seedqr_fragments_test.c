@@ -246,7 +246,7 @@ static void context_contract_test(const uint8_t version)
 }
 
 // BBB-AIRGAP: spec T3.19B section 6.2, checks 11a to 11d - the v3 empty module strip.
-// Label semantics (main/process/mnemonic.c:277-278): the letter is the ROW and the number is
+// Label semantics (main/process/mnemonic.c:295-296): the letter is the ROW and the number is
 // the COLUMN, so with a 6x6 grid the last column is A6..F6 (index i % 6 == 5) and the last
 // row is F1..F6 (index i / 6 == 5).  F6 (index 35) is short on both axes.
 // BBB-AIRGAP: spec T3.19B section 6.2, checks 14 to 17 - the actual correctness proof.
@@ -259,7 +259,7 @@ static void context_contract_test(const uint8_t version)
 typedef enum { RT_SAME, RT_DIFFERENT, RT_UNDECODABLE } rt_result_t;
 
 // 'decoded_len' reports quirc's payload_len, which is what the device compares against
-// digits_len (main/process/mnemonic.c:319 via main/qrscan.c:149).  strcmp() alone would
+// digits_len (main/process/mnemonic.c:337 via main/qrscan.c:149).  strcmp() alone would
 // NOT catch a length that included the terminator: the copy is nul terminated either way.
 static rt_result_t roundtrip(const uint8_t version, const char* const digits, size_t* const decoded_len)
 {

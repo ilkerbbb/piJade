@@ -173,3 +173,154 @@ def word(j, letters, suggestion_steps=0):
     for _ in range(suggestion_steps):
         j.press(forward)
     j.press('click')
+
+
+# --- The passphrase keyboard (main/ui/keyboard.c) ---
+#
+# This is a DIFFERENT keyboard from the word one above and keeps its own table: the word
+# keyboard draws only the letters a bip39 prefix still allows, while this grid is fixed and
+# every cell of the current page is always drawn.  Geometry follows the code: the title bar
+# takes the top 20% (main/ui/dialogs.c:9, :191) and the rest is a four-row vertical split
+# (keyboard.c:31) whose first row is the typed text; each keyboard row is ten 24 px cells,
+# shifted right by half the cells its line does not use, and each button keeps a 2 px margin
+# (keyboard.c:71-73, :84-87).  That puts the three rows at the same y the word keyboard's
+# bands sit at, which is why the probe offsets above are reused rather than measured again.
+ASCII_PAGES = (
+    ('abcdefghij', 'klmnopqrst', 'uvwxyz |>S'),
+    ('ABCDEFGHIJ', 'KLMNOPQRST', 'UVWXYZ |>S'),
+    ('1234567890', '!"#$%&\'()', '*+,-./ |>S'),
+    (':;<=>?@', '[\\]^_`~', '{|} |>S'),
+)
+ASCII_CELL_W = 24
+ASCII_ROW_TOP = (98, 146, 194)
+ASCII_COLS = 10
+
+# The last three cells of the last row are backspace, next-keyboard and enter.  The C source
+# writes them as '|', '>' and 'S' because their fonts draw symbols in place of those letters
+# (keyboard.c:48-49), and '|' is also a real character on the fourth page, so they are found by
+# POSITION and never by character.
+ASCII_ACTIONS = 3
+
+
+def ascii_cell_x(row, page):
+    """Left edge of the first button of a row on this page."""
+    return (ASCII_COLS - len(ASCII_PAGES[page][row])) * ASCII_CELL_W // 2 + 2
+
+
+def ascii_cells(px, page):
+    """[(row, col, is_selected)] for the cells this page draws."""
+    out = []
+    for row, line in enumerate(ASCII_PAGES[page]):
+        x0 = ascii_cell_x(row, page)
+        for col in range(len(line)):
+            drawn, sel = _state(px, ASCII_ROW_TOP[row], x0 + col * ASCII_CELL_W)
+            if drawn:
+                out.append((row, col, sel))
+    return out
+
+
+def ascii_selected(px, page):
+    """(row, col) of the selected cell, or None when the screen is not this page."""
+    cells_here = ascii_cells(px, page)
+    if len(cells_here) != sum(len(line) for line in ASCII_PAGES[page]):
+        return None
+    chosen = [(r, c) for r, c, s in cells_here if s]
+    return chosen[0] if len(chosen) == 1 else None
+
+
+def ascii_find(page, char):
+    """(row, col) of a character on this page; the three action cells are never returned."""
+    for row, line in enumerate(ASCII_PAGES[page]):
+        limit = len(line) - ASCII_ACTIONS if row == len(ASCII_PAGES[page]) - 1 else len(line)
+        for col in range(limit):
+            if line[col] == char:
+                return row, col
+    raise RuntimeError('%r is not on keyboard page %d' % (char, page))
+
+
+def ascii_action(page, which):
+    """(row, col) of an action cell: 0 backspace, 1 next keyboard, 2 enter."""
+    row = len(ASCII_PAGES[page]) - 1
+    return row, len(ASCII_PAGES[page][row]) - ASCII_ACTIONS + which
+
+
+_ASCII_OPPOSITE = {'down': 'up', 'up': 'down', 'right': 'left', 'left': 'right'}
+
+
+def _ascii_calibrate(j, page):
+    """MEASURE which key moves the selection one cell forward on each axis; cache the pair.
+
+    Flip Orientation reverses both axes (main/gui.c:2861-2880) and no RPC reports the setting,
+    so the meaning of 'down' and 'right' is read off the screen once rather than assumed.  Two
+    presses cost less than being wrong silently, and the calibration cell is left where it is:
+    the caller navigates from wherever the selection ends up."""
+    cached = getattr(j, 'kbd_ascii_dirs', None)
+    if cached is not None:
+        return cached
+    rows = len(ASCII_PAGES[page])
+    start = ascii_selected(pixels(j), page)
+    if start is None:
+        raise RuntimeError('direction calibration requires keyboard page %d' % page)
+    j.press('down')
+    moved = ascii_selected(pixels(j), page)
+    if moved is None or moved[1] != start[1]:
+        raise RuntimeError("'down' did not stay in its column (%s -> %s)" % (start, moved))
+    vertical = 'down' if (moved[0] - start[0]) % rows == 1 else 'up'
+    cols = len(ASCII_PAGES[page][moved[0]])
+    j.press('right')
+    again = ascii_selected(pixels(j), page)
+    if again is None or again[0] != moved[0]:
+        raise RuntimeError("'right' did not stay in its row (%s -> %s)" % (moved, again))
+    horizontal = 'right' if (again[1] - moved[1]) % cols == 1 else 'left'
+    j.kbd_ascii_dirs = {'v': vertical, 'h': horizontal}
+    return j.kbd_ascii_dirs
+
+
+def ascii_click(j, page, target):
+    """Reach a cell and select it, reading the selection back after every press.
+
+    The step is recomputed from the screen each time rather than counted out in advance: a
+    vertical move onto a shorter row also moves the column (the number pages have a nine cell
+    row), so a plan made at the start would land one cell out and click the wrong key."""
+    dirs = _ascii_calibrate(j, page)
+    for _ in range(2 * (len(ASCII_PAGES[page]) + ASCII_COLS)):
+        cur = ascii_selected(pixels(j), page)
+        if cur is None:
+            raise RuntimeError('keyboard page %d left the screen mid-move' % page)
+        if cur == target:
+            j.press('click')
+            return
+        if cur[0] != target[0]:
+            axis, size, wanted = 'v', len(ASCII_PAGES[page]), target[0] - cur[0]
+        else:
+            axis, size, wanted = 'h', len(ASCII_PAGES[page][cur[0]]), target[1] - cur[1]
+        distance = wanted % size
+        j.press(dirs[axis] if distance <= size - distance else _ASCII_OPPOSITE[dirs[axis]])
+    raise RuntimeError('cell %s not reached on page %d' % (target, page))
+
+
+def ascii_text(j, text, page=0):
+    """Type text on the passphrase keyboard and press its enter key.
+
+    The page is COUNTED, not read: pages 0 and 1 draw the same ten-ten-ten grid and differ
+    only in glyphs, which nothing here reads.  Every page change is still checked, because
+    ascii_selected() returns None whenever the cells on screen are not the ones the counted
+    page should draw."""
+    for char in text:
+        target_page = next((p for p in range(len(ASCII_PAGES)) if _ascii_has(p, char)), None)
+        if target_page is None:
+            raise RuntimeError('%r is on no keyboard page' % char)
+        while page != target_page:
+            ascii_click(j, page, ascii_action(page, 1))
+            page = (page + 1) % len(ASCII_PAGES)
+        ascii_click(j, page, ascii_find(page, char))
+    ascii_click(j, page, ascii_action(page, 2))
+    return page
+
+
+def _ascii_has(page, char):
+    try:
+        ascii_find(page, char)
+        return True
+    except RuntimeError:
+        return False

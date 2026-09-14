@@ -138,7 +138,11 @@ void __wrap_abort(void);
 #ifdef ESP_PLATFORM
 #include "./serial.c"
 #endif // ESP_PLATFORM
+// BBB-AIRGAP: vendored from Trezor for SLIP-0039 recovery, see the file headers.
+#include "./shamir.c"
 #include "./signer.c"
+#include "./slip39.c"
+#include "./slip39_english.c"
 #ifndef CONFIG_LIBJADE
 #include "./smoketest.c"
 #endif // CONFIG_LIBJADE

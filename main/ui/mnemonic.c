@@ -75,10 +75,11 @@ gui_activity_t* make_restore_mnemonic_activity(const bool temporary_restore)
                                  .ev_id = temporary_restore ? BTN_MNEMONIC_EXIT : BTN_MNEMONIC_METHOD },
         { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
 
-    // BBB-AIRGAP: SeedXOR joins this menu, which make_menu_activity() caps at four rows
-    // (dialogs.c) - with the camera row that is exactly full.  The rows are counted rather than
-    // listed so that the cameraless build drops only the camera row: SeedXOR is the last entry in
-    // both, and 'Scan QR' keeps the place it has always had.
+    // BBB-AIRGAP: make_menu_activity() caps this at four rows (dialogs.c), so the schemes that
+    // rebuild a wallet from several pieces of paper share the last one rather than each taking a
+    // row of their own - SeedXOR had that row alone until SLIP-0039 arrived.  The rows are counted
+    // rather than listed so that the cameraless build drops only the camera row: 'Split Backup' is
+    // the last entry in both, and 'Scan QR' keeps the place it has always had.
     btn_data_t menubtns[4];
     size_t nbtns = 0;
     menubtns[nbtns++] = (btn_data_t){ .txt = "12 Words", .font = GUI_DEFAULT_FONT, .ev_id = BTN_RESTORE_MNEMONIC_12 };
@@ -91,7 +92,7 @@ gui_activity_t* make_restore_mnemonic_activity(const bool temporary_restore)
     const size_t selected = 0;
 #endif
     menubtns[nbtns++]
-        = (btn_data_t){ .txt = "SeedXOR", .font = GUI_DEFAULT_FONT, .ev_id = BTN_RESTORE_MNEMONIC_SEEDXOR };
+        = (btn_data_t){ .txt = "Split Backup", .font = GUI_DEFAULT_FONT, .ev_id = BTN_RESTORE_MNEMONIC_SPLIT };
     JADE_ASSERT(nbtns <= sizeof(menubtns) / sizeof(menubtns[0]));
 
     gui_activity_t* const act = make_menu_activity("Restore Wallet", hdrbtns, 2, menubtns, nbtns);
@@ -99,6 +100,61 @@ gui_activity_t* make_restore_mnemonic_activity(const bool temporary_restore)
     // Set the intially selected item to the '12 words' or 'Scan QR' buttons
     gui_set_activity_initial_selection(menubtns[selected].btn);
 
+    return act;
+}
+
+// BBB-AIRGAP: the two schemes that rebuild a wallet from several pieces of paper.  They are named
+// after the schemes rather than described, because that is what is written on the backup the user
+// is holding; a user who does not recognise either name has neither kind of backup.
+gui_activity_t* make_restore_split_activity(void)
+{
+    btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_RESTORE_MNEMONIC },
+        { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
+
+    // Both rows are unconditional: a SLIP-0039 share can be typed as well as scanned, so the row
+    // has something to do on a build with no camera, exactly as the SeedXOR row does.
+    btn_data_t menubtns[] = { { .txt = "SeedXOR", .font = GUI_DEFAULT_FONT, .ev_id = BTN_RESTORE_MNEMONIC_SEEDXOR },
+        { .txt = "SLIP39", .font = GUI_DEFAULT_FONT, .ev_id = BTN_RESTORE_MNEMONIC_SLIP39 } };
+
+    gui_activity_t* const act
+        = make_menu_activity("Split Backup", hdrbtns, 2, menubtns, sizeof(menubtns) / sizeof(menubtns[0]));
+    gui_set_activity_initial_selection(menubtns[0].btn);
+
+    return act;
+}
+
+// BBB-AIRGAP: how the shares of one SLIP-0039 backup reach the device.  Shown only where there is
+// a camera to choose; without one the SLIP39 row goes straight to word entry.  'Word' is selected
+// first because that is the form a SLIP-0039 backup is made in - the standard prints words, and
+// puts them in no QR - so the scanner here reads a code this fork's own export screen drew.
+#ifdef CONFIG_HAS_CAMERA
+gui_activity_t* make_slip39_method_activity(void)
+{
+    btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_RESTORE_MNEMONIC_SPLIT },
+        { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
+
+    btn_data_t menubtns[] = { { .txt = "Word", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SLIP39_WORDS },
+        { .txt = "Scan QR", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SLIP39_QR } };
+
+    gui_activity_t* const act = make_menu_activity("Entry Method", hdrbtns, 2, menubtns, 2);
+    gui_set_activity_initial_selection(menubtns[0].btn);
+    return act;
+}
+#endif // CONFIG_HAS_CAMERA
+
+// BBB-AIRGAP: how long the shares of this backup are.  SLIP-0039 has exactly two lengths and they
+// follow the master secret's size rather than a user's choice, so this is read off the card in
+// hand rather than decided - which is why the screen names the counts and nothing else.
+gui_activity_t* make_slip39_share_words_activity(void)
+{
+    btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_RESTORE_MNEMONIC_SPLIT },
+        { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
+
+    btn_data_t menubtns[] = { { .txt = "20 Words", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SLIP39_SHARE_20 },
+        { .txt = "33 Words", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SLIP39_SHARE_33 } };
+
+    gui_activity_t* const act = make_menu_activity("SLIP39 Share", hdrbtns, 2, menubtns, 2);
+    gui_set_activity_initial_selection(menubtns[0].btn);
     return act;
 }
 
@@ -467,11 +523,9 @@ gui_activity_t* make_export_qr_overview_activity(const bool initial)
     gui_set_parent(node, vsplit);
     gui_set_align(node, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
 
-    btn_data_t ftrbtns[] = { { .txt = "Show QR",
-                                  .font = GUI_DEFAULT_FONT,
-                                  .ev_id = BTN_QR_SHOW_FULLSCREEN,
-                                  .borders = GUI_BORDER_TOP },
-        { .txt = "Start", .font = GUI_DEFAULT_FONT, .ev_id = BTN_QR_EXPORT_NEXT, .borders = GUI_BORDER_TOP } };
+    btn_data_t ftrbtns[]
+        = { { .txt = "Show QR", .font = GUI_DEFAULT_FONT, .ev_id = BTN_QR_SHOW_FULLSCREEN, .borders = GUI_BORDER_TOP },
+              { .txt = "Start", .font = GUI_DEFAULT_FONT, .ev_id = BTN_QR_EXPORT_NEXT, .borders = GUI_BORDER_TOP } };
     if (!initial) {
         ftrbtns[1].txt = "Done";
         ftrbtns[1].ev_id = BTN_QR_EXPORT_DONE;

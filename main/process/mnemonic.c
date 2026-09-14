@@ -15,6 +15,7 @@
 #include "../seedqr.h"
 #include "../seedxor.h"
 #include "../sensitive.h"
+#include "../slip39.h"
 #include "../storage.h"
 #include "../ui.h"
 #include "../utils/cbor_rpc.h"
@@ -34,9 +35,24 @@
 
 #define WORDLIST_PASSPHRASE_MAX_WORDS 10
 
+// BBB-AIRGAP: the longest run of words the entry screens below collect, which is a SLIP-0039 long
+// share rather than a recovery phrase.  MNEMONIC_MAXWORDS is deliberately NOT raised to reach it:
+// that constant means 'twenty-four' to the screens that confirm a new phrase (the count of options
+// at :509 is chosen by comparing against it), so a larger value would silently kill the 24-word
+// branch of a screen that has nothing to do with SLIP-0039.
+#define WORDLIST_ENTRY_MAXWORDS 33
+
+// Size of a buffer for holding the longest such run: 33 8-character words + 32 spaces + NUL.
+// Written as mnemonic_buffer_size() computes it so the two cannot drift apart.
+#define WORDLIST_ENTRY_BUFLEN ((MNEMONIC_MAX_WORD_LEN + 1) * WORDLIST_ENTRY_MAXWORDS)
+
 #define BIP85_INDEX_MAX 1000000
 
-typedef enum { MNEMONIC_SIMPLE, MNEMONIC_ADVANCED, WORDLIST_PASSPHRASE } wordlist_purpose_t;
+// BBB-AIRGAP: MNEMONIC_SLIP39_SHARE is a fourth purpose rather than a flag on the existing three,
+// because it differs from them in exactly one way - the wordlist it reads - and matches them in
+// every other: a fixed number of words, one title per word, no 'done' button, and a backspace on
+// the first word that abandons the entry.
+typedef enum { MNEMONIC_SIMPLE, MNEMONIC_ADVANCED, MNEMONIC_SLIP39_SHARE, WORDLIST_PASSPHRASE } wordlist_purpose_t;
 
 // main/ui/mnemonic.c
 gui_activity_t* make_mnemonic_setup_type_activity(void);
@@ -44,6 +60,11 @@ gui_activity_t* make_mnemonic_setup_method_activity(bool advanced);
 gui_activity_t* make_new_mnemonic_activity(void);
 gui_activity_t* make_restore_mnemonic_activity(bool temporary_restore);
 gui_activity_t* make_restore_mnemonic_method_activity(size_t nwords);
+gui_activity_t* make_restore_split_activity(void);
+#ifdef CONFIG_HAS_CAMERA
+gui_activity_t* make_slip39_method_activity(void);
+#endif
+gui_activity_t* make_slip39_share_words_activity(void);
 
 void make_show_mnemonic_activities(gui_activity_t** first_activity_ptr, gui_activity_t** last_activity_ptr,
     const char* mnemonic, uint16_t word_offs[], size_t nwords);
@@ -138,19 +159,17 @@ static bool mnemonic_export_qr(const char* mnemonic, bool* export_qr_verified)
 
     // Convert the payload into a small (v1 to v3) qr-code
     QRCode qrcode;
-    const uint8_t qrcode_version = compact ? (entropy_len == BIP32_ENTROPY_LEN_128 ? 1 : 2)
-                                           : (entropy_len == BIP32_ENTROPY_LEN_128 ? 2 : 3);
+    const uint8_t qrcode_version
+        = compact ? (entropy_len == BIP32_ENTROPY_LEN_128 ? 1 : 2) : (entropy_len == BIP32_ENTROPY_LEN_128 ? 2 : 3);
     uint8_t qrbuffer[112]; // underlying qrcode data/work area - opaque; v3 needs 106
     JADE_ASSERT(sizeof(qrbuffer) > qrcode_getBufferSize(qrcode_version));
     SENSITIVE_PUSH(qrbuffer, sizeof(qrbuffer));
     // BBB-AIRGAP: qrcode_initText() returns 0 even when the payload does not fit - it silently
     // truncates (measured, see pijade/tools/v3_capacity_probe.c).  The version/length pairing is
     // therefore asserted here and never inferred from the return value.
-    JADE_ASSERT(compact
-        || (digits_len == 48 && qrcode_version == 2) || (digits_len == 96 && qrcode_version == 3));
-    const int qret = compact
-        ? qrcode_initBytes(&qrcode, qrbuffer, qrcode_version, ECC_LOW, entropy, entropy_len)
-        : qrcode_initText(&qrcode, qrbuffer, qrcode_version, ECC_LOW, digits);
+    JADE_ASSERT(compact || (digits_len == 48 && qrcode_version == 2) || (digits_len == 96 && qrcode_version == 3));
+    const int qret = compact ? qrcode_initBytes(&qrcode, qrbuffer, qrcode_version, ECC_LOW, entropy, entropy_len)
+                             : qrcode_initText(&qrcode, qrbuffer, qrcode_version, ECC_LOW, digits);
     JADE_ASSERT(qret == 0);
 
     const uint16_t fragment_row_height = CONFIG_DISPLAY_HEIGHT * QRCODE_FRAGMENT_ROW_PERCENT / 100;
@@ -169,8 +188,7 @@ static bool mnemonic_export_qr(const char* mnemonic, bool* export_qr_verified)
     JADE_ASSERT(num_icons == expected_grid_size * expected_grid_size);
 
     const uint8_t context_modules = 2;
-    const bool context_available
-        = qrcode_fragmentsContextFits(qrcode_version, fragment_target_size, context_modules);
+    const bool context_available = qrcode_fragmentsContextFits(qrcode_version, fragment_target_size, context_modules);
     Icon* context_icons = NULL;
     size_t num_context_icons = 0;
 
@@ -435,8 +453,8 @@ static int32_t await_mnemonic_pages_exit(gui_activity_t* first_activity)
         GUI_BUTTON_EVENT, BTN_MNEMONIC_VERIFY, sync_wait_event_handler, wait_data, &ctx_verify));
     // BBB-AIRGAP: page navigation changes activities, so keep ALT registered across all pages
     // just like the two exit buttons. KEY3 posts on GUI_EVENT, which those registrations miss.
-    JADE_ZERO_VERIFY(esp_event_handler_instance_register(
-        GUI_EVENT, GUI_ALT_EVENT, sync_wait_event_handler, wait_data, &ctx_alt));
+    JADE_ZERO_VERIFY(
+        esp_event_handler_instance_register(GUI_EVENT, GUI_ALT_EVENT, sync_wait_event_handler, wait_data, &ctx_alt));
 
     gui_set_current_activity(first_activity);
 
@@ -820,7 +838,7 @@ static void split_wallet_seedxor(char* mnemonic, const size_t mnemonic_len, cons
     JADE_ASSERT(final_word);
     const int check_len = snprintf(check_word, sizeof(check_word), "Word %u:%s", (unsigned)nwords, final_word);
     JADE_ASSERT(check_len > 0 && (size_t)check_len < sizeof(check_word));
-    await_message_3("Combined, the parts end", "with this word:", check_word);
+    await_message_3("Combined, the parts", "end with this word:", check_word);
     SENSITIVE_POP(check_word);
 
 cleanup:
@@ -913,8 +931,48 @@ static bool mnemonic_new(
     return mnemonic_confirmed;
 }
 
-// NOTE: only the English wordlist is supported.
-static void enable_relevant_chars(const bool is_mnemonic, const char* word, const size_t word_len,
+// BBB-AIRGAP: which wordlist a purpose reads, and how long a run of it is legal.  Both lists are
+// sorted and free of duplicates (measured), which is what lets the search loops below stop at the
+// first word past the typed stem instead of scanning to the end.
+static size_t wordlist_len(const wordlist_purpose_t purpose)
+{
+    return purpose == MNEMONIC_SLIP39_SHARE ? SLIP39_WORD_COUNT : BIP39_WORDLIST_LEN;
+}
+
+static const char* wordlist_word(const wordlist_purpose_t purpose, const size_t index)
+{
+    JADE_ASSERT(index < wordlist_len(purpose));
+
+    if (purpose == MNEMONIC_SLIP39_SHARE) {
+        return SLIP39_WORDLIST[index];
+    }
+
+    const char* const word = bip39_get_word_by_index(NULL, index);
+    JADE_ASSERT(word);
+    return word;
+}
+
+// Every purpose but the passphrase collects a known number of words: the caller says how many and
+// the screens count them off.  A passphrase is as long as the user makes it, so it alone gets the
+// 'done' button - and only it may leave the entry with fewer words than the maximum passed.
+static bool wordlist_exact_count(const wordlist_purpose_t purpose) { return purpose != WORDLIST_PASSPHRASE; }
+
+static bool is_valid_wordlist_length(const wordlist_purpose_t purpose, const size_t nwords)
+{
+    switch (purpose) {
+    case MNEMONIC_SLIP39_SHARE:
+        // A share carries the master secret's own length; the format has no other two.
+        return nwords == SLIP39_SHORT_SHARE_WORDS || nwords == SLIP39_LONG_SHARE_WORDS;
+
+    case WORDLIST_PASSPHRASE:
+        return nwords <= WORDLIST_ENTRY_MAXWORDS;
+
+    default:
+        return is_valid_mnemonic_length(nwords);
+    }
+}
+
+static void enable_relevant_chars(const wordlist_purpose_t purpose, const char* word, const size_t word_len,
     const size_t* filter_word_list, const size_t filter_word_list_size, gui_activity_t* act, gui_view_node_t* backspace,
     gui_view_node_t* enter, gui_view_node_t** btns, const size_t btns_len)
 {
@@ -927,9 +985,9 @@ static void enable_relevant_chars(const bool is_mnemonic, const char* word, cons
 
     JADE_LOGD("word = %s, word_len = %zu", word, word_len);
 
-    // Enable enter if a) not entering a mnemonic, and b) not part-way through entering a word
+    // Enable enter if a) the word count is not fixed, and b) not part-way through entering a word
     // Enable backspace in all cases.
-    gui_set_active(enter, !is_mnemonic && !word_len);
+    gui_set_active(enter, !wordlist_exact_count(purpose) && !word_len);
     gui_set_active(backspace, true);
 
     // TODO: are there any invalid characters to start the word?
@@ -939,15 +997,13 @@ static void enable_relevant_chars(const bool is_mnemonic, const char* word, cons
     uint8_t num_enabled = 0;
 
     // If an 'filter_word_list' is passed, we iterate that and use the entries as a lookup
-    // into the bip39 wordlist - if not passed we iterate the entire bip39 wordlist directly.
-    const size_t limit = filter_word_list ? filter_word_list_size : BIP39_WORDLIST_LEN;
+    // into the wordlist - if not passed we iterate the entire wordlist directly.
+    const size_t limit = filter_word_list ? filter_word_list_size : wordlist_len(purpose);
     for (size_t index = 0; index < limit; ++index) {
         const size_t wordlist_index = filter_word_list ? filter_word_list[index] : index;
-        JADE_ASSERT(wordlist_index < BIP39_WORDLIST_LEN);
 
         // TODO: check strlen(wordlist_extracted)
-        const char* wordlist_extracted = bip39_get_word_by_index(NULL, wordlist_index);
-        JADE_ASSERT(wordlist_extracted);
+        const char* wordlist_extracted = wordlist_word(purpose, wordlist_index);
 
         // If we have the first letter(s) typed, we can a) skip all preceding words
         // and also b) exit once we have passed beyond the relevant words.
@@ -991,9 +1047,9 @@ static void enable_relevant_chars(const bool is_mnemonic, const char* word, cons
     gui_activity_set_active_selection(act, btns, btns_len, enabled, selected);
 }
 
-// NOTE: only the English wordlist is supported.
-static size_t valid_words(const char* word, const size_t word_len, const size_t* filter_word_list,
-    const size_t filter_word_list_size, size_t* output_word_list, const size_t output_word_list_len, bool* exact_match)
+static size_t valid_words(const wordlist_purpose_t purpose, const char* word, const size_t word_len,
+    const size_t* filter_word_list, const size_t filter_word_list_size, size_t* output_word_list,
+    const size_t output_word_list_len, bool* exact_match)
 {
     // word_len may be zero if no word entered as yet
     // input_wordlist is optional
@@ -1008,20 +1064,18 @@ static size_t valid_words(const char* word, const size_t word_len, const size_t*
         for (size_t i = 0; i < output_word_list_len; ++i) {
             output_word_list[i] = i;
         }
-        return BIP39_WORDLIST_LEN;
+        return wordlist_len(purpose);
     }
 
     // Otherwise we need to check the word prefixes match
     // If an 'filter_word_list' is passed, we iterate that and use the entries as a lookup
-    // into the bip39 wordlist - if not passed we iterate the entire bip39 wordlist directly.
-    const size_t limit = filter_word_list ? filter_word_list_size : BIP39_WORDLIST_LEN;
+    // into the wordlist - if not passed we iterate the entire wordlist directly.
+    const size_t limit = filter_word_list ? filter_word_list_size : wordlist_len(purpose);
     for (size_t index = 0; index < limit; ++index) {
         const size_t wordlist_index = filter_word_list ? filter_word_list[index] : index;
-        JADE_ASSERT(wordlist_index < BIP39_WORDLIST_LEN);
 
         // TODO: check strlen(wordlist_extracted)
-        const char* wordlist_extracted = bip39_get_word_by_index(NULL, wordlist_index);
-        JADE_ASSERT(wordlist_extracted);
+        const char* wordlist_extracted = wordlist_word(purpose, wordlist_index);
 
         // Test if passed 'word' is a valid prefix of the wordlist word
         const int32_t res = strncmp(wordlist_extracted, word, word_len);
@@ -1133,7 +1187,7 @@ static size_t calculate_valid_final_words(
 static void write_wordlist_words(
     const char* wordlist_words[], const size_t nwords, char* output, const size_t output_len)
 {
-    JADE_ASSERT(wordlist_words && nwords <= MNEMONIC_MAXWORDS);
+    JADE_ASSERT(wordlist_words && nwords <= WORDLIST_ENTRY_MAXWORDS);
     JADE_ASSERT(output && output_len >= mnemonic_buffer_size(nwords));
 
     output[0] = '\0';
@@ -1182,11 +1236,11 @@ static void make_word_entry_ui(word_entry_ui_t* ui, const bool show_enter_btn, c
     gui_activity_set_escape(ui->choose_word_activity, false);
 }
 
-static wordlist_word_result_t select_wordlist_word(const bool is_mnemonic, const size_t word_index,
+static wordlist_word_result_t select_wordlist_word(const wordlist_purpose_t purpose, const size_t word_index,
     const char* wordlist_words[], const size_t* p_filter_words, const size_t num_filter_words,
     const bool random_first_selection_word, word_entry_ui_t* ui, const char** selected_word)
 {
-    JADE_ASSERT(word_index < MNEMONIC_MAXWORDS && wordlist_words);
+    JADE_ASSERT(word_index < WORDLIST_ENTRY_MAXWORDS && wordlist_words);
     JADE_ASSERT(!p_filter_words == !num_filter_words); // p_filter_words and num_filter_words are optional
     JADE_ASSERT(ui && ui->enter_word_activity && ui->textbox && ui->backspace && ui->enter && ui->choose_word_activity
         && ui->label && ui->text_selection);
@@ -1204,8 +1258,8 @@ static wordlist_word_result_t select_wordlist_word(const bool is_mnemonic, const
 
         size_t possible_word_list[NUM_WORDS_SELECT];
         bool exact_match = false; // not interested in any case
-        const size_t possible_words = valid_words(
-            word, char_index, p_filter_words, num_filter_words, possible_word_list, NUM_WORDS_SELECT, &exact_match);
+        const size_t possible_words = valid_words(purpose, word, char_index, p_filter_words, num_filter_words,
+            possible_word_list, NUM_WORDS_SELECT, &exact_match);
         JADE_ASSERT(possible_words > 0);
 
         bool selected_backspace = false;
@@ -1228,8 +1282,7 @@ static wordlist_word_result_t select_wordlist_word(const bool is_mnemonic, const
                     gui_update_text(ui->text_selection, "|");
                 } else {
                     // word from wordlist
-                    wordlist_extracted = bip39_get_word_by_index(NULL, possible_word_list[selected]);
-                    JADE_ASSERT(wordlist_extracted);
+                    wordlist_extracted = wordlist_word(purpose, possible_word_list[selected]);
                     gui_set_text_font(ui->text_selection, GUI_DEFAULT_FONT);
                     gui_update_text(ui->text_selection, wordlist_extracted);
                 }
@@ -1275,8 +1328,8 @@ static wordlist_word_result_t select_wordlist_word(const bool is_mnemonic, const
             // 'Large' number of words for any typed stem - use keyboard screen to further restrict words
 
             // Update the typed word and ensure activity set as current
-            if (is_mnemonic) {
-                // For a mnemonic, show only the current word
+            if (wordlist_exact_count(purpose)) {
+                // For a counted phrase, show only the current word
                 gui_update_text(ui->textbox, word);
             } else {
                 // Otherwise show last 3 words
@@ -1309,8 +1362,8 @@ static wordlist_word_result_t select_wordlist_word(const bool is_mnemonic, const
             gui_set_current_activity(ui->enter_word_activity);
 
             // Update which letters are active/available
-            enable_relevant_chars(is_mnemonic, word, char_index, p_filter_words, num_filter_words,
-                ui->enter_word_activity, ui->backspace, ui->enter, ui->keys, WORD_ENTRY_KEYS_LEN);
+            enable_relevant_chars(purpose, word, char_index, p_filter_words, num_filter_words, ui->enter_word_activity,
+                ui->backspace, ui->enter, ui->keys, WORD_ENTRY_KEYS_LEN);
 
             int32_t ev_id = GUI_BUTTON_EVENT_NONE;
             gui_activity_wait_event(ui->enter_word_activity, GUI_BUTTON_EVENT, ESP_EVENT_ANY_ID, NULL, &ev_id, NULL, 0);
@@ -1390,14 +1443,14 @@ static size_t get_wordlist_words(
     const wordlist_purpose_t purpose, const size_t nwords, char* output, const size_t output_len)
 {
     // 'title' is optional (and will default if not provided)
-    JADE_ASSERT(nwords <= MNEMONIC_MAXWORDS);
+    JADE_STATIC_ASSERT(WORDLIST_ENTRY_MAXWORDS >= MNEMONIC_MAXWORDS);
+    JADE_STATIC_ASSERT(WORDLIST_ENTRY_MAXWORDS >= SLIP39_LONG_SHARE_WORDS);
+    JADE_ASSERT(nwords <= WORDLIST_ENTRY_MAXWORDS);
     JADE_ASSERT(output && output_len >= mnemonic_buffer_size(nwords)); // words plus trailing space
+    JADE_ASSERT(is_valid_wordlist_length(purpose, nwords));
 
-    // Only 12 and 24 word mnemonics are supported
-    const bool is_mnemonic = (purpose == MNEMONIC_SIMPLE) || (purpose == MNEMONIC_ADVANCED);
-    JADE_ASSERT(is_valid_mnemonic_length(nwords) || !is_mnemonic);
-
-    const bool show_enter_btn = !is_mnemonic; // Don't show 'done' button when entering mnemonic words
+    // Don't show 'done' button when the number of words is fixed
+    const bool show_enter_btn = !wordlist_exact_count(purpose);
     const char* select_word_title = purpose == WORDLIST_PASSPHRASE ? "Enter Passphrase" : "Recover Wallet";
     word_entry_ui_t ui = { 0 };
     make_word_entry_ui(&ui, show_enter_btn, select_word_title);
@@ -1409,7 +1462,7 @@ static size_t get_wordlist_words(
     }
 
     // For each word
-    const char* wordlist_words[MNEMONIC_MAXWORDS] = { 0 };
+    const char* wordlist_words[WORDLIST_ENTRY_MAXWORDS] = { 0 };
     SENSITIVE_PUSH(wordlist_words, sizeof(wordlist_words));
     size_t word_index = 0;
     bool done_entering_words = false;
@@ -1443,8 +1496,8 @@ static size_t get_wordlist_words(
             }
         }
 
-        // Reset default title for next word when entering mnemonic phrase
-        if (is_mnemonic) {
+        // Reset default title for next word when the words are counted off
+        if (wordlist_exact_count(purpose)) {
             char enter_word_title[16];
             const int ret = snprintf(enter_word_title, sizeof(enter_word_title), "Insert word %zu", word_index + 1);
             JADE_ASSERT(ret > 0 && ret < sizeof(enter_word_title));
@@ -1452,7 +1505,7 @@ static size_t get_wordlist_words(
         }
 
         const char* wordlist_extracted = NULL;
-        const wordlist_word_result_t word_rslt = select_wordlist_word(is_mnemonic, word_index, wordlist_words,
+        const wordlist_word_result_t word_rslt = select_wordlist_word(purpose, word_index, wordlist_words,
             p_filter_words, num_filter_words, random_first_selection_word, &ui, &wordlist_extracted);
 
         switch (word_rslt) {
@@ -1479,11 +1532,11 @@ static size_t get_wordlist_words(
                 wordlist_words[word_index] = NULL;
             } else {
                 // Backspace at start of first word -
-                // - if entering a mnemonic, abandon mnemonic entry back to previous screen
-                // - if not entering a mnemonic, ignore this button at this time - user can
+                // - if the words are counted off, abandon the entry back to the previous screen
+                // - if not, ignore this button at this time - user can
                 //   use 'enter' button to select empty string / no words.
                 JADE_ASSERT(!wordlist_words[word_index]);
-                if (is_mnemonic) {
+                if (wordlist_exact_count(purpose)) {
                     SENSITIVE_POP(final_words);
                     SENSITIVE_POP(wordlist_words);
                     return 0; // no words entered
@@ -1495,9 +1548,9 @@ static size_t get_wordlist_words(
         SENSITIVE_POP(final_words);
     } // cycle on words
 
-    // If entering mnemonic should have 'nwords' word indices in 'wordlist_words'
+    // A counted entry should have 'nwords' word indices in 'wordlist_words'
     const size_t words_entered = word_index;
-    JADE_ASSERT(words_entered == nwords || !is_mnemonic);
+    JADE_ASSERT(words_entered == nwords || !wordlist_exact_count(purpose));
 
     // Convert array of wally wordlist strings to a single string
     write_wordlist_words(wordlist_words, words_entered, output, output_len);
@@ -1827,10 +1880,12 @@ static bool expand_words(const uint8_t* bytes, const size_t bytes_len, char* buf
         }
         JADE_ASSERT(end_ptr <= (const char*)bytes + bytes_len);
 
-        // Lookup prefix in the default (English) wordlist, ensuring exactly one match
+        // Lookup prefix in the default (English) wordlist, ensuring exactly one match.  This
+        // expands a BIP39 phrase read from a QR, so it names that wordlist rather than taking one.
         size_t possible_match = 0;
         bool exact_match = false;
-        const size_t nmatches = valid_words(read_ptr, (end_ptr - read_ptr), NULL, 0, &possible_match, 1, &exact_match);
+        const size_t nmatches
+            = valid_words(MNEMONIC_SIMPLE, read_ptr, (end_ptr - read_ptr), NULL, 0, &possible_match, 1, &exact_match);
         if (nmatches != 1 && !exact_match) {
             JADE_LOGW("%d matches for prefix: %.*s", nmatches, (end_ptr - read_ptr), read_ptr);
             return false;
@@ -2125,6 +2180,270 @@ void get_passphrase(char* passphrase, const size_t passphrase_len)
     }
 
     enter_passphrase(passphrase, passphrase_len);
+}
+
+#ifdef CONFIG_HAS_CAMERA
+// BBB-AIRGAP: the qr-scanner's validity callback for a SLIP-0039 share.  It parses, and that is
+// all it does: whether a share belongs with the ones already collected is slip39_add_share()'s
+// answer and needs the collection, which holds share values and so stays with restore_slip39().
+static bool validate_slip39_share(qr_data_t* qr_data)
+{
+    JADE_ASSERT(qr_data && qr_data->len < sizeof(qr_data->data) && qr_data->data[qr_data->len] == '\0');
+
+    slip39_share_t share;
+    SENSITIVE_PUSH(&share, sizeof(share));
+    const slip39_err_t rc
+        = qr_data->len ? slip39_parse_share((const char*)qr_data->data, qr_data->len, &share) : SLIP39_ERR_LENGTH;
+    SENSITIVE_POP(&share);
+
+    if (rc != SLIP39_OK) {
+        // Same shape as import_and_validate_mnemonic(): say what was wrong with the code that was
+        // scanned and let the scanner carry on, rather than ending the scan on a bad code.
+        await_error(slip39_error_message(rc));
+        qr_data->len = 0;
+        return false;
+    }
+    return true;
+}
+
+// BBB-AIRGAP: scan one SLIP-0039 share.  mnemonic_qr() cannot be reused: its callback is fixed to
+// bip39 validation, and its buffer is MNEMONIC_BUFLEN, which a 33 word share does not fit.
+//
+// The share text never leaves this function.  The callback above has already parsed it once, so
+// parsing it again here is what carries the result out - the caller gets the decoded share and no
+// buffer of words to size, and the scanned text stays in the scanner's own payload buffer.  The
+// second parse cannot disagree with the first: same bytes, same function, no state between them.
+static bool slip39_share_qr(slip39_share_t* share)
+{
+    JADE_ASSERT(share);
+
+    qr_data_t qr_data = { .len = 0, .is_valid = validate_slip39_share };
+    SENSITIVE_PUSH(&qr_data, sizeof(qr_data));
+
+    bool scanned = jade_camera_scan_qr(&qr_data, "SLIP39 Share", QR_GUIDE_SHOW, NULL) && qr_data.len > 0;
+    if (!scanned) {
+        JADE_LOGW("No qr code scanned");
+        goto cleanup;
+    }
+
+    const slip39_err_t rc = slip39_parse_share((const char*)qr_data.data, qr_data.len, share);
+    JADE_ASSERT(rc == SLIP39_OK);
+
+cleanup:
+    SENSITIVE_POP(&qr_data);
+    return scanned;
+}
+#endif // CONFIG_HAS_CAMERA
+
+// BBB-AIRGAP: ask how long the shares of this backup are.  SLIP-0039 does not let the user choose
+// this - the length follows the master secret's size, and one share tells you - so the question is
+// asked once, only while the set is still empty, and every share after the first is taken at the
+// length the first one established.  A share that arrives by QR answers it without being asked.
+static size_t await_slip39_share_nwords(void)
+{
+    gui_activity_t* const act = make_slip39_share_words_activity();
+    gui_set_current_activity(act);
+
+    while (true) {
+        // KEY3 leaves this screen; see gui_escape_request() in main/gui.h.
+        if (gui_escape_pending()) {
+            return 0;
+        }
+
+        const int32_t ev_id = gui_activity_wait_button(act, BTN_EVENT_TIMEOUT);
+        if (ev_id == BTN_SLIP39_SHARE_20) {
+            return SLIP39_SHORT_SHARE_WORDS;
+        } else if (ev_id == BTN_SLIP39_SHARE_33) {
+            return SLIP39_LONG_SHARE_WORDS;
+        } else if (ev_id == BTN_RESTORE_MNEMONIC_SPLIT) {
+            // 'back' in the title bar of that screen
+            return 0;
+        }
+    }
+}
+
+// BBB-AIRGAP: type one SLIP-0039 share.  This is the format's primary form - a SLIP-0039 backup is
+// words on paper, and no standard puts them in a QR - so the words path is the one the entry-method
+// screen selects first.
+static bool slip39_share_words(const size_t nwords, slip39_share_t* share)
+{
+    JADE_ASSERT(nwords == SLIP39_SHORT_SHARE_WORDS || nwords == SLIP39_LONG_SHARE_WORDS);
+    JADE_ASSERT(share);
+
+    bool entered = false;
+    char words[WORDLIST_ENTRY_BUFLEN];
+    SENSITIVE_PUSH(words, sizeof(words));
+
+    while (!entered) {
+        const size_t written = get_wordlist_words(MNEMONIC_SLIP39_SHARE, nwords, words, sizeof(words));
+        if (!written) {
+            // Backspaced off the first word, which abandons the share as leaving the scanner does.
+            break;
+        }
+        JADE_ASSERT(written == nwords);
+
+        // Every word came from the wordlist and the count is the caller's, so the only thing left
+        // for the parse to refuse is the checksum - and no single word can be blamed for that, so
+        // the share is typed again rather than corrected.  Same shape as the scanner, which stays
+        // open on a code it could not parse.
+        const slip39_err_t rc = slip39_parse_share(words, strlen(words), share);
+        if (rc != SLIP39_OK) {
+            await_error(slip39_error_message(rc));
+            continue;
+        }
+        entered = true;
+    }
+
+    SENSITIVE_POP(words);
+    return entered;
+}
+
+// BBB-AIRGAP: the tail of a SLIP-0039 recovery - passphrase, decryption, wallet.  This is the C2
+// design note's section 7 table in code: the steps initialise_with_mnemonic() runs once it has a
+// recovery phrase, kept or dropped one by one, because what a SLIP-0039 backup yields is a master
+// secret and not a phrase.  Dropped here: bip39 validation (no phrase to validate), the SeedQR
+// export offer (no entropy to draw) and keychain_cache_mnemonic_entropy() (same reason - a
+// persisted SLIP-0039 wallet is stored as the serialised keychain instead, which is the branch
+// keychain_store() has always had and nothing but selfcheck has ever taken).
+static bool slip39_load_wallet(const slip39_ctx_t* ctx, const bool temporary_restore, const bool advanced_mode)
+{
+    JADE_ASSERT(ctx);
+    JADE_ASSERT(slip39_is_complete(ctx));
+
+    bool loaded = false;
+    keychain_t keydata = { 0 };
+    uint8_t master_secret[SLIP39_MASTER_SECRET_MAX];
+    char passphrase[PASSPHRASE_MAX_LEN + 1]; // max chars plus '\0'
+    SENSITIVE_PUSH(&keydata, sizeof(keydata));
+    SENSITIVE_PUSH(master_secret, sizeof(master_secret));
+    SENSITIVE_PUSH(passphrase, sizeof(passphrase));
+    passphrase[0] = '\0';
+
+    // In SLIP-0039 the passphrase is part of decryption rather than a second wallet made from the
+    // same words, so it is asked every time - and asked here rather than through get_passphrase(),
+    // which returns the empty phrase WITHOUT asking when the 'BIP39 Passphrase' setting is set to
+    // never.  On such a device that helper would decrypt the shares with the empty phrase without
+    // a word to the user, opening a DIFFERENT wallet than the passphrase-protected backup in
+    // their hand.  The setting belongs to BIP39 (it is titled that on its own screen), so it is
+    // not read here; the question it guards is asked unconditionally instead, in the same words
+    // and with the same buttons.  C2 design note section 4.2.
+    const char* question[] = { "Enter a passphrase?" };
+    if (await_choice_activity("Passphrase", question, 1, "Enter", "Skip", false, NULL)) {
+        enter_passphrase(passphrase, sizeof(passphrase));
+    }
+
+    // 'Skip' and a KEY3 escape both come back from that question as false, and only the flag
+    // separates them: Skip goes on with the empty passphrase, the escape leaves.
+    if (gui_escape_pending()) {
+        goto cleanup;
+    }
+
+    display_processing_message_activity();
+    const slip39_err_t rc = slip39_combine(ctx, passphrase, master_secret, ctx->value_len);
+    if (rc != SLIP39_OK) {
+        await_error(slip39_error_message(rc));
+        goto cleanup;
+    }
+
+    // A wrong passphrase is not one of the errors above and cannot be: the digest is checked
+    // before the passphrase is applied, so a wrong one yields a different master secret rather
+    // than a failure.  The fingerprint on the session screen is the user's only check of that,
+    // which is the format's own shape rather than a gap here.  C2 design note section 4.2.
+    keychain_derive_from_seed(master_secret, ctx->value_len, &keydata);
+
+    // The two settings every other restore method also applies (see derive_keychain()): the
+    // blinding-key question follows the mode this wallet was set up in, and the network-type
+    // restriction is device policy that a newly loaded single wallet clears.
+    keychain_set_confirm_export_blinding_key(advanced_mode);
+    keychain_set(&keydata, SOURCE_NONE, temporary_restore);
+    keychain_clear_network_type_restriction();
+    loaded = true;
+
+cleanup:
+    SENSITIVE_POP(passphrase);
+    SENSITIVE_POP(master_secret);
+    SENSITIVE_POP(&keydata);
+    return loaded;
+}
+
+// BBB-AIRGAP: take one share the way the caller chose.  Each arm exists only where its screens do:
+// the scanner is compiled in with the camera, and without one 'scan_shares' cannot be true because
+// the entry-method screen that sets it is not offered.
+static bool slip39_take_share(const bool scan_shares, const size_t nwords, slip39_share_t* share)
+{
+#ifdef CONFIG_HAS_CAMERA
+    if (scan_shares) {
+        return slip39_share_qr(share);
+    }
+#else
+    JADE_ASSERT(!scan_shares);
+#endif
+    return slip39_share_words(nwords, share);
+}
+
+// BBB-AIRGAP: collect SLIP-0039 shares until they make a wallet.  A 'true' return means a wallet
+// is loaded and the caller is done - unlike every other restore method, this one does not hand a
+// recovery phrase back to the flow, because a SLIP-0039 backup does not contain one.
+//
+// Every share of one backup arrives the same way, so the method is the caller's and is asked once.
+static bool restore_slip39(const bool scan_shares, const bool temporary_restore, const bool advanced_mode)
+{
+    slip39_ctx_t ctx;
+    SENSITIVE_PUSH(&ctx, sizeof(ctx));
+    slip39_init(&ctx);
+
+    slip39_share_t share;
+    SENSITIVE_PUSH(&share, sizeof(share));
+
+    size_t num_shares = 0;
+    size_t nwords = 0; // the length the first typed share sets, and the rest are taken at
+    while (!slip39_is_complete(&ctx)) {
+        if (!scan_shares && !nwords && !(nwords = await_slip39_share_nwords())) {
+            // Left the word-count screen
+            break;
+        }
+
+        if (!slip39_take_share(scan_shares, nwords, &share)) {
+            // Abandoned the scanner or the entry; the shares collected so far go with it
+            break;
+        }
+
+        const slip39_err_t rc = slip39_add_share(&ctx, &share);
+        if (rc != SLIP39_OK) {
+            // A refused share does not discard the set: mistyping the third share of five must
+            // not cost the two already entered.  The next one simply replaces this one.
+            await_error(slip39_error_message(rc));
+            continue;
+        }
+        ++num_shares;
+
+        if (slip39_is_complete(&ctx)) {
+            break;
+        }
+
+        // How many shares are still needed is deliberately not shown.  The group threshold is
+        // known from the first share, but the member threshold of a group no share has arrived
+        // from yet is not, so any 'n more' this screen printed would be a guess.  What has been
+        // entered is not a guess.
+        char counted[24];
+        const int counted_len = snprintf(counted, sizeof(counted), "Shares entered: %u", (unsigned)num_shares);
+        JADE_ASSERT(counted_len > 0 && (size_t)counted_len < sizeof(counted));
+        const char* message[] = { counted, "Enter the next share" };
+
+        // 'Cancel' and a KEY3 escape both come back as false here, and they mean the same thing -
+        // there is no 'Done' to tell apart, because a set of shares is finished by being complete
+        // rather than by the user saying so.
+        if (!await_choice_activity("SLIP39", message, 2, "Add Share", "Cancel", true, NULL)) {
+            break;
+        }
+    }
+
+    const bool loaded = slip39_is_complete(&ctx) && slip39_load_wallet(&ctx, temporary_restore, advanced_mode);
+
+    SENSITIVE_POP(&share);
+    slip39_clear(&ctx);
+    SENSITIVE_POP(&ctx);
+    return loaded;
 }
 
 // BBB-AIRGAP: the wallet already held is made the one in use.  Scanning its QR says which wallet
@@ -2530,12 +2849,41 @@ void initialise_with_mnemonic(const bool temporary_restore, const bool force_qr_
                 qr_scanned = got_mnemonic;
                 break;
 
+            // BBB-AIRGAP: the schemes that rebuild a wallet from several pieces of paper share a
+            // submenu; the Restore Wallet menu is full at four rows.
+            case BTN_RESTORE_MNEMONIC_SPLIT:
+                act = make_restore_split_activity();
+                continue;
+
             // BBB-AIRGAP: Seed XOR parts combine into an ordinary recovery phrase, so the result
             // rejoins the flow here rather than branching around it: the validation below, the
             // passphrase question, the SeedQR export offer and the choice between a temporary and
             // a persistent wallet are all the ones every other restore method gets.
             case BTN_RESTORE_MNEMONIC_SEEDXOR:
                 got_mnemonic = mnemonic_seedxor(advanced_mode, mnemonic, sizeof(mnemonic));
+                break;
+
+            // BBB-AIRGAP: SLIP-0039 is the one restore method that does NOT rejoin the flow: what
+            // its shares make is a master secret, not a recovery phrase, so it loads the wallet
+            // itself and leaves.  Everything below this loop - the bip39 validation, the SeedQR
+            // export offer, derive_keychain() and the cached entropy - works on a phrase there
+            // isn't one of.  See the C2 design note section 7 for which of those steps this
+            // method keeps and where it keeps them.
+            //
+            // Which way the shares arrive is asked first where there is a camera to ask about.
+            case BTN_RESTORE_MNEMONIC_SLIP39:
+#ifdef CONFIG_HAS_CAMERA
+                act = make_slip39_method_activity();
+                continue;
+
+            case BTN_SLIP39_QR:
+            case BTN_SLIP39_WORDS:
+#endif
+                if (restore_slip39(ev_id == BTN_SLIP39_QR, temporary_restore, advanced_mode)) {
+                    // Wallet loaded; nothing below this loop applies
+                    goto cleanup;
+                }
+                // Abandoned - the submenu is still the current activity
                 break;
             default:
                 // Unknown event, ignore

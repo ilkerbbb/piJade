@@ -2261,7 +2261,11 @@ static bool handle_bip85_bip39_request_qr(const uint8_t* cbor, const size_t cbor
     if (errcode) {
         if (errcode != CBOR_RPC_USER_CANCELLED) {
             JADE_LOGE("Error generating encrypted bip85 entropy: %s", errmsg);
-            await_error_2("Error generating entropy", errmsg);
+            // BBB-AIRGAP: the upstream wording is 248 px wide and the first row of a multi-line
+            // dialog is cut at 236 px, so the tail was lost on screen rather than wrapped.  The
+            // second row still is: every errmsg this call can carry measures 313-515 px, and the
+            // same string is the RPC reject text, so shortening it would blind the host.
+            await_error_2("Could not get entropy", errmsg);
         }
         // An error occurred, or the user cancelled the action
         SENSITIVE_POP(reply_cbor);
@@ -2374,7 +2378,7 @@ static gui_activity_t* make_mining_activity(const char* title, const uint64_t re
     gui_set_parent(vsplit, parent);
 
     // BBB-AIRGAP: a fill behind the text, or gui_update_text() has no background to repaint and
-    // successive rates pile up (main/ui/mnemonic.c:535-541 lesson).
+    // successive rates pile up (main/ui/mnemonic.c:589-595 lesson).
     gui_view_node_t* fill;
     gui_make_fill(&fill, TFT_BLACK, FILL_PLAIN, vsplit);
 
@@ -2771,7 +2775,10 @@ static bool handle_epoch_qr(const uint8_t* cbor, const size_t cbor_len)
     if (errcode) {
         if (errcode != CBOR_RPC_USER_CANCELLED) {
             JADE_LOGE("Error setting epoch time: %s", errmsg);
-            await_error_2("Error setting epoch time", errmsg);
+            // BBB-AIRGAP: shortened for the same 236 px row limit as the entropy error above,
+            // whose second row is unfixed here too: params_set_epoch_time() can hand over
+            // "Failed to extract valid epoch value from parameters", 514 px.
+            await_error_2("Failed to set time", errmsg);
         }
         return false;
     }

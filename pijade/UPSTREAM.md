@@ -604,7 +604,7 @@ Measured on 2026-08-27 in the 24-word Standard flow: a bounding box of 203x203 p
 ## 20. Running the device's own verification branch in the emulator
 
 The last step of the export flow reads the QR the user drew back through the camera and compares it
-(`main/process/mnemonic.c:315-319`). To run that in the emulator, the QR on the device's OWN screen
+(`main/process/mnemonic.c:333-337`). To run that in the emulator, the QR on the device's OWN screen
 is fed back to its camera:
 
 ```bash
@@ -981,7 +981,7 @@ is 0. An error response, a missing response, a wrong epoch, an extra call or clo
 
 ## 25. Generating a `jade-epoch` QR and scanning it in the emulator
 
-Jade takes the epoch by QR as a `ur:jade-epoch` type (`main/qrmode.c:2867`); the body is directly the
+Jade takes the epoch by QR as a `ur:jade-epoch` type (`main/qrmode.c:2874`); the body is directly the
 CBOR map `{"id":"1","method":"set_epoch","params":{"epoch":N}}` (`handle_epoch_qr`,
 `bcur_parse_jade_message`, `params_set_epoch_time`). The generator is `pijade/tools/epoch_qr.py`
 (cbor2==6.1.2 and qrcode, in a virtualenv of your own). For a TOTP comparison it is generated immediately

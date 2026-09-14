@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """BBB-AIRGAP: emulator measurement of the Seed XOR combine path (2026-09-13).
 
-Drives Options > Temporary Signer > Restore Wallet > SeedXOR through the word keyboard
-and checks the wallet the parts make.  The screen between parts shows the final word of
+Drives Options > Temporary Signer > Restore Wallet > Split Backup > SeedXOR through the
+word keyboard and checks the wallet the parts make.  The screen between parts shows the final word of
 the combined phrase, which is a seed word; no seed
 word is written to a log, a file or a terminal here.  Words reach the device only as
 keyboard positions computed from the bip39 wordlist, and the result leaves the device
@@ -209,10 +209,13 @@ def main():
     expected = reference_home(ref, expected_phrase)
 
     j = jadectl.Jade(ui_socket)
-    # Options > Temporary Signer > 'log in with a recovery phrase?' > Restore Wallet.
+    # Options > Temporary Signer > 'log in with a recovery phrase?' > Restore Wallet > Split
+    # Backup > SeedXOR.  The submenu is where SeedXOR moved when SLIP-0039 joined it; the row
+    # in Restore Wallet is 'Split Backup' now, and SeedXOR is that submenu's first entry.
     for event, note in (('right', 'dashboard: Scan QR'), ('right', 'dashboard: Options'),
                         ('click', 'Options menu'), ('click', 'Temporary Signer'),
-                        ('click', 'temporary login question'), ('down', 'Restore Wallet: SeedXOR row'),
+                        ('click', 'temporary login question'),
+                        ('down', 'Restore Wallet: Split Backup row'), ('click', 'Split Backup'),
                         ('click', 'SeedXOR'), ('click', 'Recovery Phrase: 12 words')):
         press(j, event, note)
 
