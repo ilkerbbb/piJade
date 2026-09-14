@@ -1222,6 +1222,50 @@ card file and the field lives in NVS. If an old six-byte NVS record is encounter
 the duress PIN reads as "not set"; there is no crash path. Since piJade produces no ESP32 image
 this behaviour was not measured, only read from the code.
 
+### 3.6 One action beside a configurable set (recorded 2026-09-14)
+
+A comparison round against the other open signers left one open record on this path: Coldcard
+offers a configurable set of duress actions where this fork offers exactly one. Nothing below is a
+proposal. The behaviour of the duress path does not change, by decision; what follows is the record
+of what the configurable set contains, what this fork has, and what the difference rests on.
+
+**The configurable set, measured.** Coldcard keeps up to 14 trick PIN slots
+(`shared/trick_pins.py:18`) and gives each slot a flag word (`shared/trick_pins.py:29-39`):
+`TC_WIPE`, `TC_BRICK`, `TC_FAKE_OUT`, `TC_WORD_WALLET`, `TC_XPRV_WALLET`, `TC_DELTA_MODE`,
+`TC_REBOOT`, `TC_FW_DEFINED`, and two the firmware handles rather than the boot ROM,
+`TC_BLANK_WALLET` and `TC_COUNTDOWN`. The menu turns those into nine top level entries
+(`shared/trick_pins.py:629-652`): brick the device, wipe the seed, go to a duress wallet, fake a
+login countdown, look freshly wiped, just reboot, delta mode (log into the real seed but sign
+incorrectly), and two spending-policy unlock variants. Wipe opens four variants of its own
+(`shared/trick_pins.py:607-616`, among them a silent wipe that then acts as if the PIN had simply
+been wrong), the duress wallet opens four more (`shared/trick_pins.py:600-606`, three of them
+BIP-85 derived decoy wallets), and the countdown three (`shared/trick_pins.py:620-628`). A separate
+trigger, fired after N wrong attempts rather than by a PIN of its own, carries six more
+(`shared/trick_pins.py:658-695`).
+
+**What this fork has.** One slot, one action. `check_wallet_erase_pin()`
+(`main/process/auth_user.c:32-54`) erases the encrypted keys, sets the passphrase frequency to
+`PASSPHRASE_NEVER`, persists the key flags, rejects the message with `CBOR_RPC_INTERNAL_ERROR`,
+shows "Internal Error!" and calls `power_shutdown()`. That is upstream Jade's action set taken as
+it stands, not a set this fork narrowed: the same sequence is at
+`fdb67a3f:main/process/auth_user.c:32-50`. Phase 3 changed where the PIN is kept and left what it
+does untouched (3.5).
+
+**What the difference rests on.** Coldcard's set is a property of its hardware. The trick PIN slots
+live in SE2, its second secure element (Coldcard's `docs/secure-elements.md:98`), and the boot ROM
+tests them before the true PIN ever reaches SE1 (Coldcard's `docs/security-model.md:57-61`); a
+decoy wallet's seed sits in those same protected pages. This device has neither a secure element
+nor a boot ROM of its own. The duress record is a field in the settings file on the SD card, beside
+the encrypted wallet blob it would erase, and six digits are about 20 bits (the point made at the
+head of phase 3). A brick action would be a flag on a card that can be rewritten; a decoy wallet
+would be a second seed stored next to the first; a faked wrong PIN would be a branch the attacker
+reads in the same file. Each of those actions carries a guarantee on Coldcard that comes from parts
+this device does not have, so copying the menu would copy the appearance and not the guarantee.
+
+**Status.** Record only. No code changed, so no emulator round applies. The silent-retry variant of
+this path was answered separately and stays out, by decision, as does any change to the screen text
+or the shutdown.
+
 ## Phase 5 ; improvements that go beyond the reference (2026-09-04)
 
 Four of the phase's five items are code (5.1, 5.3, 5.4, 5.5) and one is documentation (5.2). The
