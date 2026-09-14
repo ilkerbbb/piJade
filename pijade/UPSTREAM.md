@@ -84,7 +84,7 @@ All work happens on `bbb-airgap`.
 | `main/process/debug_set_network.c` | +76 / -0 | **New file** | The debug counterpart of the `Settings > Network` screen, making the same two `keychain` calls it makes, so the test suite can register records on both bitcoin networks in one run and the emulator still behaves the way the device does. The production image is built with `-DDEBUG_MODE=0`, so none of it is compiled in; section 28 |
 | `main/process/sign_message.c` | +73 / -8 | Upstream file | feat(ui): add a Sign Message entry to the wallet menu |
 | `main/descriptor.c` | +70 / -40 | Upstream file | descriptor: record v1, body sealed with AES; the same-record check happens in the clear |
-| `libjade/esp_camera.c` | +67 / -4 | Emulator layer | A separate frame copy for the consumer; `libjade_camera_active()`; on a camera-less build with no frames, `await_error("No camera detected")` (only while `show_ui`; in a camera-less libjade `main/camera.c` drops out of the amalgamation, so this stub is the function's only real implementation, `main/amalgamated.c:34`) |
+| `libjade/esp_camera.c` | +67 / -4 | Emulator layer | A separate frame copy for the consumer; `libjade_camera_active()`; on a camera-less build with no frames, `await_error("No camera detected")` (only while `show_ui`; in a camera-less libjade `main/camera.c` drops out of the amalgamation, so this stub is the function's only real implementation, `main/amalgamated.c:35-37`) |
 | `libjade/pijade_settings.h` | +64 / -0 | **New file** | Same; the internal prototypes for a normal change and for erasing every copy live here |
 | `libjade/daemon.c` | +62 / -1 | Emulator layer | feat(emulator): add --settings to the daemon and measure the failed-erase branch; T8: the device clock handler (libjade_set_clock_handler) and the ARMv6 time64 build |
 | `libjade/CMakeLists.txt` | +60 / -5 | Emulator layer | `DEBUG_MODE` and panel size options |
@@ -485,7 +485,7 @@ A build that goes on the device is **always** compiled with these flags:
 | Flag | Why it is required |
 |---|---|
 | `--no-debug` | Leaves Jade's debug message handlers and the libjade RPC surface out of the build |
-| `--no-ci` | CI mode confirms automatically instead of waiting for the user (`main/gui.c:2767`). On a device holding keys that is unacceptable |
+| `--no-ci` | CI mode confirms automatically instead of waiting for the user (`main/gui.c:3236-3239`). On a device holding keys that is unacceptable |
 | `--display=240x240` | The panel is this size. Forget the flag and a 320x200 frame buffer is compiled; the program does not crash, it quietly runs with the wrong geometry |
 | `--camera` | Compiles the camera code. Without it `libjade_push_camera_frame` returns `false` on every call |
 | `Release` | Carries no debug symbols and no assertions |
@@ -500,7 +500,7 @@ Test drivers: `pijade/host/pijade_host.c` for the production build (it needs no 
 
 ## 16. `qrcode_initText()` silently truncates a payload that does not fit
 
-`bb_appendBits()` (`main/qrcode.c:246-251`) does no bounds checking. On overflow, the
+`bb_appendBits()` (`main/qrcode.c:261-268`) does no bounds checking. On overflow, the
 `padding = (dataCapacity * 8) - codewords.bitOffsetOrWidth` inside `qrcode_initBytes()` wraps under
 `uint32_t` and the flow continues without an error; the result is a silently truncated QR. The
 return value is NOT proof that the payload fit.
@@ -650,7 +650,7 @@ plain `free()`; icon pixels are a reversible encoding of the exported data. It n
 `qrcode_freeIconData()` (upstream's own clearing helper).
 
 **The condition for this being safe was measured**: there are two separate icon allocators and their
-size calculations DIFFER. `main/qrcode.c:962` allocates `((w*h/32)+1)*4` bytes;
+size calculations DIFFER. `main/qrcode.c:979-980` allocates `((w*h/32)+1)*4` bytes;
 `main/display.c:343,437` allocates `written` bytes for deflate-sourced icons and sets
 `height = written*8/width`. When `written` is a multiple of 4, the QR formula gives 4 bytes MORE, so
 clearing a deflate icon with the QR formula would write outside the allocated block. It is safe
@@ -691,13 +691,13 @@ assumptions, all of them measured:
 
 - The floor for `blob` is 80, because `main/keychain.c:556-574` encrypts only three things: 16 or 32
   bytes of mnemonic entropy, and a 206-byte serialised key. The `ENCRYPTED_DATA_LEN` chain
-  (`main/aes.h:13,16`) turns those into 80, 96 and 256 bytes. With a floor of 80 the
-  `JADE_ASSERT(bytes_len > HMAC_SHA256_LEN)` at `main/keychain.c:441` becomes unreachable.
+  (`main/aes.h:14,17`) turns those into 80, 96 and 256 bytes. With a floor of 80 the
+  `JADE_ASSERT(bytes_len > HMAC_SHA256_LEN)` at `main/keychain.c:674` becomes unreachable.
 - The last byte of each of the three string fields has to be NUL. The body of `nvs_get_str()` is
   `nvs_get_blob()` (`libjade/nvs_flash.c:177-180`), so the storage layer promises no termination;
   yet `main/process/pinclient.c:96,108` prints those buffers with `snprintf("%s")`. A one-byte empty
   string is valid, and interior NULs are not searched for.
-- The `antireplay` value cannot be `0xFFFFFFFF`; `main/storage.c:539` has
+- The `antireplay` value cannot be `0xFFFFFFFF`; `main/storage.c:564` has
   `JADE_ASSERT(j < UINT32_MAX)`.
 - `pinsvrurlA` and `pinsvrurlB` either both exist or neither does
   (`main/process/pinclient.c:113`). This cross-check uses ONLY the flags collected during the
@@ -710,12 +710,12 @@ assumptions, all of them measured:
   would reject ordinary hash bytes, and since rejection is per file it would take the whole settings
   file, wallet blob included.
 - `networktype` can only be 0, 1 or 2 (`main/utils/network.h:23`). At startup `main/main.c:203` ->
-  `keychain_init_cache()` caches the value without filtering it (`main/keychain.c:709`), and neither
+  `keychain_init_cache()` caches the value without filtering it (`main/keychain.c:963`), and neither
   `keychain_load()` nor `keychain_set()` resets it. On the first successful PIN unlock
-  `main/process/auth_user.c:435-440` calls `keychain_set_network_type_restriction()`
+  `main/process/auth_user.c:474-480` calls `keychain_set_network_type_restriction()`
   unconditionally, and the `JADE_ASSERT(keychain_is_network_type_consistent(...))` at
-  `main/keychain.c:215` fails on an out-of-list cached value. This block IS present in a production
-  build: `-DDEBUG_MODE=0` (`pijade/images/build-armv6.sh:38`) defines
+  `main/keychain.c:448` fails on an out-of-list cached value. This block IS present in a production
+  build: `-DDEBUG_MODE=0` (`pijade/images/build-armv6.sh:54`) defines
   `CONFIG_LIBJADE_NO_DEBUG_MODE` (`libjade/CMakeLists.txt:79-82`), which leaves `CONFIG_DEBUG_MODE`
   undefined (`libjade/include/sdkconfig.h:10-12`).
 
@@ -725,8 +725,8 @@ the wallet moved in, the same behaviour meant this: if the card is full or read-
 it saved the wallet, the user believes PIN setup finished, and at the next boot there is no wallet.
 So `libjade_settings_fn` returns `bool`, `libjade_settings_changed()` carries the result, and
 `nvs_commit()` and `nvs_flash_erase()` return `ESP_FAIL` on failure. The rest of the chain is Jade's
-own: the `STORAGE_COMMIT` macro in `main/storage.c` already handles non-OK, `main/keychain.c:487`
-surfaces the wallet write and `main/process/dashboard.c:708` the factory reset to the user as an
+own: the `STORAGE_COMMIT` macro in `main/storage.c` already handles non-OK, `main/keychain.c:720-721`
+surfaces the wallet write and `main/process/dashboard.c:730-732` the factory reset to the user as an
 error. So this addition invents no new error path; it reconnects a chain the fork had broken.
 
 If no handler is registered the result stays true: running without `--settings` is deliberately a
@@ -743,17 +743,17 @@ source.
 There are NO extra checks on the remaining fields, because there Jade defends itself. That is not an
 assumption: the consumption path of all 15 fields was traced, and this is what was measured.
 `brightness` is clamped to `BACKLIGHT_MIN..MAX` on the settings screen
-(`main/process/dashboard.c:1732-1739`) and clamped again on the host by `panel_set_backlight()`
-(`pijade/host/panel_st7789.c:384`). The `guiflags` theme value falls through to `default` inside
+(`main/process/dashboard.c:1943-1948`) and clamped again on the host by `panel_set_backlight()`
+(`pijade/host/panel_st7789.c:387`). The `guiflags` theme value falls through to `default` inside
 `gui_set_highlight_color()` (`main/gui.c`), the camera rotation is taken modulo
-(`main/gui.c:277-281`), and the theme index is bounded on the settings screen
-(`main/process/dashboard.c:1882`). `qrflags` is a bit mask; the `account_index` derived from it comes
+(`main/gui.c:397-398`), and the theme index is bounded on the settings screen
+(`main/process/dashboard.c:2173`). `qrflags` is a bit mask; the `account_index` derived from it comes
 from shifting a 32-bit value by 16, so it is already below `ACCOUNT_INDEX_MAX`
 (`main/qrmode.c:41-42,1147-1148`). `keyflags` is a pure bit mask. `idletimeout` is only compared
-(`main/idletimer.c:207-220`). If `counter` is greater than 3, `storage_decrement_counter()` deletes
-the blob (`main/storage.c:490-494`), so an inflated counter grants no extra attempts. `privatekey`
-is rejected by `wally_ec_private_key_verify` (`main/storage.c:446`) and `pinsvrpubkey` by
-`wally_ec_public_key_verify` (`main/process/pinclient.c:162`); neither is an assert, both return
+(`main/idletimer.c:217-237`). If `counter` is greater than 3, `storage_decrement_counter()` deletes
+the blob (`main/storage.c:518-519`), so an inflated counter grants no extra attempts. `privatekey`
+is rejected by `wally_ec_private_key_verify` (`main/storage.c:452`) and `pinsvrpubkey` by
+`wally_ec_public_key_verify` (`main/process/pinclient.c:163`); neither is an assert, both return
 false. The URL protocol and the certificate content are deliberately not validated either: a wrong
 value produces a connection error, and validating it would tie the file format to a second set of
 rules independent of Jade's own.
@@ -761,7 +761,7 @@ rules independent of Jade's own.
 **A correction to this record.** An earlier version of this paragraph also listed the
 `walleterasepin` digit range as "deliberately not validated", on the grounds that it "neither trips
 an assert nor reads out of bounds". That claim had NOT been measured and was wrong: the assert at
-`main/process/dashboard.c:378` is reachable. The same sweep turned up a second reachable assert, for
+`main/process/dashboard.c:387` is reachable. The same sweep turned up a second reachable assert, for
 `networktype`. The record stays, because the real mistake was not that two fields were missed but
 that a scoping decision rested on an assumption rather than a measurement. (The `walleterasepin`
 digit rule was later dropped, but not because this record proved wrong: the field no longer carries
@@ -831,13 +831,13 @@ turns read-only after the wallet was saved, the user believes the duress PIN was
 value stays in the file. The error reaches the host log (`pijade: cannot write ...`), not the
 screen. This is an upstream characteristic; this work did not change the code, it changed the
 probability profile (a removable card instead of soldered flash). The setup moment is protected: the
-wallet's own write surfaces the error (`main/keychain.c:487`), so PIN setup cannot silently look
+wallet's own write surfaces the error (`main/keychain.c:720-721`), so PIN setup cannot silently look
 "finished". Fixing it would mean diverging on parity screens under `main/` and a conflict at every
 rebase; by decision the upstream behaviour was kept (2026-08-27), so this is a deliberate
 acceptance.
 
 **Rebase trap:** the 256 ceiling on `blob` was measured from the `SERIALIZED_KEY_LEN` ->
-`ENCRYPTED_DATA_LEN` chain at `main/keychain.c:19-22`. If upstream grows the key's serialised form
+`ENCRYPTED_DATA_LEN` chain at `main/keychain.c:19-23`. If upstream grows the key's serialised form
 and the encrypted blob passes 256, serialisation SILENTLY skips that field; the user's wallet
 appears to work but does not survive a restart. This ceiling has to be measured again at a rebase.
 
@@ -874,11 +874,11 @@ were not touched.
 | Bound | Source | Why |
 |---|---|---|
 | Name 1-15 bytes, all ASCII 33-126 | `libjade/nvs_flash.c:243`, `storage_key_name_valid()` in `main/storage.c` | A name of 16 bytes or more calls `abort()` when the menu lists records. The range is the device's own rule; it also rules out a name with an embedded NUL (such a record could not be matched by C string searches, and so could not be deleted) |
-| Multisig 114-3281 | `main/multisig.c:19,284` | The assert runs before the HMAC gate |
-| Descriptor **41**-3281 | `main/descriptor.c:24,638,642` | `MIN_DESCRIPTOR_BYTES_LEN` is 9, and although its comment says it includes the HMAC, the arithmetic does not. 9-31 bytes passes the assert, and then `bytes_len - HMAC_SHA256_LEN` underflows. The bound is therefore 41, not 9 |
-| OTP 32-288, a multiple of 16 | `main/aes.c:45,51`, `main/otpauth.c:809` | The stored length goes straight into the `aes_decrypt_bytes()` asserts |
-| HOTP counter exactly 8 | `main/storage.c:773-783` | A `uint64_t`, through `read_blob_fixed` |
-| At most 16 records per namespace | `main/multisig.h:13`, `main/descriptor.h:14`, `main/otpauth.h:14` | The device's own ceiling |
+| Multisig 114-3281 | `libjade/pijade_settings.c:108`, `main/multisig.c:20`, `main/registration_seal.c:64` | Since the v4 seal the length is a gate, not an assert: a record shorter than the floor is reported as not readable and the device stays up |
+| Descriptor **41**-3281 | `libjade/pijade_settings.c:111`, `main/descriptor.c:24-25`, `main/registration_seal.c:64` | Same gate. The floor is the pre-sealing record size, kept so that a record written by an older image is refused by `registration_open()` rather than taking the whole settings file down |
+| OTP 32-288, a multiple of 16 | `main/aes.c:45,51`, `main/otpauth.c:855` | The stored length goes straight into the `aes_decrypt_bytes()` asserts |
+| HOTP counter exactly 8 | `main/storage.c:888-891` | A `uint64_t`, through `read_blob_fixed` |
+| At most 16 records per namespace | `main/multisig.h:14`, `main/descriptor.h:15`, `main/otpauth.h:15` | The device's own ceiling |
 
 **A file that is written has to be readable; this was made structural.**
 `pijade_settings_serialize()` runs the buffer it produced through the loader's own validation pass
@@ -923,7 +923,7 @@ caps. If upstream grows one of those, serialisation SILENTLY rejects that record
 out only after a restart, so those rows still have to be measured again at a rebase.
 
 **The HOTP write cost (accepted, unmeasured):** generating each HOTP code increments the counter and
-commits (`main/otpauth.c:603`, `main/storage.c:773`), so in the worst case the entire ~111 KB file
+commits (`main/otpauth.c:624`, `main/storage.c:883-885`), so in the worst case the entire ~111 KB file
 is rewritten and `fsync`ed. That is the known price of the single-file decision; a realistic file is
 1-10 KB. Measuring the card's write load was left for later.
 
@@ -1008,7 +1008,7 @@ frame fed with `set_camera_bytes` BEFORE the Scan QR click and kept flowing afte
 item 20), then `right` and `click` on the home screen. Expected: the log line
 `qrscan.c:30 Detected 1 QR codes`, and the screen showing "Time set successfully" with a date; since
 the daemon registers no clock handler the date will be TODAY, which is not an error. Trap: if the
-screen is asleep the first press only wakes it (`idletimer.c:154`), so if the log says
+screen is asleep the first press only wakes it (`main/idletimer.c:163-171`), so if the log says
 "powering screen" the press is repeated.
 
 ## 26. Two-axis input: joystick up/down and the HAT's three buttons
@@ -1104,7 +1104,7 @@ everywhere else. Neither file in `main/` is touched.
 
 | File | macOS failure | Gate |
 |---|---|---|
-| `components/libwally-core/config.h` | `call to undeclared function 'explicit_bzero'` | macOS has no `explicit_bzero` (measured: it does not compile even with `<strings.h>`), and this header's `HAVE_INLINE_ASM` barrier is off, so falling through to a plain `memset` would leave the wipe elidable. `HAVE_MEMSET_S` with `__STDC_WANT_LIB_EXT1__` is used there instead, and it is the branch that actually runs: `upstream/src/internal.c:335` selects `memset_s()` and `nm -u build_macos/libjade/libjade.dylib` lists `_memset_s` as undefined. Every other target keeps `HAVE_EXPLICIT_BZERO`. |
+| `components/libwally-core/config.h` | `call to undeclared function 'explicit_bzero'` | macOS has no `explicit_bzero` (measured: it does not compile even with `<strings.h>`), and this header's `HAVE_INLINE_ASM` barrier is off, so falling through to a plain `memset` would leave the wipe elidable. `HAVE_MEMSET_S` with `__STDC_WANT_LIB_EXT1__` is used there instead, and it is the branch that actually runs: `components/libwally-core/upstream/src/internal.c:335` selects `memset_s()` and `nm -u build_macos/libjade/libjade.dylib` lists `_memset_s` as undefined. Every other target keeps `HAVE_EXPLICIT_BZERO`. |
 | `pijade/host/settings_store.h` | the same call, from `pijade/host/settings_store.c` (7 sites) and `libjade/daemon.c` (1) | An `__APPLE__`-only `static inline explicit_bzero()` whose `memset` is followed by an empty asm barrier, the technique libwally uses for the same job. `memset_s` was not used here: it compiles on macOS too (measured, in both include orders), but it is Annex K, which is optional and absent from glibc, and it is declared only where `__STDC_WANT_LIB_EXT1__` is set, so using it would push that feature-test macro onto every host translation unit including this header. |
 
 **The third macOS failure was upstream's, and its fix is upstream's too.** clang rejects
@@ -1183,7 +1183,7 @@ testnet fixture and never reached its tail.
 (`main/keychain.c:53`) with three writers: `:435` clears it, `:446` sets it, `:963` reads it back
 from the card. Of the two callers that set it, `main/process/auth_user.c:474-480` is behind
 `#ifndef CONFIG_DEBUG_MODE`, so on a debug build the only remaining writer is
-`main/process/dashboard.c:2471-2472`, the `Settings > Network` screen, which needs a button press.
+`main/process/dashboard.c:2460`, the `Settings > Network` screen, which needs a button press.
 An unset restriction is not neutral here: the expression above reads `none` as mainnet.
 
 **The handler.** `main/process/debug_set_network.c` is that screen and nothing more; the two calls
