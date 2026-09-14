@@ -59,14 +59,14 @@ import sys
 # SECOND COPY of constants from C source. Each cites its source file and line; t33e_selftest.py
 # reads the C source and compares it to catch drift in this copy.
 # --------------------------------------------------------------------------------------------
-SLOT_MAGIC = b"PJSLOT01"          # pijade/host/settings_store.c:23
-SLOT_HEADER_LEN = 16              # pijade/host/settings_store.c:19
-SLOT_CRC_LEN = 4                  # pijade/host/settings_store.c:20
+SLOT_MAGIC = b"PJSLOT01"          # pijade/host/settings_store.c:27
+SLOT_HEADER_LEN = 16              # pijade/host/settings_store.c:23
+SLOT_CRC_LEN = 4                  # pijade/host/settings_store.c:24
 SLOT_OVERHEAD = SLOT_HEADER_LEN + SLOT_CRC_LEN
-SETTINGS_MAX_LEN = 131072         # pijade/host/settings_store.c:17
+SETTINGS_MAX_LEN = 131072         # pijade/host/settings_store.c:21
 
-PAYLOAD_MAGIC = b"PIJADES4"       # libjade/pijade_settings.c:83
-PAYLOAD_DIGEST_LEN = 4            # libjade/pijade_settings.c:84
+PAYLOAD_MAGIC = b"PIJADES4"       # libjade/pijade_settings.c:93
+PAYLOAD_DIGEST_LEN = 4            # libjade/pijade_settings.c:94
 PAYLOAD_HEADER_LEN = len(PAYLOAD_MAGIC) + PAYLOAD_DIGEST_LEN
 NVS_KEY_NAME_MAX_SIZE = 16        # libjade/include/nvs.h:4
 

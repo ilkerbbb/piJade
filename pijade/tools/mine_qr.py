@@ -28,7 +28,7 @@ DEFAULT_ADDRESS = "tb1q0ht9tyks4vh7p5p904t340cr9nvahy7um9zdem"
 
 
 def bits_to_target(bits):
-    # Same rules as components/miner/miner.c:855-868
+    # Same rules as components/miner/miner.c:867-888
     mantissa, exponent = bits & 0x007FFFFF, bits >> 24
     if bits & 0x00800000 or not mantissa or exponent < 3 or exponent > 32:
         raise SystemExit("invalid bits (same rules as miner.c bits_to_target)")
@@ -59,7 +59,7 @@ def qr_matrix(text):
     qr.add_data(text.upper())
     qr.make(fit=True)
     matrix = qr.get_matrix()
-    # Same two guards as epoch_qr.py:136-139; the Jade scanner expects a quiet zone
+    # Same two guards as pijade/tools/epoch_qr.py:149-152; the Jade scanner expects a quiet zone
     if qr.border != 4:
         raise RuntimeError("qrcode default quiet zone is not 4 modules")
     if len(matrix) != qr.modules_count + 2 * qr.border:

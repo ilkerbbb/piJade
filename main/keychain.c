@@ -924,10 +924,10 @@ bool keychain_has_pin(void) { return has_encrypted_blob; }
 uint8_t keychain_pin_attempts_remaining(void) { return storage_get_counter(); }
 
 // BBB-AIRGAP: say whether the blob really went.  storage_erase_encrypted_blob() can fail at
-// nvs_open(), nvs_erase_key() or nvs_commit() (main/storage.c:74, 138, 149) and callers used to be
+// nvs_open(), nvs_erase_key() or nvs_commit() (main/storage.c:78,142,153) and callers used to be
 // told nothing; the wallet-erase PIN in particular showed its cover message and shut the device
 // down with the encrypted seed still on the card.  A blob that was never there is not a failure:
-// erase_key() treats ESP_ERR_NVS_NOT_FOUND as success (main/storage.c:138), so !erased means the
+// erase_key() treats ESP_ERR_NVS_NOT_FOUND as success (main/storage.c:143), so !erased means the
 // blob is still on flash and the in-memory flag has to keep saying so.
 bool keychain_erase_encrypted(void)
 {

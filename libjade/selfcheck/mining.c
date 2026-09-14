@@ -61,7 +61,7 @@ static void selfcheck_on_solution(void* ctx, const uint8_t* solution, uint32_t l
 
 // BBB-AIRGAP: the miner is the first component to be stopped while it is running rather than while
 // it is parked, and on this platform a task can only be deleted by handle if it parked itself in
-// vTaskDelay(portMAX_DELAY) (libjade/task.c:197-205, :233). Counting the process's threads before
+// vTaskDelay(portMAX_DELAY) (libjade/task.c:203-211, :247-254). Counting the process's threads before
 // and after is what turns "stop_miners() returned" into "the miner tasks are actually gone"; the
 // same count is why the free() inside stop_miners() is not handing back memory that is still
 // written to. Linux-only, which is all this file is ever compiled for.

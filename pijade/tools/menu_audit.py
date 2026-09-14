@@ -29,13 +29,13 @@ Additionally:
                    is needed to measure that distinction.
 
 Idle dimming trap (measured 2026-08-28, threshold became configurable on 2026-09-03):
-the idle timer dims the screen after UI inactivity (decision at `idletimer.c:289-291`,
-`WARN:idletimer.c:291`). The threshold now comes from storage, NOT a build constant
+the idle timer dims the screen after UI inactivity (decision at `main/idletimer.c:311-313`,
+`WARN:idletimer.c:313`). The threshold now comes from storage, NOT a build constant
 (`storage_get_screen_timeout()`; screen `Preferences > Screen Timeout`); default
 `DEFAULT_SCREEN_TIMEOUT_SECS` = 60 seconds (`main/idletimer.c:20`). The log's
 `timeout period: 600000` is a DIFFERENT threshold (`DEFAULT_IDLE_TIMEOUT_SECS`, full
 idle lock), not dimming. The old "between 90-150 seconds" window no longer applies:
-the wake calculation includes the projected dimming time (`idletimer.c:302-309`),
+the wake calculation includes the projected dimming time (`main/idletimer.c:324-331`),
 so dimming occurs just after the configured value (measured 2026-09-03: 32 seconds
 with a 30 second setting). Changes DURING sleep also wake the timer (`idletimer_recheck()`),
 so shortening the setting or waking a dimmed screen does not wait for the current sleep
@@ -43,12 +43,12 @@ so shortening the setting or waking a dimmed screen does not wait for the curren
 to the second dimming after wake; both paths took up to 60 seconds before the fix).
 `Disabled` prevents dimming (measured: idle for 80 seconds, no dimming log line).
 The FIRST press after dimming only restores the screen; its event is never sent
-(`gui_front_click()` first calls `idletimer_register_activity(true)`, `main/gui.c:2568`,
-which returns `true` on a dimmed screen, `main/idletimer.c:154`). Emulator dimming does
+(`gui_front_click()` first calls `idletimer_register_activity(true)`, `main/gui.c:2716`,
+which returns `true` on a dimmed screen, `main/idletimer.c:163-170`). Emulator dimming does
 not touch the framebuffer, so the change check correctly reports "screen did not change"
 and stops; the press was swallowed, not dropped. After long pauses, wake a screen without
 selectable buttons with `still:first`: `gui_select_first()` returns early on
-`!current_activity->selectables` (`main/gui.c:2701`), keeping the frame identical in both cases."""
+`!current_activity->selectables` (`main/gui.c:2913`), keeping the frame identical in both cases."""
 import hashlib
 import os
 import socket
@@ -153,7 +153,7 @@ class Audit:
         """A press expected to leave the screen UNCHANGED; an inverse assertion.
 
         Such presses exist and were measured: `Settings > Display > Flip Orientation`
-        repaints the same menu with `gui_repaint()` (`main/process/dashboard.c:1952`), but
+        repaints the same menu with `gui_repaint()` (`main/process/dashboard.c:2269`), but
         without emulator panel rotation the frame stays byte-identical. Checking this
         with `btn:` would wait 2.5 s and treat a legitimate press as an error.
 
@@ -283,7 +283,7 @@ class Audit:
         self.check(cmd)
 
     def seed(self, mnemonic, passphrase=None):
-        """debug_set_mnemonic needs screen confirmation (debug_set_mnemonic.c:105 await_message).
+        """debug_set_mnemonic needs screen confirmation (main/process/debug_set_mnemonic.c:110 await_message_escaped).
         Send the request without waiting for its response, wait for and click the
         confirmation screen, then collect the response by id. Public test vectors only.
 

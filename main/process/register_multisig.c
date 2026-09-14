@@ -134,7 +134,7 @@ static int register_multisig(const char* multisig_name, const network_t network_
 
         // BBB-AIRGAP: the record about to be replaced may belong to a different wallet.  The
         // storage key is the name alone (main/storage.c:822-843) while the record is sealed to
-        // the wallet that registered it (main/wallet.c:1340-1352), so on a device that holds
+        // the wallet that registered it (main/wallet.c:1346-1358), so on a device that holds
         // several wallets at once the same coordinator file registered from two of them lands on
         // one key.  The confirmation further down says "Overwriting existing" but not whose, and
         // the details it shows are the incoming record's, so nothing on that screen tells the
@@ -143,7 +143,7 @@ static int register_multisig(const char* multisig_name, const network_t network_
         // gone bad - the HMAC cannot tell those apart - so the question names neither, it states
         // only what was actually observed.  Heap rather than stack for the same reason as the
         // descriptor branch: the loaded record is over a kilobyte and this handler runs inline on
-        // the dashboard task (dashboard.c:635), not on a stack of its own.
+        // the dashboard task (main/process/dashboard.c:638), not on a stack of its own.
         multisig_data_t* const existing_data = JADE_MALLOC(sizeof(multisig_data_t));
         const char* load_errmsg = NULL;
         const bool readable = multisig_load_from_storage(multisig_name, existing_data, NULL, 0, NULL, &load_errmsg);

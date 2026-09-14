@@ -53,7 +53,7 @@ class FakeKeyboard:
     """Fake device responding to direction keys like a real keyboard.
 
     actual_forward specifies which list direction the 'right' event takes; on the
-    device with Flip Orientation it becomes 'left' (main/gui.c:309).
+    device with Flip Orientation it becomes 'left' (main/gui.c:2861-2868).
 
     If close_after_clicks is set, leave the keyboard after that many selections and
     show a single band. kbd.is_keyboard returns False there, simulating the real

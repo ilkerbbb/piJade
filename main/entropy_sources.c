@@ -142,7 +142,7 @@ static bool run_dice_entry(char* rolls, const size_t total_rolls)
     // Progress across the whole run.  A count alone gives no sense of how much of a 50 or 99
     // roll run is left.  Opaque, not the transparent treatment ui/camera.c uses: '<' undoes a
     // roll, so the value here DECREASES, and make_progress_bar() notes that a transparent bar
-    // then needs its parent redrawn (ui/dialogs.c:684).  There is no image behind this bar to
+    // then needs its parent redrawn (main/ui/dialogs.c:1284-1285).  There is no image behind this bar to
     // show through, so the plain fill upstream uses everywhere else is both correct and simpler.
     make_progress_bar(vsplit, &display.bar);
 
@@ -158,7 +158,7 @@ static bool run_dice_entry(char* rolls, const size_t total_rolls)
     // gui_set_current_activity() only queues the switch, and this activity's handlers go live
     // later, on the gui task.  What is discarded is the second half of the press that opened this
     // screen - a single press posts the menu's GUI_BUTTON_EVENT via select_action() and then,
-    // unconditionally, its own GUI_EVENT click (main/gui.c:2556-2573), and the registration above
+    // unconditionally, its own GUI_EVENT click (main/gui.c:2702-2722), and the registration above
     // takes any GUI_EVENT.  Here that click would be read as a roll the user never made: the loop
     // below records DICE_CHARS[selected] on a click, and 'selected' still points at the first
     // face.  Same 10ms idle timeout as run_list_activity() (main/ui/dialogs.c).

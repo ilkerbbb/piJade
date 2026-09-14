@@ -49,7 +49,7 @@ static bool decode_qr(const QRCode* const qr, char* const out, const size_t out_
         struct quirc_code code;
         struct quirc_data data;
         struct datastream* const ds = calloc(1, sizeof(struct datastream));
-        /* quirc.h:169 - the caller allocates this pointer (as in qrscan.c:148) */
+        /* quirc.h:169 - the caller allocates this pointer (as in main/qrscan.c:55) */
         if (ds) { ds->data = calloc(QUIRC_MAX_PAYLOAD, sizeof(uint8_t)); }
         quirc_extract(q, 0, &code);
         if (ds && quirc_decode(&code, &data, ds) == QUIRC_SUCCESS

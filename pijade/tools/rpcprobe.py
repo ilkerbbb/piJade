@@ -46,7 +46,7 @@ VALID_PUBKEY = bytes.fromhex(
 # main/process/dashboard.c; the device lock does not stop these.
 #
 # debug_capture_image_data is excluded: it also has a CONFIG_RETURN_CAMERA_IMAGES guard
-# (dashboard.c:547), which our configuration does not define. Rejection in the default build
+# (main/process/dashboard.c:557), which our configuration does not define. Rejection in the default build
 # too would prove nothing about the lock; including it would give false confidence.
 PROBES = [
     ("ping", {}),

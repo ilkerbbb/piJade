@@ -2,7 +2,7 @@
 """Standard SeedQR camera frames (main/process/mnemonic.c import_seedqr).
 
 The device accepts a bare string of zero-padded 4-digit BIP39 indices, exactly 48 or 96 bytes,
-digits only and no separators (mnemonic.c:1411). The checksum is not verified there; it is
+digits only and no separators (main/process/mnemonic.c:1893). The checksum is not verified there; it is
 verified afterwards by import_and_validate_mnemonic, so the digits have to encode a mnemonic
 that is actually valid.
 

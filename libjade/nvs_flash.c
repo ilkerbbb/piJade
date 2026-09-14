@@ -264,7 +264,7 @@ esp_err_t nvs_flash_erase(void)
     // without this every card copy outlives the reset and all five namespaces return on the next
     // boot. The zero-length callback asks the host to overwrite and remove both slots. If it cannot
     // remove every copy, the wallet survives the reset and that cannot pass for success;
-    // main/process/dashboard.c:708 is what a caller sees this become.
+    // main/process/dashboard.c:718 is what a caller sees this become.
     return libjade_settings_erased() ? ESP_OK : ESP_FAIL;
 }
 
@@ -277,7 +277,7 @@ struct wally_map* pijade_settings_storage(const size_t namespace_index)
 /*
  * BBB-AIRGAP: upstream leaves this a no-op, since its NVS never leaves memory. On the Pi the
  * store has to outlive a power cut, and this is the one point every write passes through:
- * main/storage.c's store_blob() commits after each set (storage.c:171), so hooking it here means
+ * main/storage.c's store_blob() commits after each set (main/storage.c:167), so hooking it here means
  * settings persist without any "save" step in the UI.
  */
 esp_err_t nvs_commit(nvs_handle_t handle)

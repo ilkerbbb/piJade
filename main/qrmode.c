@@ -423,7 +423,7 @@ bool handle_xpub_options(uint32_t* qr_flags, bool for_descriptor)
     JADE_ASSERT(qr_flags);
 
     // BBB-AIRGAP: these two bits cannot stand together - xpub_script_variant_from_flags() answers
-    // P2TR before it looks at the multisig bit (main/qrmode.c:251-257), so a stored pair would be
+    // P2TR before it looks at the multisig bit (main/qrmode.c:262-265), so a stored pair would be
     // labelled Multisig and exported as an m/86' singlesig key.  Every screen that can set either
     // bit already keeps them apart; the assertions below are on what this function persists, which
     // is the one place that assembles flags out of two different visits.
@@ -444,7 +444,7 @@ bool handle_xpub_options(uint32_t* qr_flags, bool for_descriptor)
     // type is pinned and the 'Wallet' row stops responding - the same shape as the descriptor case
     // above, which pins singlesig for its own reason.  The descriptor case is left out of the pin
     // itself, because it has already narrowed the flags and the export that called it asserts the
-    // multisig bit is clear (main/usbhmsc/usbmode.c:938); putting that bit back would abort the
+    // multisig bit is clear (main/usbhmsc/usbmode.c:961); putting that bit back would abort the
     // export.  It still counts as pinned below, because its type is no more the user's choice.
     const uint8_t feature_flags = storage_get_feature_flags();
     const bool wallettype_pinned = for_descriptor || pin_wallettype_to_features(qr_flags, feature_flags);
@@ -966,7 +966,7 @@ static bool handle_address_options(
             if (ev_id == BTN_SCAN_ADDRESS_OPTIONS_SCRIPTTYPE && show_script) {
                 // Switch synchronously, then discard what is left of the press that opened this
                 // carousel.  A single press posts the menu's GUI_BUTTON_EVENT via select_action()
-                // and then, unconditionally, its own GUI_EVENT click (main/gui.c:2556-2573); the
+                // and then, unconditionally, its own GUI_EVENT click (main/gui.c:2702-2722); the
                 // registration above takes any GUI_EVENT, so that second half would be read here
                 // as the click that closes the carousel, before the user had turned it.  The
                 // asynchronous gui_set_current_activity() cannot be drained against, as it only
@@ -2232,7 +2232,7 @@ static gui_activity_t* make_mining_activity(const char* title, const uint64_t re
     gui_set_parent(vsplit, parent);
 
     // BBB-AIRGAP: a fill behind the text, or gui_update_text() has no background to repaint and
-    // successive rates pile up (main/ui/mnemonic.c:515 lesson).
+    // successive rates pile up (main/ui/mnemonic.c:535-541 lesson).
     gui_view_node_t* fill;
     gui_make_fill(&fill, TFT_BLACK, FILL_PLAIN, vsplit);
 
@@ -2262,14 +2262,14 @@ static gui_activity_t* make_mining_activity(const char* title, const uint64_t re
 // this file and used by the 'Scan address' flow) so the address is laid out the way the device
 // already shows addresses. MINING_ADDRESS_MAX (90) < MAX_DISPLAY_ADDRESS_LEN (96): always a single
 // screen, act2 stays NULL. Default event BTN_ADDRESS_ACCEPT: on the device the pressed button
-// decides (gui.c:2944-2947); the unattended-CI emulator build returns the default after 1 ms
-// (gui.c:2948-2951), exactly as await_yesno_activity returns BTN_YES there (dialogs.c:835), so
+// decides (main/gui.c:3232-3235); the unattended-CI emulator build returns the default after 1 ms
+// (main/gui.c:3236-3238), exactly as await_yesno_activity returns BTN_YES there (main/ui/dialogs.c:929), so
 // the emulator walkthrough reaches the mining screen. The initial highlight is still the reject
 // button (default_selection = false), so a real user has to move to the tick on purpose.
 static bool confirm_mining_template(const mining_template_t* t)
 {
     JADE_ASSERT(t);
-    char title[24]; // same size and pattern as the 'Address %u' title, qrmode.c:1206-1208
+    char title[24]; // same size and pattern as the 'Address %u' title, main/qrmode.c:1331-1332
     const int ret = snprintf(title, sizeof(title), "Mine block %u", (unsigned)t->height);
     JADE_ASSERT(ret > 0 && ret < sizeof(title));
 
@@ -2817,7 +2817,7 @@ void handle_sign_message(void)
     // code a Jade camera reads and sends the reader on to "supported companion apps" for the rest
     // (measured 2026-09-08); it never says how to make one, and this port builds none of them.
     // This screen takes a single format - "signmessage <path> ascii:<text>",
-    // main/process/sign_message.c:76 - so the address points at a page of ours that draws exactly
+    // main/process/sign_message.c:100 - so the address points at a page of ours that draws exactly
     // that (PIJADE_HELP_SIGN_URL, main/qrmode.h; source docs/sign/index.html).  Measured
     // rather than assumed: the page's own code was run and the code it painted was fed to this
     // camera, which reached the confirm screen and produced a signature

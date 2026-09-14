@@ -7,9 +7,9 @@
 
 // BBB-AIRGAP: needed by components/miner/miner.c, which times its hash loop with this call.
 // esp-idf returns microseconds since boot; the miner only ever subtracts two readings
-// (components/miner/miner.c:755 start, :818 difference), so any monotonic origin serves. Same
-// clock source as xTaskGetTickCount() (libjade/task.c:280), at microsecond resolution instead of
-// milliseconds. Deliberately NOT tied to libjade_tick_epoch_reset() (libjade/task.c:270): that
+// (components/miner/miner.c:946 start, :1095 difference), so any monotonic origin serves. Same
+// clock source as xTaskGetTickCount() (libjade/task.c:286), at microsecond resolution instead of
+// milliseconds. Deliberately NOT tied to libjade_tick_epoch_reset() (libjade/task.c:276): that
 // epoch exists so a second session's idle timer does not inherit the first one's uptime, and
 // hanging an elapsed-time measurement off a resettable origin would let a reset land between the
 // two readings and turn a duration negative. Only the one function the miner uses is shimmed.

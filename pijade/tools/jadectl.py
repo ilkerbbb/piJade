@@ -24,8 +24,8 @@ READ_TIMEOUT_FLOOR = 0.2
 DICE_CHARS = '123456<'
 CAM_DELAY = float(os.environ.get('CAM_DELAY','0.06'))
 # Camera frames are VGA grayscale; their size is a C-side CONTRACT, not an assumption here:
-# esp_camera_init() asserts FRAMESIZE_VGA (libjade/esp_camera.c:61), and
-# libjade_push_camera_frame() rejects frames of a different length and logs why (esp_camera.c:38).
+# esp_camera_init() asserts FRAMESIZE_VGA (libjade/esp_camera.c:67), and
+# libjade_push_camera_frame() rejects frames of a different length and logs why (libjade/esp_camera.c:45-51).
 # A wrong size therefore returns RpcError instead of being silently swallowed. The daemon
 # has no RPC to query this size; if the constant changes, this code must change too.
 CAM_FRAME_W, CAM_FRAME_H = 640, 480
@@ -87,8 +87,8 @@ class Jade:
         """Send the request and return its id; do NOT wait for the response.
 
         Methods needing screen confirmation (e.g. debug_set_mnemonic, main/process/
-        debug_set_mnemonic.c:105 await_message) respond only after a button press.
-        wire.c:95 handles `libjade_request` IMMEDIATELY on the wire thread, so buttons
+        debug_set_mnemonic.c:110 await_message_escaped) respond only after a button press.
+        main/wire.c:100 handles `libjade_request` IMMEDIATELY on the wire thread, so buttons
         can be pressed while a request is pending; this requires the send/recv_id split."""
         self.n += 1
         rid = str(self.n)
@@ -207,7 +207,7 @@ class Jade:
         expect_change=False is for presses expected to leave the screen UNCHANGED. It is
         an inverse ASSERTION, not an escape hatch: a change also raises RpcError.
         Such presses exist and have been measured. For example, `Settings > Display > Flip Orientation`
-        repaints the same menu with `gui_repaint()` in the emulator (`main/process/dashboard.c:1952`),
+        repaints the same menu with `gui_repaint()` in the emulator (`main/process/dashboard.c:2269`),
         but without panel rotation the frame stays byte-identical. The expectation must be
         EXPLICIT in the step sequence to distinguish a dropped press from legitimate stillness.
 

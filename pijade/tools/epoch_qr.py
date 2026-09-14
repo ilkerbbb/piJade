@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a single-part epoch UR QR for Jade (ur:jade-epoch; main/qrmode.c:1401).
+"""Generate a single-part epoch UR QR for Jade (ur:jade-epoch; main/qrmode.c:2725).
 
 Usage: epoch_qr.py [--epoch N] <output.png> [<output.gray>]
 (gray: 640x480 emulator camera frame). Recipe and evidence: pijade/UPSTREAM.md section 25.
@@ -85,7 +85,7 @@ def frame_scale(matrix_side):
     """Pixels per module for a QR of this many modules, quiet zone included.
 
     See the scale note in pijade/tools/screen_qr_to_camera.py: quirc reads only the central
-    scan window (SCAN_MARGIN, main/qrscan.c:13) and identifies nothing above 7 px per module
+    scan window (SCAN_MARGIN, main/qrscan.c:15) and identifies nothing above 7 px per module
     (measured 2026-09-10), so cap the scale rather than filling the frame height.  A caller
     rendering codes larger than this file's own single-part UR needs the number as well, to
     check that a big matrix has not driven it under the 3 px floor.
@@ -118,7 +118,7 @@ def write_gray(path, matrix):
 
 
 def epoch_arg(text):
-    # Jade reads the epoch with rpc_get_uint64 (main/process/process_utils.c:87); negative
+    # Jade reads the epoch with rpc_get_uint64 (main/process/process_utils.c:102); negative
     # values or values exceeding 64 bits are rejected with "Failed to extract valid epoch value".
     value = int(text)
     if not 0 <= value < 2**64:

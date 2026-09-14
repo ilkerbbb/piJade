@@ -396,9 +396,9 @@ gui_activity_t* make_wallet_erase_pin_options_activity(void)
     gui_set_align(value, GUI_ALIGN_CENTER, GUI_ALIGN_TOP);
     gui_set_parent(value, vsplit);
 
-    // BBB-AIRGAP: without explicit borders add_button() draws them in black (dialogs.c:64), so the
+    // BBB-AIRGAP: without explicit borders add_button() draws them in black (main/ui/dialogs.c:83-87), so the
     // two controls read as plain text until one is selected; the standard two-button footer is
-    // TOPRIGHT/TOPLEFT plus an initial selection (dialogs.c:960-965).  'Change' is selected first
+    // TOPRIGHT/TOPLEFT plus an initial selection (main/ui/dialogs.c:1068-1073).  'Change' is selected first
     // because 'Disable' removes the duress wallet's protection - the destructive option is not the
     // one that should sit under the click by default.  Presentation only: the duress PIN's unlock
     // and wipe behaviour is untouched.
@@ -418,7 +418,7 @@ gui_activity_t* make_wallet_erase_pin_options_activity(void)
 
 // BBB-AIRGAP: the loaded wallet appears here under its fingerprint, and its operations hang off
 // that entry. 'seed_label' is only read while the menu is built - the builder keeps its own copy
-// of the text (main/gui.c:1170) - so a caller's stack buffer is enough.
+// of the text (main/gui.c:1300-1302) - so a caller's stack buffer is enough.
 gui_activity_t* make_ble_activity(gui_view_node_t** ble_status_item)
 {
     JADE_INIT_OUT_PPTR(ble_status_item);

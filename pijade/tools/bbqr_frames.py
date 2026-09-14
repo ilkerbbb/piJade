@@ -40,7 +40,7 @@ from qrcode.constants import ERROR_CORRECT_L  # noqa: E402
 from epoch_qr import frame_scale, write_gray  # noqa: E402
 
 BASE36_DIGITS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-MAX_PARTS = 1295  # 'ZZ'; vendor-audit/BBQr/python/bbqr/split.py:37
+MAX_PARTS = 1295  # 'ZZ'; coinkite/BBQr python/bbqr/split.py
 MAX_INPUT_MSG_SIZE = 1024 * 401  # main/process.h, the ceiling main/bbqr.c checks against
 
 # quirc identifies nothing below 3 px per module (pijade/tools/screen_qr_to_camera.py), and the

@@ -7,7 +7,7 @@ Read visible cells and selection, press direction keys to reach the target, and
 verify every press with jadectl.Jade.press.
 
 No color constant is used. Settings > Display > Theme can select any of five
-accent colors (main/gui.c:230), so the criterion is color-independent:
+accent colors (main/gui.c:45-49), so the criterion is color-independent:
 a drawn cell's top edge is NOT black, and a selected cell's interior IS filled.
 
 Usage:
@@ -86,7 +86,7 @@ def is_keyboard(px):
 def forward_direction(j):
     """MEASURE which way 'right' moves through the list; cache the result.
 
-    With Flip Orientation enabled (main/gui.c:309), gui_next() selects the previous
+    With Flip Orientation enabled (main/gui.c:2861-2868), gui_next() selects the previous
     item, so 'right' moves backward. Measure instead of assuming: keyboard selection
     is readable, allowing one direction measurement here to also drive the suggestion
     carousel, whose text cannot be read."""
@@ -139,7 +139,7 @@ def select_letter(j, target):
     """Navigate to and select the target letter. Raise if it is currently disabled.
 
     Settings > Display > Flip Orientation INVALIDATES the direction cache
-    (main/gui.c:309): gui_next() reverses direction while the cache keeps the old
+    (main/gui.c:2861-2868): gui_next() reverses direction while the cache keeps the old
     measurement. No RPC reports the setting change, so detect it by FAILURE TO REACH
     the target: if the first attempt lands on a different letter, discard the cache,
     remeasure direction, and retry before. A second failure is a real error and is raised.

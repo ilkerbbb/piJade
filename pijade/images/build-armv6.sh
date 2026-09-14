@@ -41,7 +41,7 @@ echo "=== 1) CMAKE CONFIGURE ==="
 # "Release --camera --no-ci --no-debug --display=240x240" call produces (pijade/UPSTREAM.md, the
 # production build command).
 # LOG=1 (BBB-AIRGAP): the logging machinery stays in the binary but the default level is NONE
-# (libjade/libjade.c:111), so not one line is printed unless pijade-host is given --log-level.
+# (libjade/libjade.c:123), so not one line is printed unless pijade-host is given --log-level.
 # LOG=0 deleted the macros outright at compile time (libjade/include/esp_log.h:16-19), which meant
 # the only way to get evidence for a fault seen on the device was to build a new package and write
 # it to the card.
@@ -77,7 +77,7 @@ echo "=== 3b) T44 MEASUREMENT TOOL ==="
 # /boot/firmware/pijade-t44.enable it exits doing nothing, so its presence in the image does not
 # change boot behaviour.
 # It is NOT linked against libjade.so: the quirc symbols are not exported, so the five source files
-# (the same list as libjade.c:69-73) are compiled directly here. The flags have to match the
+# (the same list as libjade/libjade.c:77-81) are compiled directly here. The flags have to match the
 # shipped library exactly, otherwise the number measured does not belong to the code running on the
 # device: ARCHFLAGS + CMAKE_C_FLAGS_RELEASE (libjade/CMakeLists.txt:51). The object is placed under
 # /out/build so that step 4's ARMv6 gate scans it too.

@@ -367,7 +367,7 @@ static void socket_bridge(const char* socket_path)
 /*
  * BBB-AIRGAP: the emulator can persist settings so the storage layer's failure paths become
  * measurable. Without --settings libjade_settings_changed() has no handler and reports every write
- * as successful by design (libjade/libjade.c:676-679), which puts main/storage.c's erase-failed
+ * as successful by design (libjade/libjade.c:772-773), which puts main/storage.c's erase-failed
  * branch out of reach here. The store itself is pijade-host's, linked rather than reimplemented,
  * so the emulator exercises the same code the card runs.
  */

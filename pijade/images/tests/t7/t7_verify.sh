@@ -297,7 +297,7 @@ HWD="$R/etc/systemd/system/fake-hwclock.service.d/pijade.conf"
   || ok "unit not masked"
 [ -r "$R/etc/fake-hwclock.data" ] && ok "data file readable" || bad "data file missing"
 # Time zone: ctime_r applies the local zone, but the OTP screen prints fixed "UTC" beside it
-# (main/ui/otpauth.c:318); leaving London makes the label wrong during daylight saving.
+# (main/ui/otpauth.c:352); leaving London makes the label wrong during daylight saving.
 [ "$(cat "$R/etc/timezone" 2>/dev/null)" = "Etc/UTC" ] \
   && ok "time zone Etc/UTC" || bad "time zone is not Etc/UTC"
 [ "$(readlink "$R/etc/localtime")" = "/usr/share/zoneinfo/Etc/UTC" ] \

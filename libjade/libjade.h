@@ -113,7 +113,7 @@ LIBJADE_API void libjade_set_display_orientation_handler(libjade_display_orienta
  *
  * Runs on whichever task changed the setting, and that task waits: a handler that writes to slow
  * storage holds up the UI for as long as the write takes. HOTP generation commits every counter
- * bump at otpauth.c:603 and storage.c:773, so that path also writes the whole blob.
+ * bump at main/otpauth.c:624 and main/storage.c:883, so that path also writes the whole blob.
  *
  * For a non-empty blob, returns true if it was persisted. For NULL and zero length, returns true
  * only if no persisted copy remains. The settings now carry the PIN wallet, so unlike a display

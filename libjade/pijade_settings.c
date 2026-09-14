@@ -47,8 +47,8 @@ static const struct {
     { "privatekey", 32, 32, false },
     // keychain.c only ever encrypts the mnemonic entropy (16 or 32 bytes) or the serialised key
     // (206 bytes) through ENCRYPTED_DATA_LEN(), which is AES_BLOCK_LEN + AES_PADDED_LEN(len) +
-    // HMAC_SHA256_LEN (aes.h, keychain.c:22): 80, 96, and 256 bytes respectively. 80 is the floor
-    // so a shorter value can never reach keychain.c:441's JADE_ASSERT(bytes_len > HMAC_SHA256_LEN).
+    // HMAC_SHA256_LEN (aes.h, main/keychain.c:23): 80, 96, and 256 bytes respectively. 80 is the floor
+    // so a shorter value can never reach main/keychain.c:674's JADE_ASSERT(bytes_len > HMAC_SHA256_LEN).
     { "blob", 80, 256, false },
     { "counter", 1, 1, false },
     { "antireplay", 4, 4, false },
@@ -58,12 +58,12 @@ static const struct {
     // list until the device round of 2026-09-02 measured the result: the screen worked for the rest
     // of the session and then silently reverted on the next boot, because a value nvs holds but
     // this list does not name never reaches the card.  One byte, as storage_set_feature_flags()
-    // (main/storage.c:678) writes sizeof(uint8_t).
+    // (main/storage.c:694) writes sizeof(uint8_t).
     //
     // Two other fields main/storage.c names are deliberately still absent, and the reason is that
     // nothing on this port writes them: 'bleflags' because ble is not compiled here (the radio is
     // physically cut and main/ble/ble.h:27 supplies the empty implementation), and 'clickevent'
-    // because only storage.c:358 touches it, to erase it.  Either would need its writer back
+    // because only main/storage.c:363 touches it, to erase it.  Either would need its writer back
     // before persisting it would mean anything.
     { "featflags", 1, 1, false },
     { "walleterasepin", 48, 48, false }, // WALLET_ERASE_PIN_RECORD_LEN (main/storage.h): 16 salt + 32 verifier
@@ -109,11 +109,11 @@ static const struct {
     // BBB-AIRGAP: the ceiling is main/descriptor.h's MAX_DESCRIPTOR_BYTES_LEN, bound the same way;
     // floor 41 kept for the same reason as above; descriptor.h caps records at 16.
     { 41, PIJADE_SETTINGS_MAX_DESCRIPTOR_LEN, 0, 16 },
-    // otpauth.c:809 passes the stored value to aes_decrypt_bytes(); aes.c:45,51 require more than
-    // AES_BLOCK_LEN bytes and a multiple of AES_BLOCK_LEN after the first block. otpauth.c:808-809
-    // measures the destination at 288 bytes, and otpauth.h:14 caps records at 16.
+    // main/otpauth.c:855 passes the stored value to aes_decrypt_bytes(); aes.c:45,51 require more than
+    // AES_BLOCK_LEN bytes and a multiple of AES_BLOCK_LEN after the first block. main/otpauth.c:844-845
+    // measures the destination at 288 bytes, and main/otpauth.h:15 caps records at 16.
     { 32, 288, 16, 16 },
-    // storage.c:773-783 stores and reads a fixed uint64_t; otpauth.h:14 caps its OTP names at 16.
+    // main/storage.c:883-892 stores and reads a fixed uint64_t; main/otpauth.h:15 caps its OTP names at 16.
     { 8, 8, 0, 16 },
 };
 #define NUM_PERSISTED_NAMESPACES (sizeof(PERSISTED_NAMESPACES) / sizeof(PERSISTED_NAMESPACES[0]))
@@ -137,7 +137,7 @@ static bool user_entry_valid(
     if (ns == 0 || ns >= SETTINGS_NAMESPACE_COUNT || ns - 1 >= NUM_PERSISTED_NAMESPACES) {
         return false;
     }
-    // storage.c:398-414 storage_key_name_valid() requires 1..15 bytes and isgraph() for every byte.
+    // main/storage.c:404-420 storage_key_name_valid() requires 1..15 bytes and isgraph() for every byte.
     // nvs_flash.c:243 aborts when a listed key is 16 bytes or longer; bytes 33..126 also exclude an
     // embedded NUL that C-string NVS lookups could never match or erase.
     if (!key_len || key_len >= NVS_KEY_NAME_MAX_SIZE) {
@@ -199,8 +199,8 @@ bool pijade_settings_serialize(const struct wally_map* const prefs, uint8_t** ou
         }
         for (size_t i = 0; i < records->num_items; ++i) {
             const struct wally_map_item* const item = &records->items[i];
-            // register_multisig.c:39,317,673, register_descriptor.c:42,228, and
-            // register_otp.c:25,113 validate names, while their records are built to the bounds
+            // main/process/register_multisig.c:62,401,752, main/process/register_descriptor.c:51,306, and
+            // main/process/register_otp.c:25,163 validate names, while their records are built to the bounds
             // cited in PERSISTED_NAMESPACES. A violation is therefore an impossible state. Refuse
             // the write instead of silently recreating T6's user-data loss class.
             if (!user_entry_valid((uint8_t)ns, item->key, item->key_len, item->value_len)) {
@@ -310,7 +310,7 @@ static bool walk_entries(struct wally_map* const prefs, const uint8_t* const bod
             if (PERSISTED_FIELDS[field].nul_terminated && p[value_len - 1] != '\0') {
                 return false;
             }
-            // storage.c:539 asserts the replay counter stays below UINT32_MAX; refuse a file that would
+            // main/storage.c:564 asserts the replay counter stays below UINT32_MAX; refuse a file that would
             // hand that assert a value it cannot accept.
             if (!strcmp(PERSISTED_FIELDS[field].key, "antireplay")) {
                 const uint32_t antireplay = (uint32_t)p[0] | ((uint32_t)p[1] << 8)
@@ -324,8 +324,8 @@ static bool walk_entries(struct wally_map* const prefs, const uint8_t* const bod
             // raw digits, which format_pin() asserted were < 10; keeping that check would now reject
             // ordinary hash bytes and, because the refusal is per file (see below), would take the
             // whole settings file and the stored wallet blob down with it.
-            // keychain.c:213-215 JADE_ASSERT(keychain_is_network_type_consistent(network_type)) on every
-            // successful PIN unlock (auth_user.c:435-440); network_type_t (network.h:23) only defines
+            // main/keychain.c:448 JADE_ASSERT(keychain_is_network_type_consistent(network_type)) on every
+            // successful PIN unlock (main/process/auth_user.c:473-477); network_type_t (network.h:23) only defines
             // 0, 1, 2, so refuse a stored value outside that range.
             if (!strcmp(PERSISTED_FIELDS[field].key, "networktype")) {
                 const uint32_t networktype = (uint32_t)p[0] | ((uint32_t)p[1] << 8)

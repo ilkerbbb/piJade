@@ -835,11 +835,11 @@ int sign_psbt(jade_process_t* process, CborValue* params, const network_t networ
     // wallet question, and before derivation so the input loop runs against the chosen wallet the
     // first time.  Nothing computed above depends on which wallet is in use: the network comes
     // from the psbt and the device-wide network restriction (network_from_psbt_type), which
-    // slot activation does not touch (main/keychain.c:52) - if that restriction ever becomes
+    // slot activation does not touch (main/keychain.c:53) - if that restriction ever becomes
     // per-wallet, this ordering has to be revisited.
     //
-    // A NULL process means the psbt came from a scan (main/qrmode.c:1224) or from usb storage
-    // (main/usbhmsc/usbmode.c:831), ie. the user is at the device.  The rpc entry point has
+    // A NULL process means the psbt came from a scan (main/qrmode.c:2034) or from usb storage
+    // (main/usbhmsc/usbmode.c:843), ie. the user is at the device.  The rpc entry point has
     // already asserted that its own interface unlocked the wallet in use
     // (ASSERT_KEYCHAIN_UNLOCKED_BY_MESSAGE_SOURCE, main/process/process_utils.h:100); switching
     // underneath that assertion would let a serial or ble client sign with a wallet its

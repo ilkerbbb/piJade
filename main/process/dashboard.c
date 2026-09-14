@@ -1159,7 +1159,7 @@ static void handle_registered_wallets(void)
     // to be discovered by opening a record, which then says "Not valid for current wallet"
     // (main/ui/multisig.c:47-56, main/ui/descriptor.c:50-60); on a device holding several wallets
     // at once that is one press too late to be useful while choosing.  Ownership is the HMAC these
-    // two helpers already check (main/wallet.c:1340-1352), so the answer costs one pass over the
+    // two helpers already check (main/wallet.c:1346-1358), so the answer costs one pass over the
     // records the names came from.  The lists are deliberately not narrowed to the owned ones: a
     // record left behind by a wallet that is not loaded can only be deleted through this carousel.
     JADE_STATIC_ASSERT(MAX_MULTISIG_NAME_SIZE == NVS_KEY_NAME_MAX_SIZE);
@@ -1170,7 +1170,7 @@ static void handle_registered_wallets(void)
     // bytes to the frame (256 of names plus two 16-byte flag arrays) on top of the 512 bytes of
     // names already held above, so this frame holds 800 bytes.  The peak is not set here though:
     // both helpers keep a whole record in their own frame on the same stack - multisig_data_t is
-    // about 1.2KB (multisig.c:551) and descriptor_data_t about 3.2KB (descriptor.c:755) - and the
+    // about 1.2KB (main/multisig.c:521) and descriptor_data_t about 3.2KB (main/descriptor.c:785) - and the
     // deeper of those two calls is what has to fit.
     char owned_names[MAX_MULTISIG_REGISTRATIONS][NVS_KEY_NAME_MAX_SIZE];
     size_t num_owned = 0;
@@ -1787,7 +1787,7 @@ static bool show_otp_code(otpauth_ctx_t* otp_ctx)
         // BBB-AIRGAP: upstream sends the user to the Blockstream companion app over USB or
         // Bluetooth.  Neither exists here - the radio is physically cut and the port is QR only -
         // so the message named a route this device does not have.  The route it does have is the
-        // epoch message over a scanned QR (main/qrmode.c:2341, ur:jade-epoch; the host side is
+        // epoch message over a scanned QR (main/qrmode.c:2586, ur:jade-epoch; the host side is
         // pijade/tools/epoch_qr.py).
         await_error_3("Clock not set.", "Scan a time QR", "to set it.");
         return false;
@@ -2766,7 +2766,7 @@ static void handle_io_test(void)
 // Options > Device > Settings on every other, and the exit branch had to pick between the two to
 // know where to go back to.  Here a row is laid out only where it can act, so every screen keeps
 // one address whatever the device is doing.  It is a list rather than a menu because
-// make_menu_activity() asserts on a fifth row (main/ui/dialogs.c:265) and this holds up to ten.
+// make_menu_activity() asserts on a fifth row (main/ui/dialogs.c:266) and this holds up to ten.
 // Each row below carries the device state it needs as its own condition, measured not assumed.
 static int32_t run_options_list(size_t* selected)
 {
@@ -3245,7 +3245,7 @@ static void handle_settings(const bool startup_menu)
 
 #ifdef CONFIG_HAS_CAMERA
         // BBB-AIRGAP: reuses the existing scan flow rather than adding a second dispatcher; an
-        // epoch QR lands in handle_epoch_qr() (main/qrmode.c:2549) which reports the time it set.
+        // epoch QR lands in handle_epoch_qr() (main/qrmode.c:2586) which reports the time it set.
         // Sets 'done' for the same reason the pinserver QR case above does: the scan is generic, so
         // a psbt or a wallet QR can also arrive here, and those screens free the managed activities
         // this loop is holding in 'act' - coming back to the OTP menu would use freed memory.  The
@@ -3350,7 +3350,7 @@ static void handle_session(void)
 
     // Fingerprints in uppercase hex, the same form the home screen shows, so the user can match
     // the two screens. Copied into local buffers because the label text is copied by the builder
-    // anyway (main/gui.c:1170).
+    // anyway (main/gui.c:1300-1302).
     char slot_labels[MAX_SEED_SLOTS][2 * BIP32_KEY_FINGERPRINT_LEN + 1];
     list_item_t session_items[MAX_SEED_SLOTS + 2];
     size_t num_session_items = 0;
@@ -3562,7 +3562,7 @@ static void handle_session(void)
 
         case BTN_SESSION_SLEEP:
             // BBB-AIRGAP: drop the wallets before powering down, the way the idle timer already
-            // does (main/idletimer.c:267).  Upstream leaves it to the hardware: an ESP32 that
+            // does (main/idletimer.c:277).  Upstream leaves it to the hardware: an ESP32 that
             // cuts its own supply loses SRAM, so a wipe would be belt and braces.  This port has
             // no PMU - poweroff halts the SoC but the board stays powered (see the note below) -
             // so DRAM keeps whatever was in it, and since a slot now holds the entropy the words
@@ -3581,7 +3581,7 @@ static void handle_session(void)
             // returns, while power_shutdown() does not return on this port (_power_request is
             // noreturn and the host _exit()s), so the frame could die with the process. This
             // is the only public entry point that waits for the gui task, and the job signals
-            // its semaphore after render_activity() (main/gui.c:2417-2439); the flush reaches
+            // its semaphore after render_activity() (main/gui.c:2552-2574); the flush reaches
             // the panel synchronously from that same task (main/display.c:1018 ->
             // display_hw_flush() -> libjade_display_flushed()). Nothing is destroyed
             // here (first argument NULL): the menu screen belongs to run_list_activity(), and
@@ -3592,7 +3592,7 @@ static void handle_session(void)
             // The message deliberately does not say when the power may be cut. A dark screen
             // is not a completed halt: on_power_request() queues poweroff.target with
             // --no-block and _exit()s as soon as systemctl accepts the job
-            // (pijade/host/pijade_host.c:346-367), so the backlight goes out while systemd is
+            // (pijade/host/pijade_host.c:471-506), so the backlight goes out while systemd is
             // still stopping services and unmounting the card; the failure path aborts and
             // darkens the screen without any shutdown at all. Telling the user to cut power at
             // that point would invite a corrupted card. Producing an honest "power can be cut"
@@ -3600,7 +3600,7 @@ static void handle_session(void)
             // separate piece of work, recorded but not done.
             //
             // A failed request does not leave this notice standing as a false "it is off":
-            // on_power_request() returns, _power_request() aborts (libjade/libjade.c:196), and
+            // on_power_request() returns, _power_request() aborts (libjade/libjade.c:224), and
             // jade_abort() paints "Internal error" over this screen and holds it for five
             // seconds before the real abort (main/jade_abort.c:20-34). Measured in the
             // emulator, where no power handler is registered: the abort screen replaced this

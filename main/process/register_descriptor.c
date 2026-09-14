@@ -148,7 +148,7 @@ static int register_descriptor(
         // its owner.  Kept in step with the multisig branch: descriptors now also arrive from the
         // QR path (register_descriptor_text() below), so this guard is reachable on this device.
         // Heap rather than stack because descriptor_data_t is some
-        // 3KB and RPC handlers run inline on the dashboard task (dashboard.c:635 calls
+        // 3KB and RPC handlers run inline on the dashboard task (main/process/dashboard.c:638 calls
         // task_function() directly), so there is no separate stack to spend it on.
         descriptor_data_t* const existing_data = JADE_MALLOC(sizeof(descriptor_data_t));
         const char* load_errmsg = NULL;

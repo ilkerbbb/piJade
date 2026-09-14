@@ -26,7 +26,7 @@ load() { $J btn:right wait:0.5 btn:click wait:1.5; $J camfile:/probe/$1:12; for 
 # rather than Session, so full-frame comparison misses home. Measured 2026-09-06:
 # tile changes first differ at byte 43703 (row 91), while every non-home screen differs
 # from byte 1; a 40000-byte prefix is therefore a reliable discriminator.
-# The old criterion (dashboard.c:3666 "showing home screen/Active" counter) is INVALID:
+# The old criterion (main/process/dashboard.c:3975 "showing home screen/Active" counter) is INVALID:
 # that line is written only on keychain changes, never on return from scanning.
 ishome() { $J shot:$1 >/dev/null; cmp -s -n 40000 /probe/homesig.rgb565 /probe/$1.rgb565; }
 

@@ -7,7 +7,7 @@ signature was produced when leaving confirmation; the criterion is the RPC RESPO
   1. Set up a wallet with a public test vector (no real seed enters this machine).
   2. Capture the dashboard anchor.
   3. Send sign_message ASYNCHRONOUSLY without waiting for its response: the device
-     draws confirmation and waits (main/process/sign_message.c:252 confirm_sign_message).
+     draws confirmation and waits (main/process/sign_message.c:308 confirm_sign_message).
   4. Verify confirmation drawing through a frame change.
   5. Press KEY3.
   6. Collect the response by id. PASS: an ERROR with code CBOR_RPC_USER_CANCELLED
@@ -33,7 +33,7 @@ TEST_MNEMONIC = ('abandon abandon abandon abandon abandon abandon '
                  'abandon abandon abandon abandon abandon about')
 
 # m/44'/0'/0'/0/0, an ordinary signing path, NOT a GDK login challenge. The
-# auto_sign branch (sign_message.c:247) is not taken and confirmation is actually drawn.
+# auto_sign branch (main/process/sign_message.c:293) is not taken and confirmation is actually drawn.
 SIGN_PATH = [2147483692, 2147483648, 2147483648, 0, 0]
 SIGN_MESSAGE = 'piJade escape test'
 

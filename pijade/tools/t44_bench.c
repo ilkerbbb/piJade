@@ -6,7 +6,7 @@
  * This binary only produces that number; it makes no decision, opens no camera, and reads no settings.
  *
  * HOW: compile quirc directly using the same five source files (the list in
- * libjade/libjade.c:69-73) and optimization level as the device. Do not link libjade.so;
+ * libjade/libjade.c:77-81) and optimization level as the device. Do not link libjade.so;
  * its symbols are not exported.
  *
  * FIXTURES: embedded module matrices (t44_matrix.h, generator t44_matrix.py). Render
@@ -18,7 +18,7 @@
  * which is outside this binary's responsibility.
  *
  * GATE: exit without action unless /boot/firmware/pijade-t44.enable exists (same pattern
- * as t40, pijade/host/pijade_host.c:471). The first argument can override the marker
+ * as t40, pijade/host/pijade_host.c:957). The first argument can override the marker
  * path, allowing the acceptance path itself to run in the emulator. */
 #include <inttypes.h>
 #include <math.h>
@@ -45,7 +45,7 @@
 
 #include "t44_matrix.h"
 
-/* Same value as main/qrscan.c:13; the window is derived from it. */
+/* Same value as main/qrscan.c:15; the window is derived from it. */
 #define SCAN_MARGIN 20
 /* Quiet zone, in modules. Same as round 6 fixtures; the frame is already white outside the QR square. */
 #define QUIET 2
@@ -118,7 +118,7 @@ static void draw_frame(const struct t44_matrix* m, int W, int H, uint8_t* frame,
     *module_px = (double)target / (double)total_modules;
 }
 
-/* Same crop as main/qrscan.c:69-115: the quirc window in the center of the frame. */
+/* Same crop as main/qrscan.c:177-187: the quirc window in the center of the frame. */
 static void crop(const uint8_t* frame, int W, int H, uint8_t* window, int qw, int qh)
 {
     const int xo = (W - qw) / 2, yo = (H - qh) / 2;

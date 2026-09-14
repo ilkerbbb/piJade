@@ -147,7 +147,7 @@ static void make_keyboard_screen(link_activity_t* kb_screen_activity, const char
 // linked activity switch and the entry loop's keyboard-page counter both follow the normal button
 // path. Registered on each keyboard activity rather than globally: an activity's handlers are only
 // live while that activity is current (`gui_activity_register_event()`), and the idle-timeout
-// warning screen (`idletimer.c:129`) takes the screen over for a few seconds. A global handler
+// warning screen (`main/idletimer.c:189`) takes the screen over for a few seconds. A global handler
 // would still fire under that screen and post the page switch while the keyboard activity's own
 // switch callback is unregistered, leaving the visible page one behind the counter.
 static void keyboard_alt_event_handler(

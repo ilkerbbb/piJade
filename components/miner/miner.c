@@ -193,7 +193,7 @@ typedef struct task_ctx {
     _Atomic bool newwork;
     /* BBB-AIRGAP: upstream stops a miner with vTaskDelete(handle), which on FreeRTOS deletes another
      * task outright whatever it is doing. piJade runs the Linux build, where vTaskDelete() can only
-     * signal a thread that parked itself in vTaskDelay(portMAX_DELAY) (libjade/task.c:197-205, :233);
+     * signal a thread that parked itself in vTaskDelay(portMAX_DELAY) (libjade/task.c:203-211, :247-254);
      * a miner task never does - its two park loops use vTaskDelay(1) and its hash loop never delays at
      * all. So the handle was never found, both threads outlived stop_miners(), and the free() that
      * follows handed their still-live writes (nonce_solution and solution_found both point inside the

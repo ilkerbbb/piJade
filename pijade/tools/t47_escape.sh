@@ -22,9 +22,9 @@
 #        prove that no signature was produced.
 #   N7 - At both gates of factory reset, the device's MOST DESTRUCTIVE action, KEY3 neither
 #        confirms nor silently cancels. The second gate is a DIGIT_ENTRY_PIN confirmation-code
-#        screen (main/process/dashboard.c:697), the strictest instance of "PIN entry" in
+#        screen (main/process/dashboard.c:699), the strictest instance of "PIN entry" in
 #        Ilker's second constraint. Three criteria: reached dashboard, card file UNCHANGED,
-#        and cancellation logged (dashboard.c:704), making cancellation visible rather than dropped.
+#        and cancellation logged (main/process/dashboard.c:706), making cancellation visible rather than dropped.
 #   N8 - On a DIMMED screen, the first KEY3 only wakes; escape starts on the second press.
 #        A key pressed on a screen the user CANNOT SEE must not act. KEY3 behaves like
 #        the other seven keys (gui_alt_click() first calls idletimer_register_activity(true)
@@ -137,7 +137,7 @@ equal "P1 returned to dashboard from camera screen" /probe/k47a_anchor.rgb565 /p
 # N4: escape did not leave the device stuck; the same screen can be entered again.
 #
 # This assertion is deliberately narrow. It does NOT measure the dashboard's OWN
-# gui_escape_clear() (main/process/dashboard.c:3760): the intervening btn:click already
+# gui_escape_clear() (main/process/dashboard.c:3797): the intervening btn:click already
 # clears the flag (gui_front_click(), main/gui.c), so this comparison would pass even
 # without dashboard cleanup. It does measure successful reentry without immediately
 # bouncing back; a stuck flag would close the new screen as soon as it opened.
@@ -259,7 +259,7 @@ python3 $T/t47_destructive.py /probe/sock47K /probe/daemon47K.log k47k || report
 # ------------------------------------------ N7: most destructive action, factory reset
 # Factory reset has two gates: the yes/no question "Reset Jade and erase all PIN and wallet data?
 # This cannot be undone!", then entry of a randomly generated confirmation code on
-# DIGIT_ENTRY_PIN (main/process/dashboard.c:690-704).
+# DIGIT_ENTRY_PIN (main/process/dashboard.c:692-706).
 # Measure with a SET-UP WALLET: a real reset would change the card file, making
 # "card unchanged" meaningful. On an uninitialized device it would prove nothing.
 start F
@@ -306,7 +306,7 @@ if [ "$CARD_BEFORE" = "$CARD_AFTER" ]; then
 else
     report "47: N7 card changed after escape"
 fi
-# Cancellation must be observed and logged, not silently dropped (dashboard.c:704).
+# Cancellation must be observed and logged, not silently dropped (main/process/dashboard.c:706).
 if tail -n +$((LINES_BEFORE + 1)) /probe/daemon47F.log | grep -q "not wiping data"; then
     echo "47 PASS: N7 cancellation was logged (no silent drop)"
 else
@@ -314,7 +314,7 @@ else
 fi
 
 # ------------------------------------------------- N8: first press on a dimmed screen
-# An idle screen dims (main/idletimer.c:289-292). A press on a screen the user CANNOT SEE
+# An idle screen dims (main/idletimer.c:311-314). A press on a screen the user CANNOT SEE
 # must not act; gui_alt_click() first calls idletimer_register_activity(true) and returns
 # early, behaving like the other seven keys. Verify that the first press only wakes
 # and the second escapes. This section sets the shortest threshold (30 seconds) and
@@ -407,7 +407,7 @@ $M btn:right btn:right shot:anchor || report "N10: could not capture dashboard a
 $M btn:click btn:down btn:down btn:down btn:down btn:down btn:down btn:click shot:info \
     || report "N10: could not reach Info menu"
 $M btn:down btn:down btn:down btn:click shot:iotest || report "N10: could not reach I/O Test menu"
-# I/O Test rows: Screen, Buttons, Camera (main/ui/dashboard.c:568-580); three down presses reach Camera.
+# I/O Test rows: Screen, Buttons, Camera (main/ui/dashboard.c:510-523); three down presses reach Camera.
 $M btn:down btn:down btn:down btn:click shot:camera || report "N10: could not open camera"
 # Positive control: the camera actually ran. Frame comparison alone could pass
 # even if the camera had never been entered.

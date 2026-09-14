@@ -20,7 +20,7 @@ src, x0, y0, mods, ppm, out = (sys.argv[1], int(sys.argv[2]), int(sys.argv[3]),
 W = H = 240
 CAM_W, CAM_H = 640, 480   # same contract as jadectl.CAM_FRAME_W/H
 QUIET = 4
-# quirc reads only the central SCAN_WINDOW square of the frame (SCAN_MARGIN, main/qrscan.c:13), so
+# quirc reads only the central SCAN_WINDOW square of the frame (SCAN_MARGIN, main/qrscan.c:15), so
 # the code has to fit that square rather than the full frame height. The cap matters more: measured
 # 2026-09-10 on build_linux, quirc identifies synthetic codes at 3..7 px per module for every
 # version from 1 to 10 and finds nothing at all from 8 px upwards (blur rescues some 8 px cases,

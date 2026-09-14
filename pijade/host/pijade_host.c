@@ -509,7 +509,7 @@ static void on_power_request(const libjade_power_action_t action, void* ctx)
     // printed, which is what the 2026-09-02 device round logged as "did not shut the machine down,
     // status 15" - 15 being SIGTERM, not an exit code - with the next boot record sitting directly
     // underneath it: the machine had gone down and the log called it a failure. Returning from here
-    // reaches libjade's _power_request() (libjade/libjade.c:204), which aborts at :216. Every branch
+    // reaches libjade's _power_request() (libjade/libjade.c:212), which aborts at :224. Every branch
     // returns and lets that abort happen, except the SIGTERM branch, which exits without abort.
     if (WIFEXITED(status) && WEXITSTATUS(status) == 127) {
         // The child's own exit code for "exec did not happen": no such file, not executable, or
@@ -520,9 +520,9 @@ static void on_power_request(const libjade_power_action_t action, void* ctx)
         // that. This handler runs only on a power request, so reaching it already means this process
         // asked for the shutdown. Of the code paths the image actually ships, none was measured
         // sending signals to this unit besides systemd: getty@, serial-getty@, and autovt@ are
-        // masked (pijade/images/prepare-image.sh:315-317); ssh and its helpers are masked
-        // (:292-295); cron's wants link is removed (:359); and the image installs no watchdog, no
-        // dropbear, and no UART console. The enabled units are pinned by an allowlist (:808-810):
+        // masked (pijade/images/prepare-image.sh:376-378); ssh and its helpers are masked
+        // (:353-356); cron's wants link is removed (:420); and the image installs no watchdog, no
+        // dropbear, and no UART console. The enabled units are pinned by an allowlist (:871-873):
         // pijade's own three, dbus, getty.target, systemd-logind, systemd-user-sessions,
         // systemd-update-utmp-runlevel, and systemd-ask-password-wall.path. This treatment rests on
         // that measured set rather than on a proof; a sender outside it is outside the device's
@@ -866,8 +866,8 @@ static int run_headless(void)
     return EXIT_SUCCESS;
 }
 
-/* BBB-AIRGAP: the level names are kept identical to libjade_daemon's (libjade/daemon.c:410-429), so
- * a flag learned on the emulator means the same thing on the device. The numbers are libjade.h:52's
+/* BBB-AIRGAP: the level names are kept identical to libjade_daemon's (libjade/daemon.c:457-468), so
+ * a flag learned on the emulator means the same thing on the device. The numbers are libjade/libjade.h:54-55's
  * contract: 0 to 4 is decreasing detail, 5 is off. */
 #define PIJADE_LOG_NONE 5
 
@@ -946,7 +946,7 @@ int main(int argc, char** argv)
 
     /* BBB-AIRGAP: the daemon sets this after libjade_start(); here it is set before, so the lines
      * written during start-up are captured too. The ordering is safe: the level lives in the global
-     * at libjade.c:111 and libjade_start() does not touch it. Setting it in one place is also
+     * at libjade/libjade.c:123 and libjade_start() does not touch it. Setting it in one place is also
      * required, because libjade_start() is called from two paths in this file (device and
      * headless). */
     libjade_set_log_level(log_level);

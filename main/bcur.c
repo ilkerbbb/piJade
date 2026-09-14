@@ -282,7 +282,7 @@ static bool bcur_seq_halves_ok(const char* const start, const char* const end)
 }
 
 // The decoder splits everything after "ur:" on '/' and DROPS empty components
-// (esp32_bc-ur/src/utils.cpp:48), so "ur:bytes//x-3/<body>" reaches the sequence parser as
+// (components/esp32_bc-ur/src/utils.cpp:48), so "ur:bytes//x-3/<body>" reaches the sequence parser as
 // exactly "x-3" - identical to "ur:bytes/x-3/<body>".  A gate that walks the raw string with
 // strchr() therefore sees a different shape than the decoder does, which is how the first
 // version of this check was bypassed (Codex review, 2026-09-03).  Split the way the decoder does.

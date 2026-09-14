@@ -249,7 +249,7 @@ static void idletimer_task(void* ignore)
                     // User pressed something or message arrived - recheck from the top.
                     // BBB-AIRGAP: upstream slept a whole period here, which discards the screen
                     // timeout for that period.  Every press path registers activity before it
-                    // posts the gui event (gui.c:2665, 2722, 2749), so the next pass always sees
+                    // posts the gui event (main/gui.c:2705,2716,2726,2734), so the next pass always sees
                     // fresh activity and cannot come straight back into this warning.
                     JADE_LOGI("Cancelling idle-timeout, rechecking");
                     continue;

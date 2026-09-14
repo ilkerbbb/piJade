@@ -491,7 +491,7 @@ fi
 #
 # Files live on FAT; the most sensitive data is PIN wallet key material in pijade-settings.bin.a
 # and .b (host/settings_store.h). Identity is less sensitive, and libjade already hashes it.
-# macid is NOT secret: main/random.c:248 mixes it with chip_info and the firmware version
+# macid is NOT secret: main/random.c:247-249 mixes it with chip_info and the firmware version
 # as DOMAIN SEPARATION input; actual entropy comes from get_random().
 # The required properties are uniqueness and persistence, not unpredictability.
 # --- Clock: fake-hwclock shutdown cannot save ------------------------------
@@ -510,10 +510,10 @@ fi
 #
 # CAUTION, the boundary must be explicit: this DOES NOT provide a persistently correct clock.
 # Each boot resets to the image build time. Jade's own set_epoch QR flow adjusts device time
-# (main/qrmode.c:1298 handle_epoch_qr), and it WORKS in this port: libjade/libjade.c:179
+# (main/qrmode.c:2586 handle_epoch_qr), and it WORKS in this port: libjade/libjade.c:203-207
 # settimeofday_host forwards to the host handler registered through libjade_set_clock_handler;
-# pijade-host registers it in pijade_host.c:412. Measured on-device on 2026-08-28: the supplied epoch
-# appeared on screen, and time-based TOTP (main/otpauth.c:597 time(NULL)) matched an independent
+# pijade-host registers it in pijade/host/pijade_host.c:609. Measured on-device on 2026-08-28: the supplied epoch
+# appeared on screen, and time-based TOTP (main/otpauth.c:611 time(NULL)) matched an independent
 # generator. Adjusted time survives only the current session; there is NO persistence,
 # nor should there be. This only disables the failing shutdown step introduced by T7 itself.
 # The distribution image MUST NOT carry a card ID. This script processes a .img for distribution;
@@ -532,9 +532,9 @@ chmod 0644 "$SYSTEMD_DIR/fake-hwclock.service.d/pijade.conf"
 # --- Time zone: the distribution image must display UTC -------------------------------
 # Base raspios ships with Europe/London (measured: /etc/timezone = Europe/London and
 # /etc/localtime -> /usr/share/zoneinfo/Europe/London; this script never set the time zone).
-# Why it matters: both time display paths apply the local time zone (main/qrmode.c:1325 and
-# main/process/dashboard.c:1508,1548 ctime_r). The OTP screen prints a FIXED "UTC" label
-# beside it (main/ui/otpauth.c:318). This MISREPORTS an hour during daylight saving: on 2026-08-28
+# Why it matters: both time display paths apply the local time zone (main/qrmode.c:2579 and
+# main/process/dashboard.c:1670,1715 ctime_r). The OTP screen prints a FIXED "UTC" label
+# beside it (main/ui/otpauth.c:352). This MISREPORTS an hour during daylight saving: on 2026-08-28
 # the device displayed UTC 18:59:40 as "19:59:40" (BST, +1). Upstream Jade carries no tzdata
 # on ESP32, so ctime_r returns UTC and the label is correct; parity requires the same here.
 # tzdata uses two files; write both (as dpkg-reconfigure tzdata does). Choose Etc/UTC as the
