@@ -1170,7 +1170,7 @@ static void handle_registered_wallets(void)
     // bytes to the frame (256 of names plus two 16-byte flag arrays) on top of the 512 bytes of
     // names already held above, so this frame holds 800 bytes.  The peak is not set here though:
     // both helpers keep a whole record in their own frame on the same stack - multisig_data_t is
-    // about 1.2KB (main/multisig.c:521) and descriptor_data_t about 3.2KB (main/descriptor.c:785) - and the
+    // about 1.2KB (main/multisig.c:517) and descriptor_data_t about 3.2KB (main/descriptor.c:785) - and the
     // deeper of those two calls is what has to fit.
     char owned_names[MAX_MULTISIG_REGISTRATIONS][NVS_KEY_NAME_MAX_SIZE];
     size_t num_owned = 0;
@@ -1787,7 +1787,7 @@ static bool show_otp_code(otpauth_ctx_t* otp_ctx)
         // BBB-AIRGAP: upstream sends the user to the Blockstream companion app over USB or
         // Bluetooth.  Neither exists here - the radio is physically cut and the port is QR only -
         // so the message named a route this device does not have.  The route it does have is the
-        // epoch message over a scanned QR (main/qrmode.c:2732, ur:jade-epoch; the host side is
+        // epoch message over a scanned QR (main/qrmode.c:2733, ur:jade-epoch; the host side is
         // pijade/tools/epoch_qr.py).
         await_error_3("Clock not set.", "Scan a time QR", "to set it.");
         return false;
@@ -2571,7 +2571,7 @@ static void handle_io_test_screen(void)
     gui_set_current_activity_sync(act, false);
 
     // BBB-AIRGAP: discard the menu click's trailing raw event before it can skip red; this is the
-    // screen-specific instance of the switch-then-drain race documented in main/ui/dialogs.c:565.
+    // screen-specific instance of the switch-then-drain race documented in main/ui/dialogs.c:578.
     while (sync_wait_event(event_data, NULL, NULL, NULL, 10 / portTICK_PERIOD_MS) == ESP_OK) {
         // discard; see comment above
     }
@@ -2766,7 +2766,7 @@ static void handle_io_test(void)
 // Options > Device > Settings on every other, and the exit branch had to pick between the two to
 // know where to go back to.  Here a row is laid out only where it can act, so every screen keeps
 // one address whatever the device is doing.  It is a list rather than a menu because
-// make_menu_activity() asserts on a fifth row (main/ui/dialogs.c:266) and this holds up to ten.
+// make_menu_activity() asserts on a fifth row (main/ui/dialogs.c:279) and this holds up to ten.
 // Each row below carries the device state it needs as its own condition, measured not assumed.
 static int32_t run_options_list(size_t* selected)
 {
@@ -3250,7 +3250,7 @@ static void handle_settings(const bool startup_menu)
 
 #ifdef CONFIG_HAS_CAMERA
         // BBB-AIRGAP: reuses the existing scan flow rather than adding a second dispatcher; an
-        // epoch QR lands in handle_epoch_qr() (main/qrmode.c:2732) which reports the time it set.
+        // epoch QR lands in handle_epoch_qr() (main/qrmode.c:2733) which reports the time it set.
         // Sets 'done' for the same reason the pinserver QR case above does: the scan is generic, so
         // a psbt or a wallet QR can also arrive here, and those screens free the managed activities
         // this loop is holding in 'act' - coming back to the OTP menu would use freed memory.  The

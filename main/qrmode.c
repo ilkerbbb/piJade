@@ -1650,7 +1650,7 @@ static bool address_explorer(char* out_address, const size_t out_address_len)
         if (show_entry_menu) {
             // A record carries its own script type and account, so with the branch picked here
             // there is nothing left for the options screen to offer and the row is dropped -
-            // make_menu_activity() asserts on an empty menu (main/ui/dialogs.c:265).
+            // make_menu_activity() asserts on an empty menu (main/ui/dialogs.c:278).
             const bool registered_wallet = multisig_data || descriptor;
             list_item_t entry_items[3];
             size_t num_entry_items = 0;
@@ -1761,7 +1761,7 @@ static bool address_explorer(char* out_address, const size_t out_address_len)
             JADE_ASSERT(selected < num_items);
 
             // BBB-AIRGAP: the branch word always goes in the title; the path follows it only
-            // while both fit.  populate_title_bar() (main/ui/dialogs.c:171) gives the title 70%
+            // while both fit.  populate_title_bar() (main/ui/dialogs.c:184) gives the title 70%
             // of the screen and does not shorten what it is handed - measured on 2026-09-02, the
             // pair wrapped onto a second line and crowded the first row.  Nothing here can assume
             // a length either: this path is at its longest on a record, whose name runs to 15
@@ -2410,7 +2410,7 @@ static gui_activity_t* make_mining_activity(const char* title, const uint64_t re
 // already shows addresses. MINING_ADDRESS_MAX (90) < MAX_DISPLAY_ADDRESS_LEN (96): always a single
 // screen, act2 stays NULL. Default event BTN_ADDRESS_ACCEPT: on the device the pressed button
 // decides (main/gui.c:3232-3235); the unattended-CI emulator build returns the default after 1 ms
-// (main/gui.c:3236-3238), exactly as await_yesno_activity returns BTN_YES there (main/ui/dialogs.c:929), so
+// (main/gui.c:3236-3238), exactly as await_yesno_activity returns BTN_YES there (main/ui/dialogs.c:1020), so
 // the emulator walkthrough reaches the mining screen. The initial highlight is still the reject
 // button (default_selection = false), so a real user has to move to the tick on purpose.
 static bool confirm_mining_template(const mining_template_t* t)
@@ -2584,7 +2584,7 @@ static bool handle_mining_qr(const uint8_t* cbor, const size_t cbor_len)
             break;
         }
         // BBB-AIRGAP: K1 decision. Mining runs for hours; without this the idle timer reboots the
-        // device with the wallet cleared (main/idletimer.c:176-215). Registering activity leaves
+        // device with the wallet cleared (main/idletimer.c:186-225). Registering activity leaves
         // nothing to restore on exit, unlike the min-timeout override pattern of display_bcur_qr().
         idletimer_register_activity(false);
         if (check_solutions(mctx)) {

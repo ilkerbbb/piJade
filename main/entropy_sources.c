@@ -142,7 +142,7 @@ static bool run_dice_entry(char* rolls, const size_t total_rolls)
     // Progress across the whole run.  A count alone gives no sense of how much of a 50 or 99
     // roll run is left.  Opaque, not the transparent treatment ui/camera.c uses: '<' undoes a
     // roll, so the value here DECREASES, and make_progress_bar() notes that a transparent bar
-    // then needs its parent redrawn (main/ui/dialogs.c:1284-1285).  There is no image behind this bar to
+    // then needs its parent redrawn (main/ui/dialogs.c:1375-1376).  There is no image behind this bar to
     // show through, so the plain fill upstream uses everywhere else is both correct and simpler.
     make_progress_bar(vsplit, &display.bar);
 

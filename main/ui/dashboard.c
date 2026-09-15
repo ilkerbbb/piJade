@@ -165,7 +165,7 @@ gui_activity_t* make_confirm_qrmode_activity(void)
     // BBB-AIRGAP: upstream asks this in three lines whose first one, "Save and encrypt wallet", is
     // 23 characters and loses its last one off the right edge of a 240px screen (measured).  The
     // question is the same; it is laid out over the fourth line this screen has room for
-    // (make_show_message_activity() takes up to four, main/ui/dialogs.c:765, and four rows of
+    // (make_show_message_activity() takes up to four, main/ui/dialogs.c:841, and four rows of
     // MESSAGE_LINE_ROW_HEIGHT fit the 55% left between the title bar and the footer buttons), so
     // no line here exceeds 21 characters and the font is untouched.
     const char* message[] = { "Save this wallet", "encrypted with a PIN,", "or scan a SeedQR", "every session?" };
@@ -396,9 +396,9 @@ gui_activity_t* make_wallet_erase_pin_options_activity(void)
     gui_set_align(value, GUI_ALIGN_CENTER, GUI_ALIGN_TOP);
     gui_set_parent(value, vsplit);
 
-    // BBB-AIRGAP: without explicit borders add_button() draws them in black (main/ui/dialogs.c:83-87), so the
+    // BBB-AIRGAP: without explicit borders add_button() draws them in black (main/ui/dialogs.c:96-100), so the
     // two controls read as plain text until one is selected; the standard two-button footer is
-    // TOPRIGHT/TOPLEFT plus an initial selection (main/ui/dialogs.c:1068-1073).  'Change' is selected first
+    // TOPRIGHT/TOPLEFT plus an initial selection (main/ui/dialogs.c:1159-1164).  'Change' is selected first
     // because 'Disable' removes the duress wallet's protection - the destructive option is not the
     // one that should sit under the click by default.  Presentation only: the duress PIN's unlock
     // and wipe behaviour is untouched.

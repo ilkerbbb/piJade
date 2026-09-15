@@ -38,7 +38,7 @@
 // BBB-AIRGAP: the longest run of words the entry screens below collect, which is a SLIP-0039 long
 // share rather than a recovery phrase.  MNEMONIC_MAXWORDS is deliberately NOT raised to reach it:
 // that constant means 'twenty-four' to the screens that confirm a new phrase (the count of options
-// at :509 is chosen by comparing against it), so a larger value would silently kill the 24-word
+// at :528 is chosen by comparing against it), so a larger value would silently kill the 24-word
 // branch of a screen that has nothing to do with SLIP-0039.
 #define WORDLIST_ENTRY_MAXWORDS 33
 
@@ -2290,7 +2290,7 @@ static bool slip39_share_words(const size_t nwords, slip39_share_t* share)
         if (rc != SLIP39_OK) {
             await_error(slip39_error_message(rc));
             // BBB-AIRGAP: KEY3 on that screen means 'leave', and the flag has to be read HERE,
-            // before the next keypress clears it (main/ui/dialogs.c:905-912).  The keyboard this
+            // before the next keypress clears it (main/ui/dialogs.c:996-1003).  The keyboard this
             // loop would otherwise reopen has escape disabled (:1235-1236), so the usual price of
             // a dropped escape - one extra screen - is instead the whole share typed again, with
             // backspacing off the first word as the only way out.
