@@ -3,6 +3,8 @@
 > piJade is a fork of Blockstream Jade. The aim: to be able to take an upstream Jade release
 > without the update turning brittle. This file keeps the size of the divergence, and the
 > procedure for updating, in one place.
+> The `file:line` references in this file were reread at `01f266aa` on 2026-09-15 and the stale ones
+> corrected; the prose around them was not otherwise remeasured.
 
 ## 1. Remote layout
 
@@ -553,7 +555,7 @@ The `main/qrcode.h` chain pulls in `main/display.h` -> `arch/sys_arch.h` and `es
 ## 17. Scanning back on the host with `quirc` ; `ds->data` belongs to the caller
 
 The caller allocates the `data` pointer inside `struct datastream`
-(`components/esp32-quirc/lib/quirc.h:169`, device side `main/qrscan.c:148`). Without that
+(`components/esp32-quirc/lib/quirc.h:169`, device side `main/qrscan.c:55`). Without that
 allocation, `quirc_decode` does a `memset` on NULL at
 `components/esp32-quirc/lib/decode.c:960` and crashes.
 `pijade/tools/seedqr_roundtrip_probe.c` is the example that uses this pattern correctly, and it
@@ -738,7 +740,7 @@ assumptions, all of them measured:
   unconditionally, and the `JADE_ASSERT(keychain_is_network_type_consistent(...))` at
   `main/keychain.c:493` fails on an out-of-list cached value. This block IS present in a production
   build: `-DDEBUG_MODE=0` (`pijade/images/build-armv6.sh:54`) defines
-  `CONFIG_LIBJADE_NO_DEBUG_MODE` (`libjade/CMakeLists.txt:79-82`), which leaves `CONFIG_DEBUG_MODE`
+  `CONFIG_LIBJADE_NO_DEBUG_MODE` (`libjade/CMakeLists.txt:101-104`), which leaves `CONFIG_DEBUG_MODE`
   undefined (`libjade/include/sdkconfig.h:10-12`).
 
 A write error is no longer swallowed. Before this work the callback was `void` and `nvs_commit()`
@@ -847,7 +849,7 @@ already has that. The ESP32's encrypted flash does not have this risk profile.
 
 **Three paths where a write error goes to the log, not to the screen.** Upstream's
 `main/process/dashboard.c` checks no `storage_set_*` return (measured: zero calls check it). So
-`storage_set_wallet_erase_pin()` (`:1272`), `keychain_persist_key_flags()` and the network
+`storage_set_wallet_erase_pin()` (`:1413`), `keychain_persist_key_flags()` and the network
 restriction helpers ignore the error our new `bool` propagation carries: if the card fills up or
 turns read-only after the wallet was saved, the user believes the duress PIN was set while the old
 value stays in the file. The error reaches the host log (`pijade: cannot write ...`), not the
@@ -1003,7 +1005,7 @@ is 0. An error response, a missing response, a wrong epoch, an extra call or clo
 
 ## 25. Generating a `jade-epoch` QR and scanning it in the emulator
 
-Jade takes the epoch by QR as a `ur:jade-epoch` type (`main/qrmode.c:2874`); the body is directly the
+Jade takes the epoch by QR as a `ur:jade-epoch` type (`main/qrmode.c:2877`); the body is directly the
 CBOR map `{"id":"1","method":"set_epoch","params":{"epoch":N}}` (`handle_epoch_qr`,
 `bcur_parse_jade_message`, `params_set_epoch_time`). The generator is `pijade/tools/epoch_qr.py`
 (cbor2==6.1.2 and qrcode, in a virtualenv of your own). For a TOTP comparison it is generated immediately
