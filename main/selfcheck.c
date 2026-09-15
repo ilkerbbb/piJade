@@ -8,6 +8,7 @@
 #include "random.h"
 #include "rsa.h"
 #include "selfcheck.h"
+#include "slip39.h"
 #include "storage.h"
 #include "utils/malloc_ext.h"
 #include "utils/shake256.h"
@@ -43,6 +44,13 @@ static const char SERVICE_PATH_HEX[] = "00c9678fbd9d9f6a96bd43221d56733b5aba8f52
 #define MNEMONIC_12_ENTROPY_BLOBLEN 80
 // 16 (iv) + 48 (24-word entropy (32) padded to next 16x) + 32 (hmac)
 #define MNEMONIC_24_ENTROPY_BLOBLEN 96
+// BBB-AIRGAP: a stored SLIP-0039 master secret carries a leading tag byte, so 16 and 32 bytes of
+// secret become 17 and 33 bytes of payload.  Those pad to the same 32 and 48 as the entropy blobs
+// above, which is why the numbers repeat; the names are separate because the payloads are not.
+// 16 (iv) + 32 (tag byte + 16-byte master secret (17) padded to next 16x) + 32 (hmac)
+#define SLIP39_16_SECRET_BLOBLEN 80
+// 16 (iv) + 48 (tag byte + 32-byte master secret (33) padded to next 16x) + 32 (hmac)
+#define SLIP39_32_SECRET_BLOBLEN 96
 
 // *All* fields are identical
 static bool all_fields_same(const keychain_t* keydata1, const keychain_t* keydata2, const bool strict_seeds)
@@ -375,6 +383,64 @@ static bool test_storage_with_passphrase(jade_process_t* process, const size_t n
 
     // Check is NOT same wallet
     if (any_fields_same(&keydata, keychain_get())) {
+        FAIL();
+    }
+    keychain_clear();
+
+    return true;
+}
+
+// BBB-AIRGAP: test storing a SLIP-0039 master secret, and that reloading brings the seed back.
+// The tagged blob branch exists for exactly that reason, so the seed comparison here is strict.
+// NOTE: only 16- and 32- byte master secrets are supported
+static bool test_storage_with_slip39_master_secret(jade_process_t* process, const size_t secret_len)
+{
+    JADE_ASSERT(process);
+    JADE_ASSERT(secret_len == SLIP39_MASTER_SECRET_MIN || secret_len == SLIP39_MASTER_SECRET_MAX);
+
+    uint8_t aeskey[AES_KEY_LEN_256];
+    get_random(aeskey, AES_KEY_LEN_256);
+
+    uint8_t master_secret[SLIP39_MASTER_SECRET_MAX];
+    get_random(master_secret, secret_len);
+
+    // Same order as the persistent restore path in mnemonic.c
+    keychain_t keydata = { 0 };
+    keychain_derive_from_seed(master_secret, secret_len, &keydata);
+    keychain_set(&keydata, process->ctx.source, false);
+    keychain_cache_slip39_master_secret(master_secret, secret_len);
+
+    if (!keychain_store(aeskey, sizeof(aeskey))) {
+        FAIL();
+    }
+    if (!keychain_has_pin()) {
+        FAIL();
+    }
+    keychain_clear();
+
+    // At this point we should have stored the tagged master secret, not a full key blob
+    uint8_t blob[SLIP39_32_SECRET_BLOBLEN];
+    size_t blob_len = 0;
+    if (!storage_get_encrypted_blob(blob, sizeof(blob), &blob_len)) {
+        FAIL();
+    }
+    const size_t expected_blob_len
+        = secret_len == SLIP39_MASTER_SECRET_MIN ? SLIP39_16_SECRET_BLOBLEN : SLIP39_32_SECRET_BLOBLEN;
+    if (blob_len != expected_blob_len) {
+        FAIL();
+    }
+
+    // Reload derives the wallet from the master secret, so no passphrase step is required.
+    // If the tag were not recognised the blob would be read as mnemonic entropy and this would ask.
+    if (!keychain_load(aeskey, sizeof(aeskey))) {
+        FAIL();
+    }
+    if (keychain_requires_passphrase()) {
+        FAIL();
+    }
+
+    // Check is same wallet, seeds included
+    if (!all_fields_same(&keydata, keychain_get(), true)) {
         FAIL();
     }
     keychain_clear();
@@ -939,6 +1005,14 @@ bool debug_selfcheck(jade_process_t* process)
         FAIL();
     }
     if (!test_storage_with_passphrase(process, 24)) {
+        FAIL();
+    }
+
+    // BBB-AIRGAP: test save/load of a SLIP-0039 master secret
+    if (!test_storage_with_slip39_master_secret(process, SLIP39_MASTER_SECRET_MIN)) {
+        FAIL();
+    }
+    if (!test_storage_with_slip39_master_secret(process, SLIP39_MASTER_SECRET_MAX)) {
         FAIL();
     }
 
