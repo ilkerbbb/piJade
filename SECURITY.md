@@ -1,5 +1,19 @@
 # Security
 
+> **This repository is piJade, a fork of the Blockstream Jade firmware.** The document below is
+> Blockstream's, and it is the right one to use for a vulnerability in code that piJade shares with
+> upstream Jade. A vulnerability in code that exists only in this fork should come here instead:
+> open a private security advisory on this repository, under Security > Advisories, which reaches
+> the fork's maintainer without disclosing anything publicly. Do not open a public issue for a
+> vulnerability. `pijade/UPSTREAM.md` is where the line between the two runs: it lists, file by
+> file, everything the fork changed or added.
+>
+> Two things about this fork are worth knowing before reporting. It has had no independent security
+> audit. And it runs on hardware with neither a secure element nor secure boot, so the card is
+> readable by anyone who takes it; `pijade/SECURITY-AUDIT-2026-09-03.md` says what follows from
+> that and what is deliberately not claimed, and a finding already written down there is known
+> rather than new.
+
 The maintainers of the Jade firmware take security very seriously and are committed to addressing any disclosed security vulnerabilities quickly and carefully. If you find a security vulnerability, please report it to us following the steps described here.
 
 ## Reporting a Vulnerability

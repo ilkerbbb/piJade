@@ -63,8 +63,8 @@ void keychain_slot_forget_active(void);
 // user typed is still on the stack (main/process/mnemonic.c); afterwards the words are gone and
 // the wallet cannot be drawn again.  These three calls give the wallet in use a place to keep the
 // entropy it was built from, so the same export screens can be reached from the session menu.
-// Only a wallet whose words were presented in this session has entropy: a persisted wallet read
-// back from the blob holds a serialised xpriv, and no mnemonic can be recovered from that.
+// Only a wallet whose words were presented in this session has entropy: nothing on the blob load
+// path fills this field, whichever of its three shapes (keychain_load) the blob turns out to hold.
 void keychain_set_entropy(const char* mnemonic);
 bool keychain_slot_has_entropy(size_t position);
 // Returns false when the wallet in use has no entropy.  On true the caller owns the string and

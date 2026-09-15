@@ -3462,9 +3462,9 @@ static void handle_session(void)
             }
 #ifdef CONFIG_HAS_CAMERA
             // Every backup screen shows the words, and only a wallet whose words were presented in
-            // this session can have them drawn again.  A PIN-unlocked wallet is read back from the
-            // blob as a serialised key, so its words are not recoverable and the row is not offered
-            // rather than failing when pressed.
+            // this session can have them drawn again.  A PIN-unlocked wallet comes back from the
+            // blob without that entropy, whichever of the three shapes it holds, so the row is not
+            // offered rather than failing when pressed.
             if (keychain_slot_has_entropy(position)) {
                 wallet_items[num_wallet_items++]
                     = (list_item_t){ .txt = "Backup", .ev_id = BTN_SETTINGS_WALLET_BACKUP };

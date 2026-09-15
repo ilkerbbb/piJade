@@ -49,8 +49,8 @@ typedef struct {
     // keychain_set() is a no-op when copying from self, so the re-bind calls in auth_user.c and
     // dashboard.c leave it alone - the global mnemonic_entropy is cleared by finalise_slot() on
     // exactly those calls.  Zero length means this wallet cannot be exported, which is the case
-    // for a persisted wallet read back from the blob: that holds a serialised xpriv, and a
-    // mnemonic cannot be recovered from it.
+    // for a persisted wallet read back from the blob: nothing on the load path fills this field,
+    // whichever of the blob's three shapes it turns out to hold (keychain_load).
     uint8_t entropy[BIP39_ENTROPY_LEN_256];
     size_t entropy_len;
     uint8_t userdata;

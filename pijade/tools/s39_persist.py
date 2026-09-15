@@ -506,7 +506,7 @@ def main():
         locked_control(j)
         # The frame is taken AFTER that round trip on purpose.  The locked reject (-32002) is
         # emitted by dispatch_message (main/process/dashboard.c:562-567), whose only call site
-        # is do_dashboard (:3801), and main() reaches that task only once the splash screen's
+        # is do_dashboard (:3806), and main() reaches that task only once the splash screen's
         # boot work is done (main/main.c:212-214,286-296).  So a reply in hand proves the
         # locked home is drawn.  Taken before the round trip, the shot catches the splash
         # instead: measured 2026-09-14, that run's frame showed 'Jade DIY' (main/gui.c:3268).

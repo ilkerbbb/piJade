@@ -184,7 +184,7 @@ confirmed in the code. Put side by side, the two implementations differ as follo
 
 | | SeedSigner | piJade (at audit time) | piJade (after phase 2) |
 |---|---|---|---|
-| Pool frames | **50** (`tools_screens.py:23`) | 25 | **50** (`entropy_sources.h:34`) |
+| Pool frames | **50** (`tools_screens.py:23`) | 25 | **50** (`CAMERA_ENTROPY_FRAMES`) |
 | Once the pool is full | **Keeps collecting**, sliding window; the newest 50 frames are kept (`:117-119`) | Stops and the seed is produced | **Keeps collecting**; because the hash is incremental no window is needed, every frame enters the chain permanently |
 | Who ends the collection | **The user**, by pressing a button (`:127-140`) | The counter, on reaching 25 | **The user**, with the exit button; leaving before 50 produces no seed |
 | Final "header" frame | **Yes**: full resolution, at least 4x the screen's pixels (`tools_views.py:115-119`) | None | None (deliberate: after 2.1 the floor is the CSPRNG, no single frame carries weight) |

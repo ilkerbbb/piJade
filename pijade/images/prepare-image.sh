@@ -4,7 +4,7 @@
 #
 # Since T3.11 the binaries live on FAT (/boot/firmware/pijade/), outside the root filesystem.
 # Reason: macOS can read and write FAT but cannot read ext4. To try a new version, insert the
-# card into the Mac and copy two files, without rebuilding the image and writing 2.5 GB again.
+# card into the Mac and copy the binaries, without rebuilding the image and writing 2.5 GB again.
 #
 # Runs in a container; /img = image to prepare, /pkg = binary package. Invocation
 # (from images/, produced this output on 2026-08-25):
@@ -207,11 +207,11 @@ echo "write access granted:"
 grep -E ' /mnt/(root|boot) ' /proc/mounts | awk '{print "  " $2 " " $4}' | cut -d, -f1
 # The package has an /opt/pijade/... hierarchy; that depth has no counterpart on FAT, and ownership
 # and permissions are not preserved anyway (vfat derives permissions from fmask, not file metadata).
-# Place the two files in a flat directory: when the card is inserted into a Mac, pijade/
-# shows exactly the two files to replace.
+# Place the binaries in a flat directory: when the card is inserted into a Mac, pijade/
+# shows exactly the files to replace.
 # Rerunning on an image prepared before T3.11 leaves the old layout in the root filesystem,
 # with two copies and uncertainty about which runs. Remove the old layout here to keep
-# the script repeatable. Delete only the two files this script installed, and remove directories
+# the script repeatable. Delete only the two files that layout held, and remove directories
 # only when empty: anything else under /opt stays untouched.
 OLD_DIR=/mnt/root/opt/pijade
 if [ -d "$OLD_DIR" ]; then

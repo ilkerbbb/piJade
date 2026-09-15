@@ -4,7 +4,9 @@
 > without the update turning brittle. This file keeps the size of the divergence, and the
 > procedure for updating, in one place.
 > The `file:line` references in this file were reread at `01f266aa` on 2026-09-15 and the stale ones
-> corrected; the prose around them was not otherwise remeasured.
+> corrected; the prose around them was not otherwise remeasured. Later the same day `bb77e43f`
+> brought the tree to the `format.sh` contract, which shifted lines in 13 files; the references
+> here were moved with it and verified against the lines they name, so they stand at `bb77e43f`.
 
 ## 1. Remote layout
 
@@ -16,7 +18,7 @@
 The `master` branch is kept as a mirror of upstream; no change is ever written on top of `master`.
 All work happens on `bbb-airgap`.
 
-## 2. Divergence inventory (2026-09-15 16:10, after the `format.sh` run)
+## 2. Divergence inventory (2026-09-15 22:16, after the documentation round)
 
 > The numbers were measured with `git diff --numstat fdb67a3f..HEAD -- . ':(exclude)pijade'`.
 > `fdb67a3f` is the branch point. `pijade/` is ours and has no upstream counterpart, so it does
@@ -27,6 +29,16 @@ All work happens on `bbb-airgap`.
 > that form and the thirteen `test_data/qr_vga_*.json` rows all look missing while thirteen
 > `qr_qvga_*` rows look unaccounted for. Rewrite the brace form to the new path first; the count
 > then matches exactly, with no row left over on either side.
+>
+> A second trap, measured on 2026-09-15: `--numstat` prints `-` instead of a count for a binary
+> file, so a refresh that parses the two numbers drops every binary silently and the table looks
+> complete while it is not. Twenty-seven diverging files are binary and are therefore absent from
+> the rows below: the twenty-six `test_data/qr_{q,}vga_*.dat` camera recordings and
+> `test_data/sign_message_golden_qr.png`. Counting them, the divergence covers 213 files against
+> the table's 186 rows. They are fixtures, and what they are for is written where they are used,
+> not here; the point of the note is that the difference between 186 and 213 is accounted for
+> rather than unexplained. Use `--name-only` when checking the table against reality, which
+> reports binaries like any other file and also resolves renames to the new path on its own.
 >
 > The reason column has two sources: hand-written rows explain why the divergence exists; rows
 > added in the 2026-09-06 and 2026-09-12 refreshes instead carry the subject line of the commit
@@ -126,9 +138,10 @@ All work happens on `bbb-airgap`.
 | `main/process/debug_set_mnemonic.c` | +24 / -1 | Upstream file | feat(keychain): wire the SeedQR export into the Session menu |
 | `main/seedqr.h` | +24 / -0 | **New file** | Same; the header states that the output is secret and that the caller must `SENSITIVE_PUSH` its buffer and clear it |
 | `main/usbhmsc/usbmode.c` | +24 / -1 | Upstream file | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
+| `SECURITY.md` | +14 / -0 | Upstream file | A fork preface above Blockstream's own reporting document. Left alone until 2026-09-15, it sent a vulnerability in code that exists only in this fork to Blockstream's maintainer; the preface scopes the document below to what the fork shares with upstream and routes fork-only findings to this repository's private advisory channel, with `pijade/UPSTREAM.md` as the line between the two. Not one line of Blockstream's text was changed |
 | `.gitignore` | +23 / -0 | Upstream file | feat(emulator): add --settings to the daemon and measure the failed-erase branch; feat(ui): registered multisig and descriptor wallets in the address explorer |
 | `main/ui/sign_message.c` | +23 / -7 | Upstream file | camera: capture at VGA, and refuse a message the screen cannot show |
-| `README.md` | +22 / -0 | Upstream file | With the repository made public, a fork introduction was added at the top of the root README: what it is, the warning that it is experimental, and pointers to the documents under `pijade/` and to the two helper pages. Upstream's own build document stays below exactly as it was; only a prefix was added, and not one line was removed |
+| `README.md` | +23 / -0 | Upstream file | With the repository made public, a fork introduction was added at the top of the root README: what it is, the warning that it is experimental, and pointers to the documents under `pijade/` and to the two helper pages. The pointer table was rewritten on 2026-09-15 against what those documents actually hold, because the cell for `pijade/README.md` had been promising an install section that file did not have; a row for `SECURITY.md` was added at the same time. Upstream's own build document stays below exactly as it was; only a prefix was added, and not one line was removed |
 | `libjade/gui.py` | +22 / -2 | Upstream file | camera: capture at VGA, and refuse a message the screen cannot show |
 | `main/descriptor_text.h` | +22 / -0 | **New file** | descriptor: a parser reducing text and Specter JSON descriptors to wally's canonical policy-template form |
 | `main/selfcheck.c` | +94 / -641 | Upstream file | test: descriptor tests moved into the libjade verification branch; multisig: record v4, body sealed with AES; the legacy v0-v2 read paths were removed; the same-record check happens in the clear; storage: a third case stores and reloads a SLIP-0039 master secret, so the tagged blob branch is exercised at both supported lengths |

@@ -9,10 +9,11 @@ hardware wallet. The only cable reaching the device is power; everything else tr
 
 | Where to look | What is there |
 |---|---|
-| [`pijade/README.md`](./pijade/README.md) | The fork's own document: hardware, what was changed, install and use |
-| [`pijade/UPSTREAM.md`](./pijade/UPSTREAM.md) | Every departure from upstream, and the discipline for updating |
+| [`pijade/README.md`](./pijade/README.md) | The fork's own document: the hardware, what the device does, and how a card is built and updated |
+| [`pijade/UPSTREAM.md`](./pijade/UPSTREAM.md) | Every departure from upstream, file by file, and the discipline for taking upstream updates into them |
 | [`pijade/SECURITY-AUDIT-2026-09-03.md`](./pijade/SECURITY-AUDIT-2026-09-03.md) | The security audit: threat model, what was measured, what is deliberately not claimed |
 | [`pijade/SEEDSIGNER-COMPARISON.md`](./pijade/SEEDSIGNER-COMPARISON.md) | Seed menu and settings, item by item against SeedSigner |
+| [`SECURITY.md`](./SECURITY.md) | How to report a vulnerability, in this fork and in upstream Jade |
 | [set the clock](https://ilkerbbb.github.io/piJade/clock) and [sign a message](https://ilkerbbb.github.io/piJade/sign) | The helper pages that draw the QR codes the device reads; source under `docs/`, works offline |
 
 The section below is Blockstream Jade's own build document; the fork keeps it as it is and takes
