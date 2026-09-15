@@ -393,7 +393,7 @@ def wallet_menu_rows(j, tag, note):
 
     Run 5's remaining question is whether a restored wallet still offers 'Backup'.  That row
     is laid out only for a wallet that still holds the entropy it was built from
-    (main/process/dashboard.c:3468-3470), and this one came back from the blob as a
+    (main/process/dashboard.c:3470-3472), and this one came back from the blob as a
     tagged master secret, which keychain_load() derives the wallet from without caching any
     entropy (main/keychain.c:930-944) - the only writer is keychain_set_entropy(), reached from
     the paths that were given words (main/keychain.c:260).  The panel draws four rows at a time,
@@ -506,7 +506,7 @@ def main():
         locked_control(j)
         # The frame is taken AFTER that round trip on purpose.  The locked reject (-32002) is
         # emitted by dispatch_message (main/process/dashboard.c:562-567), whose only call site
-        # is do_dashboard (:3806), and main() reaches that task only once the splash screen's
+        # is do_dashboard (:3808), and main() reaches that task only once the splash screen's
         # boot work is done (main/main.c:212-214,286-296).  So a reply in hand proves the
         # locked home is drawn.  Taken before the round trip, the shot catches the splash
         # instead: measured 2026-09-14, that run's frame showed 'Jade DIY' (main/gui.c:3268).

@@ -137,7 +137,7 @@ equal "P1 returned to dashboard from camera screen" /probe/k47a_anchor.rgb565 /p
 # N4: escape did not leave the device stuck; the same screen can be entered again.
 #
 # This assertion is deliberately narrow. It does NOT measure the dashboard's OWN
-# gui_escape_clear() (main/process/dashboard.c:3800): the intervening btn:click already
+# gui_escape_clear() (main/process/dashboard.c:3802): the intervening btn:click already
 # clears the flag (gui_front_click(), main/gui.c), so this comparison would pass even
 # without dashboard cleanup. It does measure successful reentry without immediately
 # bouncing back; a stuck flag would close the new screen as soon as it opened.

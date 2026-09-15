@@ -1,9 +1,9 @@
 # piJade
 
-Blockstream Jade's firmware, running on a Raspberry Pi Zero W whose radios have been physically
-removed, with a Waveshare 1.3" 240x240 LCD HAT and a camera. The only cable reaching the device
-is power. Everything else travels by QR code: the device reads with its camera and answers on its
-screen.
+Blockstream Jade's firmware, running on a Raspberry Pi Zero W whose WiFi and Bluetooth circuitry
+has been physically cut, with a Waveshare 1.3" 240x240 LCD HAT and a camera. The only cable
+reaching the device is power. Everything else travels by QR code: the device reads with its
+camera and answers on its screen.
 
 > **Warning: this is experimental work.** The device is not used with real funds; testing is done
 > on testnet or with an empty wallet. The code in this repository has not had an independent
@@ -11,14 +11,14 @@ screen.
 
 This document describes what the fork itself brings and how the device is used. Jade's own
 features, and the build document for Jade's hardware, stay with upstream; the root `README.md`
-carries that document unchanged. Every departure from upstream is recorded, file by file, in
-`UPSTREAM.md`.
+carries that document unchanged. Every departure from upstream is recorded in `UPSTREAM.md`: a
+row for each text file, and a note accounting for the binary fixtures a row cannot describe.
 
 ## The hardware
 
 | Part | What is used |
 |---|---|
-| Board | Raspberry Pi Zero W with the WiFi and Bluetooth antenna circuitry physically removed |
+| Board | Raspberry Pi Zero W with the WiFi and Bluetooth circuitry physically cut |
 | Screen and buttons | Waveshare 1.3" LCD HAT, 240x240, three buttons and a joystick |
 | Camera | A camera the host opens as `/dev/video0` |
 | Storage | A microSD card, which holds the operating system, the piJade binaries and the settings file |
@@ -63,19 +63,22 @@ it is reached, collection continues and the user ends it. Three gates stand in f
 frame, so a sensor that has stopped producing usable images cannot quietly collapse the chain:
 
 - a frame whose lightest and darkest pixels are too close together is flat, and is thrown away;
-- a frame identical to one of the last fifty accepted, which is what a frozen sensor hands back, is thrown away;
+- a frame identical to one of the last fifty accepted, which is what a frozen sensor hands back,
+  is thrown away;
 - a frame too similar to the previous accepted one is thrown away, which also means the count
   advances with the user's movement rather than with the sensor's frame rate.
 
 The screen shows a progress bar that fills as frames are accepted, and the label changes to
 `Exit to finish` once the floor is reached; the accepted and rejected counts, with the reason for
 each rejection, go to the log rather than to the screen. Neither shows a bit count: the entropy of
-a hash output cannot be measured, and a live figure would be an invented reassurance. A real per-frame figure can only come from characterising the sensor on the
-device, which has not been done; the rejection threshold is deliberately conservative until it is.
+a hash output cannot be measured, and a live figure would be an invented reassurance. A real
+per-frame figure can only come from characterising the sensor on the device, which has not been
+done; the rejection threshold is deliberately conservative until it is.
 
 ## Restoring a seed
 
-`Restore Wallet` offers four rows.
+`Restore Wallet` offers four rows. Without a camera the `Scan QR` row is not built and the menu
+has the other three.
 
 | Row | What it does |
 |---|---|
@@ -95,8 +98,9 @@ default.
 - **SeedXOR**, which reassembles a seed from parts that are each themselves a valid mnemonic. At
   least two are needed and the device does not cap how many may be entered, because it cannot know
   how many the user wrote down; splitting, which the fork also does, offers two, three or four.
-- **SLIP-39**, which reassembles a seed from Shamir shares of 20 or 33 words, entered by word or
-  scanned as QR codes. The fork reads SLIP-39; it does not produce shares.
+- **SLIP-39**, which reassembles a seed from Shamir shares of 20 or 33 words, entered by word or,
+  where there is a camera to offer the choice, scanned as QR codes. The fork reads SLIP-39; it
+  does not produce shares.
 
 A restored wallet can be kept for the session or, with a PIN, written to the card.
 
@@ -105,7 +109,9 @@ A restored wallet can be kept for the session or, with a PIN, written to the car
 Every backup screen shows the words, so the row that offers it appears only for a wallet whose
 words passed through this session. A wallet that was unlocked with a PIN comes back from the card
 without the entropy those screens draw from, so for that wallet the row is not offered at all
-rather than failing when pressed.
+rather than failing when pressed. The row is also built only where there is a camera: the call
+that holds that entropy sits inside a camera guard of its own, so a cameraless build never sets
+it and the row would have nothing to draw from.
 
 The backup screen draws a SeedQR the device's own camera can read back, in either of SeedSigner's
 two formats: the compact one, which is the raw entropy, or the standard one, which is four digits
@@ -191,10 +197,10 @@ Three binaries are placed on the FAT partition, in `/boot/firmware/pijade/`, rat
 Linux filesystem, and the settings file sits on that same partition. Two of them are the device
 itself, `pijade-host` and `libjade.so`; the third, `pijade-t44-bench`, is a measurement tool that
 exits without printing a line unless the marker file `/boot/firmware/pijade-t44.enable` is there,
-so a normal boot still runs it but it returns straight away. macOS can read and write FAT but cannot read ext4, so putting them
-there is what makes the update path work: insert the card in a Mac, replace the binaries, and
-eject. The root filesystem is mounted read-only, and
-the service that runs at boot has core dumps disabled, because a crash dump would be written while
+so a normal boot still runs it but it returns straight away. macOS can read and write FAT but
+cannot read ext4, so putting them there is what makes the update path work: insert the card in a
+Mac, replace the binaries, and eject. The root filesystem is mounted read-only, and the service
+that runs at boot has core dumps disabled, because a crash dump would be written while
 the keys are in memory.
 
 The base image is the ARM hard-float Raspberry Pi OS Lite build; the exact release is pinned in
@@ -203,8 +209,9 @@ the bootstrap script.
 ## Relationship with upstream
 
 The fork tracks Blockstream Jade and takes its updates. Every change made here is marked in the
-source with a `BBB-AIRGAP:` comment saying why, and `UPSTREAM.md` lists them file by file together
-with the discipline for merging upstream changes into them. Anything measured against SeedSigner,
+source with a `BBB-AIRGAP:` comment saying why, and `UPSTREAM.md` lists them, a row for each text
+file, together with the discipline for merging upstream changes into them. Anything measured
+against SeedSigner,
 menu row by menu row, is in `SEEDSIGNER-COMPARISON.md`; the threat model and what is deliberately
 not claimed are in `SECURITY-AUDIT-2026-09-03.md`.
 

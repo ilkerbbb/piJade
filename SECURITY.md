@@ -5,8 +5,8 @@
 > upstream Jade. A vulnerability in code that exists only in this fork should come here instead:
 > open a private security advisory on this repository, under Security > Advisories, which reaches
 > the fork's maintainer without disclosing anything publicly. Do not open a public issue for a
-> vulnerability. `pijade/UPSTREAM.md` is where the line between the two runs: it lists, file by
-> file, everything the fork changed or added.
+> vulnerability. `pijade/UPSTREAM.md` is where the line between the two runs: it lists everything
+> the fork changed or added, a row for each text file.
 >
 > Two things about this fork are worth knowing before reporting. It has had no independent security
 > audit. And it runs on hardware with neither a secure element nor secure boot, so the card is

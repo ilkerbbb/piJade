@@ -41,19 +41,19 @@ layer, so Tools was deliberately included. On the settings side the single sourc
 menu rows built at `:572-587`, the title being the seed's fingerprint (`:592`).
 
 **piJade:** `Session > <fingerprint>` ; `handle_session()` (`main/process/dashboard.c:3337`),
-wallet rows built at `:3442-3479`, the title being the slot's fingerprint (`:3423`).
+wallet rows built at `:3442-3481`, the title being the slot's fingerprint (`:3423`).
 
 | # | SeedSigner row | SS evidence | piJade state | Evidence / note |
 |---|---|---|---|---|
 | 1 | **Scan transaction** (PSBT) | `seed_views.py:574` -> `:601` (`controller.psbt_seed = self.seed`). A psbt scanned from the home screen instead routes to `PSBTSelectSeedView` (`scan_views.py:92-97` -> `psbt_views.py:11`), which lists the loaded seeds and marks with `(?)` the ones whose fingerprint the psbt does not name (`psbt_views.py:36-39`) | **Present, reached the other way round** | Both sides can start from either end; what differs is the shape. SeedSigner lists every loaded seed and lets the user pick. Here the psbt is read first; if it does not name the active wallet, the device offers matching loaded wallets one at a time (`sign_psbt.c:734-768`): `offer_wallet_named_by_psbt()` (`sign_psbt.c:728`), called at `:848` before the output and fee screens. The offer is made only when `process` is NULL, ie. the user is at the device; over the rpc the interface assertion (`ASSERT_KEYCHAIN_UNLOCKED_BY_MESSAGE_SOURCE`) decides instead, since switching underneath it would let a client sign with a wallet its own connection never unlocked. Ownership is still derived from the wallet in use (`utils/psbt.c:162`); the offer is what bridges the two. If the active wallet has no signable inputs, the flow pauses early: "No inputs here can be signed by this wallet. Continue anyway?" (`sign_psbt.c:1043-1049`), asked before the output and fee screens; continuing is allowed. SeedSigner marks `(?)` at seed selection using fingerprints, before deriving input keys. `Scan QR` under the fingerprint opens the same scan (`dashboard.c:3442`) |
 | 2 | **Export xpub** | `seed_views.py:576` -> `SeedExportXpubSigTypeView:664` | **Present** | `dashboard.c:3448` -> `display_xpub_qr()`. This fork also has `Xpub Settings` (Script / Wallet / Account Index / QR Settings) at `ui/qrmode.c:109-126` |
 | 3 | **Address explorer** | `seed_views.py:578` -> `ToolsAddressExplorerAddressTypeView:568`; receive and change addresses, ten per page, a QR for each (`tools_views.py:665, 753`) | **Present** | `Session > <fingerprint> > Address Explorer` (`dashboard.c:3447`) -> `handle_address_explorer()` (`qrmode.c:1829`) -> `address_explorer()` (`:1554`). Receive and change addresses, derived and listed, with a QR for each. `Verify Address` (`qrmode.c:1170`) stays a separate job: it searches for an address it is given |
-| 4 | **Backup seed** (submenu) | `seed_views.py:579` -> `SeedBackupView:628` | **Present and grouped**; four rows against SeedSigner's two | `handle_wallet_backup()` (`mnemonic.c:853`), rows at `:864-870`. The way in appears only where the slot still carries the entropy it was built from (`dashboard.c:3468-3470`). Of the two extra rows, `Verify Backup` (`mnemonic.c:866`) runs a lighter quiz than SeedSigner, with a dedicated menu entry as well as the setup flow; `Split (SeedXOR)` (`mnemonic.c:870`) is the one that runs the other way |
+| 4 | **Backup seed** (submenu) | `seed_views.py:579` -> `SeedBackupView:628` | **Present and grouped**; four rows against SeedSigner's two | `handle_wallet_backup()` (`mnemonic.c:853`), rows at `:864-870`. The way in appears only where the slot still carries the entropy it was built from (`dashboard.c:3470-3472`). Of the two extra rows, `Verify Backup` (`mnemonic.c:866`) runs a lighter quiz than SeedSigner, with a dedicated menu entry as well as the setup flow; `Split (SeedXOR)` (`mnemonic.c:870`) is the one that runs the other way |
 | 4a | ; **View seed words** | `SeedBackupView:629` -> `SeedWordsWarningView:1002` -> `SeedWordsView:1037` (four words per page) | **Present** | `Backup > View Words` (`mnemonic.c:864`) -> `show_wallet_words()` (`:680`). The words are also shown during setup (`display_confirm_mnemonic()`, `:484`) and for BIP85 child words |
 | 4b | ; **Export as SeedQR** | `SeedBackupView:630` (guarded by `seed.seedqr_supported`), format choice `:1412`, warning `:1472`, full QR `:1510`, zoom `:1548`, scan-back verification `:1595-1721` | **Present** | `Backup > Export SeedQR` (`mnemonic.c:865`) -> `export_wallet_seedqr()` (`:385`). Standard and Compact, a guide grid, zoom, and scan-back verification through the camera (`:331-346`). The export opens with drawing instructions (`:108-109`) and, when `Features > Warnings` is on, the private-key warning SeedSigner shows at the same point (`:115-126`) |
 | 5 | **Sign message** | `seed_views.py:582`, guarded by `SETTING__MESSAGE_SIGNING == ENABLED` (**off** by default, `settings_definition.py:686-690`) | **Present, behind the same kind of switch** | `Session > <fingerprint> > Sign Message` (`dashboard.c:3455`), offered when `FEATURE_FLAGS_SIGN_MESSAGE` is set (`:3453`; `Options > Features`). The general QR scan is also gated (`qrmode.c:2056-2057`) and calls `sign_message_file()` (`:2000`, declaration at `:99`); the rpc path remains in the shared code |
 | 6 | **BIP-85 child seed** | `seed_views.py:585`, guarded by `SETTING__BIP85_CHILD_SEEDS == ENABLED` (**off** by default, `settings_definition.py:663-668`) and `seed.bip85_supported` | **Present, and guarded the same way** | `dashboard.c:3461` -> `handle_bip85_mnemonic()`, offered when `FEATURE_FLAGS_BIP85` is set (`:3460`; `Options > Features`); 12 or 24 words (`ui/mnemonic.c:187-188`) |
-| 7 | **Discard seed** | `seed_views.py:587` -> `SeedDiscardView:459`; the screen reads "Wipe seed {fingerprint} from the device?" (`:478`) | **Partly: temporary wallets only** | `Forget` at `dashboard.c:3477-3479`; no row appears for a persistent wallet, and the way to drop one is `Log Out` (`:3379`). The reason is written in the code (`:3473-3476`): `keychain_load()` refuses to read the blob back while a wallet is in memory |
+| 7 | **Discard seed** | `seed_views.py:587` -> `SeedDiscardView:459`; the screen reads "Wipe seed {fingerprint} from the device?" (`:478`) | **Partly: temporary wallets only** | `Forget` at `dashboard.c:3479-3481`; no row appears for a persistent wallet, and the way to drop one is `Log Out` (`:3379`). The reason is written in the code (`:3475-3478`): `keychain_load()` refuses to read the blob back while a wallet is in memory |
 
 ### 1.1 One more difference: the fingerprint list itself
 
@@ -191,7 +191,7 @@ Two measured facts decide whether a row above is a gap or a decision:
    `Split (SeedXOR)` are unavailable after PIN reload. A newly created persistent wallet can
    still have backup entropy in its initial session when the passphrase is empty
    (`mnemonic.c:2668-2670`). The whole `Backup` row follows the slot's entropy condition
-   (`dashboard.c:3468-3470`).
+   (`dashboard.c:3470-3472`).
 2. **For a wallet with a passphrase, entropy is deliberately not kept in its backup slot** (decision, 2026-08-31;
    `mnemonic.c:2668-2670`, stored only while `passphrase_len == 0`, the reasoning written at
    `:2662-2667`). The reason: a
@@ -201,7 +201,7 @@ Two measured facts decide whether a row above is a gap or a decision:
    adopting it is not an automatic improvement but a separate decision.
 
 Also, `Log Out`, `Sleep`, the idle timeout's power-off/reboot paths and a successful `Factory Reset`
-clear the slot table with `wally_bzero` (`keychain.c:323-330`; `dashboard.c:3563`, `:3569`, `:725`;
+clear the slot table with `wally_bzero` (`keychain.c:323-330`; `dashboard.c:3565`, `:3571`, `:725`;
 `idletimer.c:275-283`). Backup helpers separately wipe their mnemonic buffers on return
 (`mnemonic.c:396-402`, `:723-727`) and QR image data during cleanup (`:362-374`,
 `qrcode.c:1148-1154`); the slot wipe alone does not establish that every display copy is gone.
@@ -267,7 +267,7 @@ The rest of the list is what the settings comparison in section 3.1 turned up.
 
 No open items. The constraint itself still holds and is now expressed in one place: the whole
 `Backup` group is offered only where `keychain_slot_has_entropy()` is true
-(`dashboard.c:3468-3470`), so `View Words`, `Export SeedQR`, `Verify Backup` and
+(`dashboard.c:3470-3472`), so `View Words`, `Export SeedQR`, `Verify Backup` and
 `Split (SeedXOR)` share a single condition instead of each failing when pressed.
 
 **C. Items that need a decision and are not automatically "missing"**
@@ -275,7 +275,7 @@ No open items. The constraint itself still holds and is now expressed in one pla
 | Item | Why it is a decision |
 |---|---|
 | A per-seed passphrase model (SeedSigner style) | Today's architecture keeps the passphrase as device policy; changing it reopens the entropy decision too |
-| `Discard` for a persistent wallet | Today `Log Out` drops them all at once; dropping one runs into the `keychain_load()` constraint (`dashboard.c:3473-3476`) |
+| `Discard` for a persistent wallet | Today `Log Out` drops them all at once; dropping one runs into the `keychain_load()` constraint (`dashboard.c:3475-3478`) |
 | Electrum seeds | A new seed format is a new validation surface |
 | Importing settings by QR (SettingsQR) | A new parser on the one input this device has, and a way to change the device's behaviour without the menus; the security question comes before the convenience |
 | Interface language (Turkish included) | Needs font and localisation infrastructure; in SeedSigner Turkish is still marked incomplete (`settings_definition.py:149`) |

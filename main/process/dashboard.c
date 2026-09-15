@@ -3464,7 +3464,9 @@ static void handle_session(void)
             // Every backup screen shows the words, and only a wallet whose words were presented in
             // this session can have them drawn again.  A PIN-unlocked wallet comes back from the
             // blob without that entropy, whichever of the three shapes it holds, so the row is not
-            // offered rather than failing when pressed.
+            // offered rather than failing when pressed.  The camera guard above is the second
+            // condition and not a formality: the call that holds that entropy sits inside a camera
+            // guard of its own (derive_keychain), so a cameraless build never sets it in any slot.
             if (keychain_slot_has_entropy(position)) {
                 wallet_items[num_wallet_items++]
                     = (list_item_t){ .txt = "Backup", .ev_id = BTN_SETTINGS_WALLET_BACKUP };

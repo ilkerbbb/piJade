@@ -1592,7 +1592,7 @@ Seen during the measurement: with wallet A loaded, when wallet B was loaded thro
 menu does not fix it either (`t8_home`).
 
 **Why.** The home screen's label is written only by `UPDATE_HOME_SCREEN`
-(`main/process/dashboard.c:3562-3568`), which runs after `do_dashboard()` returns; and
+(`main/process/dashboard.c:3564-3570`), which runs after `do_dashboard()` returns; and
 `do_dashboard` does not return as long as `keychain_get() == initial_keychain`
 (`dashboard.c:3466`). Every call to `keychain_set()` empties and refills **slot 0**
 (`main/keychain.c:104-108`), and `occupy_slot()` sets `keychain_data` to
