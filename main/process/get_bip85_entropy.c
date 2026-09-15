@@ -373,7 +373,10 @@ void show_bip85_bip39_entropy_process(void* process_ptr)
     if (errcode) {
         if (errcode != CBOR_RPC_USER_CANCELLED) {
             JADE_LOGE("Error generating encrypted bip85 entropy: %s", errmsg);
-            await_error_2("Error in bip85/bip39", errmsg);
+            // BBB-AIRGAP: the title carries the fixed words, as the QR path does for the same
+            // helper (main/qrmode.c), so the message area can wrap errmsg; all eight strings this
+            // call can carry are wider than one 236 px row, 313-537 px.
+            await_titled_message("Error in bip85/bip39", errmsg);
         }
         // An error occurred, or the user cancelled the action
         jade_process_reject_message(process, errcode, errmsg);

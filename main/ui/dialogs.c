@@ -12,6 +12,19 @@ void await_qr_help_activity(const char* url);
 // absolute, appropriate for font being used and adjusted slightly for larger screens
 #define MESSAGE_LINE_ROW_HEIGHT (CONFIG_DISPLAY_HEIGHT >= 150 ? 22 : 20)
 
+// BBB-AIRGAP: the message area of make_show_message_activity(), in pixels, and the side padding
+// it comes from.  The display window is CONFIG_DISPLAY_WIDTH wide (GUI_DISPLAY_WINDOW,
+// main/display.c) and the padding applied there takes MESSAGE_SIDE_PADDING off each side, so this
+// is exactly the 'cs.x2 - cs.x1' that display_print_in_area() measures each character against.
+// Named rather than left as a bare number because the pre-wrap helper and the gui_set_padding()
+// call need the same figure, and two copies of it would drift apart.
+#define MESSAGE_SIDE_PADDING 2
+#define MESSAGE_AREA_WIDTH (CONFIG_DISPLAY_WIDTH - (2 * MESSAGE_SIDE_PADDING))
+
+// BBB-AIRGAP: the most message lines make_show_message_activity() can lay out; its vsplit has a
+// case per line count.
+#define MAX_MESSAGE_LINES 4
+
 // Helper to update dynamic menu item label (name: value)
 void update_menu_item(gui_view_node_t* node, const char* label, const char* value)
 {
@@ -755,14 +768,92 @@ int32_t run_list_activity(
     }
 }
 
+// BBB-AIRGAP: split a message too wide for the message area at its word boundaries.
+// display_print_in_area() wraps at whatever character crosses the right edge and knows nothing
+// about words (main/display.c), so a long single-string message breaks mid-word; measured
+// 2026-09-15, 22 of the 93 single-string await_error()/await_message() call sites are wider than
+// MESSAGE_AREA_WIDTH.  The breaks are made in 'buf' in place and the lines returned in 'lines',
+// for the multi-line branch of make_show_message_activity() to lay out: that branch already
+// centres each line and the block as a whole, so wrapping here needs no new layout code.
+// Returns the number of lines, or 0 to leave the message exactly as it is - when it already fits,
+// when the caller manages its own breaks, when it needs more lines than the layout has rows, or
+// when a single word is wider than the area, since a word has no boundary to break at and inside
+// a fixed-height row it would be cut rather than wrapped.
+static size_t wrap_message_at_word_boundaries(
+    const char* text, char* buf, const size_t buflen, const char** lines, const size_t max_lines)
+{
+    JADE_ASSERT(text);
+    JADE_ASSERT(buf);
+    JADE_ASSERT(lines);
+    JADE_ASSERT(max_lines);
+
+    // Measuring means selecting a font, and the font to draw with is shared state the gui task
+    // holds for the whole of a frame (main/gui.c), so every width question here goes through
+    // gui_text_fits_width(), which asks it under the same mutex.
+    if (strchr(text, '\n') || gui_text_fits_width(text, GUI_DEFAULT_FONT, MESSAGE_AREA_WIDTH)) {
+        return 0;
+    }
+
+    const size_t len = strlen(text);
+    if (len >= buflen) {
+        return 0;
+    }
+    memcpy(buf, text, len + 1);
+
+    size_t num_lines = 0;
+    char* line = buf;
+    while (!gui_text_fits_width(line, GUI_DEFAULT_FONT, MESSAGE_AREA_WIDTH)) {
+        // The last space at which the line still fits.  The scan starts at line + 1 so a break is
+        // never taken at the first character, which would leave an empty line.
+        char* brk = NULL;
+        for (char* space = strchr(line + 1, ' '); space; space = strchr(space + 1, ' ')) {
+            *space = '\0';
+            const bool fits = gui_text_fits_width(line, GUI_DEFAULT_FONT, MESSAGE_AREA_WIDTH);
+            *space = ' ';
+            if (!fits) {
+                break;
+            }
+            brk = space;
+        }
+
+        // No word boundary to break at, or the message needs more rows than the layout has
+        if (!brk || num_lines + 2 > max_lines) {
+            return 0;
+        }
+
+        *brk = '\0';
+        lines[num_lines++] = line;
+        line = brk + 1;
+    }
+    lines[num_lines++] = line;
+
+    JADE_ASSERT(num_lines > 1);
+    return num_lines;
+}
+
 // Helper to create an activity to show a message on a single central label
 // Can pass title-bar information (optional) and footer buttons (also optional)
-gui_activity_t* make_show_message_activity(const char* message[], const size_t message_size, const char* title,
+gui_activity_t* make_show_message_activity(const char* message[], size_t message_size, const char* title,
     btn_data_t* hdrbtns, const size_t num_hdrbtns, btn_data_t* ftrbtns, const size_t num_ftrbtns)
 {
     JADE_ASSERT(message);
     JADE_ASSERT(message_size);
-    JADE_ASSERT(message_size < 5);
+    JADE_ASSERT(message_size <= MAX_MESSAGE_LINES);
+
+    // BBB-AIRGAP: a single message wider than the message area is split at its word boundaries and
+    // handed to the multi-line layout below, which centres the lines it is given.  The buffer the
+    // lines point into lives until this function returns, which is long enough because
+    // gui_make_text() copies the text it is given (main/gui.c).
+    char wrapbuf[GUI_MAX_TEXT_LENGTH];
+    const char* wrapped[MAX_MESSAGE_LINES];
+    if (message_size == 1) {
+        const size_t num_wrapped
+            = wrap_message_at_word_boundaries(message[0], wrapbuf, sizeof(wrapbuf), wrapped, MAX_MESSAGE_LINES);
+        if (num_wrapped) {
+            message = wrapped;
+            message_size = num_wrapped;
+        }
+    }
     // Header and footer are optional
     JADE_ASSERT(hdrbtns || !num_hdrbtns);
     JADE_ASSERT(ftrbtns || !num_ftrbtns);
@@ -831,7 +922,7 @@ gui_activity_t* make_show_message_activity(const char* message[], const size_t m
     }
 
     // Apply any padding above the message, and a small offset from the screen edges
-    gui_set_padding(msgnode, GUI_MARGIN_ALL_DIFFERENT, toppad, 2, 0, 2);
+    gui_set_padding(msgnode, GUI_MARGIN_ALL_DIFFERENT, toppad, MESSAGE_SIDE_PADDING, 0, MESSAGE_SIDE_PADDING);
 
     if (!num_ftrbtns) {
         // Just a message, no buttons - just apply straight to the parent

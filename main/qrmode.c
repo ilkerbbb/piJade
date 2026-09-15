@@ -2261,11 +2261,12 @@ static bool handle_bip85_bip39_request_qr(const uint8_t* cbor, const size_t cbor
     if (errcode) {
         if (errcode != CBOR_RPC_USER_CANCELLED) {
             JADE_LOGE("Error generating encrypted bip85 entropy: %s", errmsg);
-            // BBB-AIRGAP: the upstream wording is 248 px wide and the first row of a multi-line
-            // dialog is cut at 236 px, so the tail was lost on screen rather than wrapped.  The
-            // second row still is: every errmsg this call can carry measures 313-515 px, and the
-            // same string is the RPC reject text, so shortening it would blind the host.
-            await_error_2("Could not get entropy", errmsg);
+            // BBB-AIRGAP: the caller's fixed words become the title so that errmsg gets the whole
+            // message area, which wraps it at its word boundaries.  A two-line dialog gives each
+            // row a fixed height instead and cuts what does not fit, and every errmsg this call
+            // can carry measures 313-515 px against a 236 px row; the same string is the RPC
+            // reject text, so shortening it would blind the host.
+            await_titled_message("Could not get entropy", errmsg);
         }
         // An error occurred, or the user cancelled the action
         SENSITIVE_POP(reply_cbor);
@@ -2775,10 +2776,10 @@ static bool handle_epoch_qr(const uint8_t* cbor, const size_t cbor_len)
     if (errcode) {
         if (errcode != CBOR_RPC_USER_CANCELLED) {
             JADE_LOGE("Error setting epoch time: %s", errmsg);
-            // BBB-AIRGAP: shortened for the same 236 px row limit as the entropy error above,
-            // whose second row is unfixed here too: params_set_epoch_time() can hand over
-            // "Failed to extract valid epoch value from parameters", 514 px.
-            await_error_2("Failed to set time", errmsg);
+            // BBB-AIRGAP: the title carries the caller's fixed words for the same reason as the
+            // entropy error above; params_set_epoch_time() can hand over "Failed to extract valid
+            // epoch value from parameters", 514 px against a 236 px row.
+            await_titled_message("Failed to set time", errmsg);
         }
         return false;
     }
@@ -2815,7 +2816,9 @@ bool handle_update_pinserver_qr(const uint8_t* cbor, const size_t cbor_len)
     if (errcode) {
         if (errcode != CBOR_RPC_USER_CANCELLED) {
             JADE_LOGE("Error updating pinserver details: %s", errmsg);
-            await_error_2("Error updating Oracle", errmsg);
+            // BBB-AIRGAP: the title carries the fixed words as above; update_pinserver() produces
+            // sixteen strings and fourteen of them are wider than one 236 px row, up to 514 px.
+            await_titled_message("Error updating Oracle", errmsg);
         }
         return false;
     }
