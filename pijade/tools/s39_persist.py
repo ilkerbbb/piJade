@@ -7,13 +7,16 @@ UNINITIALISED device, so the wallet is saved behind a PIN, and the daemon is the
 against the same settings file and unlocked again.
 
 What is under test is the C2 design note section 3.2.  A SLIP-0039 backup yields a master
-secret rather than a recovery phrase, so there is no mnemonic entropy to cache and
-keychain_store() takes its other branch and stores the serialised keychain
-(main/keychain.c:813-815).  Four things follow, and each is measured here rather than
+secret rather than a recovery phrase, so there is no mnemonic entropy to cache;
+keychain_store() writes that master secret instead, behind a tag byte
+(main/keychain.c:859-868), and keychain_load() derives the wallet back from it
+(main/keychain.c:930-944).  Four things follow, and each is measured here rather than
 assumed: the wallet survives a restart, the PIN alone brings it back, no passphrase is
 asked for the second time, because in SLIP-0039 the passphrase decrypted the master secret
 instead of being kept as a second factor, and the wallet's own menu no longer offers
-'Backup', because every backup screen draws words and this wallet has none behind it.
+'Backup', because every backup screen draws words and this wallet has none behind it.  The
+'Backup' row follows the slot's entropy and not the wallet's seed, so it stays away even
+though the wallet now comes back carrying one.
 
 Identity is measured with get_xpub rather than by comparing screens: two daemons drawing
 the same fingerprint is weaker evidence than the same extended key coming back over the
@@ -65,12 +68,12 @@ TEST_ONION = 'http://we.dont.know.our.onion.but.this.string.is.about.the.right.s
 
 # get_xpub re-stamps the version bytes for the network it is asked for (main/wallet.c:1331),
 # and keychain_derive_from_seed() builds the key with the mainnet private version
-# (main/keychain.c:535), so mainnet is the network in which the device's answer and the
+# (main/keychain.c:580), so mainnet is the network in which the device's answer and the
 # vector's published xprv are the same string.
 NETWORK = 'mainnet'
 
 # A wallet menu cannot hold more rows than the table it is built in
-# (main/process/dashboard.c:3392), and the walk also stops on the title bar's back arrow;
+# (main/process/dashboard.c:3397), and the walk also stops on the title bar's back arrow;
 # a walk that passes this many stops without coming back to where it started is lost, not counting.
 MAX_WALLET_STOPS = 9
 
@@ -335,7 +338,7 @@ def restore_share(j, frame_dir, tag):
     j.shot('%s_scanned' % tag)
 
     # 'Enter' sits to the right of 'Skip', which is the initial selection
-    # (main/process/mnemonic.c:2331).
+    # (main/process/mnemonic.c:2343).
     press(j, 'right', 'passphrase question: move to Enter')
     press(j, 'click', 'passphrase question: Enter')
     if kbd.ascii_selected(kbd.pixels(j), 0) is None:
@@ -390,10 +393,10 @@ def wallet_menu_rows(j, tag, note):
 
     Run 5's remaining question is whether a restored wallet still offers 'Backup'.  That row
     is laid out only for a wallet that still holds the entropy it was built from
-    (main/process/dashboard.c:3465-3467), and this one came back from the blob as a
-    serialised key, which keychain_load() deserialises without caching any entropy
-    (main/keychain.c:867-872) - the only writer is keychain_set_entropy(), reached from the
-    paths that were given words (main/keychain.c:235).  The panel draws four rows at a time,
+    (main/process/dashboard.c:3470-3472), and this one came back from the blob as a
+    tagged master secret, which keychain_load() derives the wallet from without caching any
+    entropy (main/keychain.c:930-944) - the only writer is keychain_set_entropy(), reached from
+    the paths that were given words (main/keychain.c:260).  The panel draws four rows at a time,
     so no single frame is the list: the walk goes down until the selection comes back to where
     it started, which is what counts the list, and every screen on the way is photographed.
 

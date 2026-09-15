@@ -34,29 +34,29 @@ layer, so Tools was deliberately included. On the settings side the single sourc
 **SeedSigner:** `Home > Seeds > <fingerprint>` ; `SeedOptionsView` (`views/seed_views.py:528`),
 menu rows built at `:572-587`, the title being the seed's fingerprint (`:592`).
 
-**piJade:** `Session > <fingerprint>` ; `handle_session()` (`main/process/dashboard.c:3334`),
+**piJade:** `Session > <fingerprint>` ; `handle_session()` (`main/process/dashboard.c:3339`),
 wallet rows built at `:3426-3463`, the title being the slot's fingerprint (`:3407`).
 
 | # | SeedSigner row | SS evidence | piJade state | Evidence / note |
 |---|---|---|---|---|
-| 1 | **Scan transaction** (PSBT) | `seed_views.py:574` -> `:601` (`controller.psbt_seed = self.seed`). A psbt scanned from the home screen instead routes to `PSBTSelectSeedView` (`scan_views.py:92-97` -> `psbt_views.py:11`), which lists the loaded seeds and marks with `(?)` the ones whose fingerprint the psbt does not name (`psbt_views.py:36-39`) | **Present, reached the other way round** | Both sides can start from either end; what differs is the shape. SeedSigner lists every loaded seed and lets the user pick. Here the psbt is read first; if it does not name the active wallet, the device offers matching loaded wallets one at a time (`sign_psbt.c:734-768`): `offer_wallet_named_by_psbt()` (`sign_psbt.c:728`), called at `:848` before the output and fee screens. The offer is made only when `process` is NULL, ie. the user is at the device; over the rpc the interface assertion (`ASSERT_KEYCHAIN_UNLOCKED_BY_MESSAGE_SOURCE`) decides instead, since switching underneath it would let a client sign with a wallet its own connection never unlocked. Ownership is still derived from the wallet in use (`utils/psbt.c:162`); the offer is what bridges the two. If the active wallet has no signable inputs, the flow pauses early: "No inputs here can be signed by this wallet. Continue anyway?" (`sign_psbt.c:1043-1049`), asked before the output and fee screens; continuing is allowed. SeedSigner marks `(?)` at seed selection using fingerprints, before deriving input keys. `Scan QR` under the fingerprint opens the same scan (`dashboard.c:3439`) |
-| 2 | **Export xpub** | `seed_views.py:576` -> `SeedExportXpubSigTypeView:664` | **Present** | `dashboard.c:3445` -> `display_xpub_qr()`. This fork also has `Xpub Settings` (Script / Wallet / Account Index / QR Settings) at `ui/qrmode.c:111-128` |
-| 3 | **Address explorer** | `seed_views.py:578` -> `ToolsAddressExplorerAddressTypeView:568`; receive and change addresses, ten per page, a QR for each (`tools_views.py:665, 753`) | **Present** | `Session > <fingerprint> > Address Explorer` (`dashboard.c:3444`) -> `handle_address_explorer()` (`qrmode.c:1831`) -> `address_explorer()` (`:1556`). Receive and change addresses, derived and listed, with a QR for each. `Verify Address` (`qrmode.c:1172`) stays a separate job: it searches for an address it is given |
-| 4 | **Backup seed** (submenu) | `seed_views.py:579` -> `SeedBackupView:628` | **Present and grouped**; four rows against SeedSigner's two | `handle_wallet_backup()` (`mnemonic.c:853`), rows at `:846-852`. The way in appears only where the slot still carries the entropy it was built from (`dashboard.c:3465-3467`). Of the two extra rows, `Verify Backup` (`mnemonic.c:866`) runs a lighter quiz than SeedSigner, with a dedicated menu entry as well as the setup flow; `Split (SeedXOR)` (`mnemonic.c:870`) is the one that runs the other way |
+| 1 | **Scan transaction** (PSBT) | `seed_views.py:574` -> `:601` (`controller.psbt_seed = self.seed`). A psbt scanned from the home screen instead routes to `PSBTSelectSeedView` (`scan_views.py:92-97` -> `psbt_views.py:11`), which lists the loaded seeds and marks with `(?)` the ones whose fingerprint the psbt does not name (`psbt_views.py:36-39`) | **Present, reached the other way round** | Both sides can start from either end; what differs is the shape. SeedSigner lists every loaded seed and lets the user pick. Here the psbt is read first; if it does not name the active wallet, the device offers matching loaded wallets one at a time (`sign_psbt.c:734-768`): `offer_wallet_named_by_psbt()` (`sign_psbt.c:728`), called at `:848` before the output and fee screens. The offer is made only when `process` is NULL, ie. the user is at the device; over the rpc the interface assertion (`ASSERT_KEYCHAIN_UNLOCKED_BY_MESSAGE_SOURCE`) decides instead, since switching underneath it would let a client sign with a wallet its own connection never unlocked. Ownership is still derived from the wallet in use (`utils/psbt.c:162`); the offer is what bridges the two. If the active wallet has no signable inputs, the flow pauses early: "No inputs here can be signed by this wallet. Continue anyway?" (`sign_psbt.c:1043-1049`), asked before the output and fee screens; continuing is allowed. SeedSigner marks `(?)` at seed selection using fingerprints, before deriving input keys. `Scan QR` under the fingerprint opens the same scan (`dashboard.c:3444`) |
+| 2 | **Export xpub** | `seed_views.py:576` -> `SeedExportXpubSigTypeView:664` | **Present** | `dashboard.c:3450` -> `display_xpub_qr()`. This fork also has `Xpub Settings` (Script / Wallet / Account Index / QR Settings) at `ui/qrmode.c:111-128` |
+| 3 | **Address explorer** | `seed_views.py:578` -> `ToolsAddressExplorerAddressTypeView:568`; receive and change addresses, ten per page, a QR for each (`tools_views.py:665, 753`) | **Present** | `Session > <fingerprint> > Address Explorer` (`dashboard.c:3449`) -> `handle_address_explorer()` (`qrmode.c:1831`) -> `address_explorer()` (`:1556`). Receive and change addresses, derived and listed, with a QR for each. `Verify Address` (`qrmode.c:1172`) stays a separate job: it searches for an address it is given |
+| 4 | **Backup seed** (submenu) | `seed_views.py:579` -> `SeedBackupView:628` | **Present and grouped**; four rows against SeedSigner's two | `handle_wallet_backup()` (`mnemonic.c:853`), rows at `:846-852`. The way in appears only where the slot still carries the entropy it was built from (`dashboard.c:3470-3472`). Of the two extra rows, `Verify Backup` (`mnemonic.c:866`) runs a lighter quiz than SeedSigner, with a dedicated menu entry as well as the setup flow; `Split (SeedXOR)` (`mnemonic.c:870`) is the one that runs the other way |
 | 4a | ; **View seed words** | `SeedBackupView:629` -> `SeedWordsWarningView:1002` -> `SeedWordsView:1037` (four words per page) | **Present** | `Backup > View Words` (`mnemonic.c:864`) -> `show_wallet_words()` (`:662`). The words are also shown during setup (`display_confirm_mnemonic()`, `:466`) and for BIP85 child words |
 | 4b | ; **Export as SeedQR** | `SeedBackupView:630` (guarded by `seed.seedqr_supported`), format choice `:1412`, warning `:1472`, full QR `:1510`, zoom `:1548`, scan-back verification `:1595-1721` | **Present** | `Backup > Export SeedQR` (`mnemonic.c:865`) -> `export_wallet_seedqr()` (`:367`). Standard and Compact, a guide grid, zoom, and scan-back verification through the camera (`:313-328`). The export opens with drawing instructions (`:87-88`) and, when `Features > Warnings` is on, the private-key warning SeedSigner shows at the same point (`:94-105`) |
-| 5 | **Sign message** | `seed_views.py:582`, guarded by `SETTING__MESSAGE_SIGNING == ENABLED` (**off** by default, `settings_definition.py:686-690`) | **Present, behind the same kind of switch** | `Session > <fingerprint> > Sign Message` (`dashboard.c:3452`), offered when `FEATURE_FLAGS_SIGN_MESSAGE` is set (`:3450`; `Options > Features`). The general QR scan is also gated (`qrmode.c:2058-2059`) and calls `sign_message_file()` (`:2002`, declaration at `:99`); the rpc path remains in the shared code |
-| 6 | **BIP-85 child seed** | `seed_views.py:585`, guarded by `SETTING__BIP85_CHILD_SEEDS == ENABLED` (**off** by default, `settings_definition.py:663-668`) and `seed.bip85_supported` | **Present, and guarded the same way** | `dashboard.c:3458` -> `handle_bip85_mnemonic()`, offered when `FEATURE_FLAGS_BIP85` is set (`:3457`; `Options > Features`); 12 or 24 words (`ui/mnemonic.c:187-188`) |
-| 7 | **Discard seed** | `seed_views.py:587` -> `SeedDiscardView:459`; the screen reads "Wipe seed {fingerprint} from the device?" (`:478`) | **Partly: temporary wallets only** | `Forget` at `dashboard.c:3474-3476`; no row appears for a persistent wallet, and the way to drop one is `Log Out` (`:3376`). The reason is written in the code (`:3470-3473`): `keychain_load()` refuses to read the blob back while a wallet is in memory |
+| 5 | **Sign message** | `seed_views.py:582`, guarded by `SETTING__MESSAGE_SIGNING == ENABLED` (**off** by default, `settings_definition.py:686-690`) | **Present, behind the same kind of switch** | `Session > <fingerprint> > Sign Message` (`dashboard.c:3457`), offered when `FEATURE_FLAGS_SIGN_MESSAGE` is set (`:3450`; `Options > Features`). The general QR scan is also gated (`qrmode.c:2058-2059`) and calls `sign_message_file()` (`:2002`, declaration at `:99`); the rpc path remains in the shared code |
+| 6 | **BIP-85 child seed** | `seed_views.py:585`, guarded by `SETTING__BIP85_CHILD_SEEDS == ENABLED` (**off** by default, `settings_definition.py:663-668`) and `seed.bip85_supported` | **Present, and guarded the same way** | `dashboard.c:3463` -> `handle_bip85_mnemonic()`, offered when `FEATURE_FLAGS_BIP85` is set (`:3457`; `Options > Features`); 12 or 24 words (`ui/mnemonic.c:187-188`) |
+| 7 | **Discard seed** | `seed_views.py:587` -> `SeedDiscardView:459`; the screen reads "Wipe seed {fingerprint} from the device?" (`:478`) | **Partly: temporary wallets only** | `Forget` at `dashboard.c:3479-3481`; no row appears for a persistent wallet, and the way to drop one is `Log Out` (`:3376`). The reason is written in the code (`:3470-3473`): `keychain_load()` refuses to read the blob back while a wallet is in memory |
 
 ### 1.1 One more difference: the fingerprint list itself
 
 SeedSigner's `SeedsMenuView` (`seed_views.py:26`) puts one uniform icon next to each fingerprint
 (`:45`) and ends the list with a **"Load a seed"** row (`:46`), so a new seed can be loaded straight
 from the list. Here the `Session` list marks the persistent/temporary distinction with a symbol
-(`dashboard.c:3371`, filled circle = persistent, hollow = temporary) ; a difference in this fork's
+(`dashboard.c:3376`, filled circle = persistent, hollow = temporary) ; a difference in this fork's
 favour ; but there is no row for loading a new wallet from the list itself; that happens through
-`Scan QR` or `Options > Add Wallet` (`dashboard.c:2801`).
+`Scan QR` or `Options > Add Wallet` (`dashboard.c:2806`).
 
 ---
 
@@ -65,7 +65,7 @@ favour ; but there is no row for loading a new wallet from the list itself; that
 | Feature | SS evidence | piJade state | Evidence / note |
 |---|---|---|---|
 | Load by scanning a SeedQR | `LoadSeedView:163` | **Present** | `Restore Wallet > Scan QR` (`ui/mnemonic.c:89`); `Scan SeedQR` sits on the home screen itself while the device is uninitialised (`dashboard.c:96`, `:3696`), and moves one level down into the `QR Mode` menu once a PIN wallet exists (`dashboard.c:103`, `ui/dashboard.c:155-157`) |
-| **SLIP-0039 share recovery** | Not in SeedSigner: `slip39` and `shamir` appear in none of the 365 files of its tree at `d70b322` | **Present, recovery only** | `Restore Wallet > Split Backup > SLIP39` (`ui/mnemonic.c:95`, `:117`).  Shares reach the device typed or scanned (`ui/mnemonic.c:136-137`) and in both lengths the standard defines (`:153-154`); shares are collected until the set is complete, across groups as well as within one (`slip39.h:86-87`, `process/mnemonic.c:2411`, `:2342`).  Producing shares is deliberately out of scope, so a backup made elsewhere can be restored here but this fork does not split a wallet into SLIP-0039 shares |
+| **SLIP-0039 share recovery** | Not in SeedSigner: `slip39` and `shamir` appear in none of the 365 files of its tree at `d70b322` | **Present, recovery only** | `Restore Wallet > Split Backup > SLIP39` (`ui/mnemonic.c:95`, `:117`).  Shares reach the device typed or scanned (`ui/mnemonic.c:136-137`) and in both lengths the standard defines (`:153-154`); shares are collected until the set is complete, across groups as well as within one (`slip39.h:87-88`, `process/mnemonic.c:2411`, `:2342`).  Producing shares is deliberately out of scope, so a backup made elsewhere can be restored here but this fork does not split a wallet into SLIP-0039 shares |
 | 12 / 24 words entered by hand | `LoadSeedView:164-165` | **Present** | `ui/mnemonic.c:85-86`, word entry through `make_enter_wordlist_word_activity` (`:297`) |
 | Electrum seed entry | `LoadSeedView:166`, guarded by `SETTING__ELECTRUM_SEEDS` (**off** by default, `settings_definition.py:670-676`) | **Absent** | Electrum's own seed format is not supported.  The one non-BIP39 format this fork does read is SLIP-0039, two rows above |
 | New seed ; **camera entropy** | `tools_views.py:22` -> `:62-225`; device id plus time plus frames, chained through sha256 | **Present, with different collection and health checks** | `Entropy Source > Camera` (`entropy_sources.c:229`); at least 50 accepted frames (`entropy_sources.h:45`, `entropy_sources.c:495`), streamed into one SHA256 context with device id, time and a final device-CSPRNG input (`entropy_sources.c:478-479`, `:502-508`). SeedSigner chains hashes of a rolling pool of 50 frames and a final still (`gui/screens/tools_screens.py:23`, `:115-119`; `tools_views.py:193-199`). It already rejects flat and duplicate preview frames (`gui/screens/tools_screens.py:100-119`); this fork uses a pixel-range floor of 8 and a block-average change threshold of 128 (`entropy_sources.h:52`, `:88`). These are different checks, not proof of greater entropy |
@@ -90,32 +90,32 @@ first version of this document, so nothing below carries over):
 
 ```
 Options                                   main/process/dashboard.c:2771 (run_options_list)
-|-- Add Wallet                            :2788  (only with a wallet already open)
-|-- Temporary Signer                      :2792  (only with no wallet open)
-|-- OTP                                   :2795  (only when an OTP record is usable)
-|-- Mining                                :2802  (camera builds)
-|-- USB Storage                           :2810  (ESP32-S3 with a battery only)
-|-- Preferences                           :2813 -> :2839
-|   |-- Idle Timeout                      :2853
-|   |-- Screen Timeout                    :2855
-|   |-- Network: Mainnet / Testnet        :2859  (conditional)
-|   `-- QR Settings                       :2864  (QR Density, Frame Rate; ui/qrmode.c:261-271)
-|-- Features                              :2814 -> :2505
-|   `-- BIP85, Sign Msg, Warnings, Xpub Info, Singlesig, Multisig, Units   (FEATURE_ROWS, :2462)
-|-- Display                               :2815 -> ui/dashboard.c:289
+|-- Add Wallet                            :2806  (only with a wallet already open)
+|-- Temporary Signer                      :2810  (only with no wallet open)
+|-- OTP                                   :2813  (only when an OTP record is usable)
+|-- Mining                                :2820  (camera builds)
+|-- USB Storage                           :2828  (ESP32-S3 with a battery only)
+|-- Preferences                           :2831 -> :2857
+|   |-- Idle Timeout                      :2871
+|   |-- Screen Timeout                    :2873
+|   |-- Network: Mainnet / Testnet        :2877  (conditional)
+|   `-- QR Settings                       :2882  (QR Density, Frame Rate; ui/qrmode.c:261-271)
+|-- Features                              :2832 -> :2518
+|   `-- BIP85, Sign Msg, Warnings, Xpub Info, Singlesig, Multisig, Units   (FEATURE_ROWS, :2475)
+|-- Display                               :2833 -> ui/dashboard.c:289
 |   `-- Display Brightness, Flip Orientation, Theme, Camera Rotation       (:275-284)
-|-- Security                              :2816 -> :2873
-|   |-- Change PIN                        :2883  (locked, PIN configured)
-|   |-- Change PIN (QR)                   :2887  (PIN wallet unlocked, camera builds)
-|   |-- Duress PIN                        :2899  (PIN wallet unlocked)
-|   `-- BIP39 Passphrase                  :2903
-|-- Info                                  :2817 -> ui/dashboard.c:494
+|-- Security                              :2834 -> :2891
+|   |-- Change PIN                        :2901  (locked, PIN configured)
+|   |-- Change PIN (QR)                   :2905  (PIN wallet unlocked, camera builds)
+|   |-- Duress PIN                        :2917  (PIN wallet unlocked)
+|   `-- BIP39 Passphrase                  :2921
+|-- Info                                  :2835 -> ui/dashboard.c:494
 |   `-- firmware version (:476), Device Info (:481), I/O Test (:486), Legal (:490, official Jade hardware only)
-`-- Factory Reset                         :2831
+`-- Factory Reset                         :2849
 ```
 
 > Note: the `USB Storage` row is compiled only for ESP32-S3 boards with a battery
-> (`dashboard.c:2817`), so it never appears in this port's menu.
+> (`dashboard.c:2822`), so it never appears in this port's menu.
 
 The `Features` screen is what several rows of the table below now map onto: it is a flat list of optional
 features, each a bit in one stored byte (`storage.h:53-59`), read where the feature is offered
@@ -134,13 +134,13 @@ column is that SeedSigner splits its three warnings across two settings and this
 |---|---|---|---|
 | **Language** (interface language) | GENERAL / English | `settings_definition.py:554-560`, selection screen `settings_views.py:116` | **Absent.** The interface is English only |
 | **Denomination display** (BTC / sats / threshold / mixed) | GENERAL / threshold 0.01 | `:579-585`, `:218-227` | **Partly.** `Options > Features > Units` switches between BTC and sats (`dashboard.c:2482`, read at `ui/sign_tx.c:45`); SeedSigner's threshold and mixed modes have no counterpart |
-| **Bitcoin network** | ADVANCED / Mainnet | `settings_definition.py:589-595`; Mainnet / Testnet / Regtest (`:260-263`) | **Partly.** `Preferences > Network` (`dashboard.c:2869-2873`) offers Mainnet / Testnet for an open QR-mode wallet (`:2426-2460`). There is no separate Regtest choice; the address explorer resolves this restriction to Bitcoin mainnet or testnet (`qrmode.c:1562-1564`) |
-| **QR code density** | ADVANCED / Medium | `settings_definition.py:597-603` | **Present.** `Preferences > QR Settings > QR Density` (`dashboard.c:2877`, `ui/qrmode.c:261-271`) offers Low / Medium / High (`qrmode.c:250-255`), persisted at `:1925-1926` and applied to PSBT and xpub QR sizes (`:226-247`). Default is Low here (`:200-208`), Medium there |
+| **Bitcoin network** | ADVANCED / Mainnet | `settings_definition.py:589-595`; Mainnet / Testnet / Regtest (`:260-263`) | **Partly.** `Preferences > Network` (`dashboard.c:2874-2878`) offers Mainnet / Testnet for an open QR-mode wallet (`:2426-2460`). There is no separate Regtest choice; the address explorer resolves this restriction to Bitcoin mainnet or testnet (`qrmode.c:1562-1564`) |
+| **QR code density** | ADVANCED / Medium | `settings_definition.py:597-603` | **Present.** `Preferences > QR Settings > QR Density` (`dashboard.c:2882`, `ui/qrmode.c:261-271`) offers Low / Medium / High (`qrmode.c:250-255`), persisted at `:1925-1926` and applied to PSBT and xpub QR sizes (`:226-247`). Default is Low here (`:200-208`), Medium there |
 | **Sig types** (single-sig / multisig on or off) | ADVANCED / both on | `:605-612` | **Present.** `Features > Singlesig` and `> Multisig` (`dashboard.c:2480-2481`), read where the wallet type is offered (`qrmode.c:409-413`, `:452`). Turning both off is refused (`dashboard.c:2537-2542`) |
 | **Script types** (which script types to offer) | ADVANCED / segwit + nested + taproot | `:614-621` | **Partly.** The xpub screen has a `Script` choice (`ui/qrmode.c:122`); there is no global "never offer these types" setting |
 | **Xpub QR format** (animated / static / legacy Specter) | ADVANCED / both on | `:623-632` | **Partly.** Every export is `crypto-account`: the `crypto-hdkey` branch is disabled in the source itself (`qrmode.c:366-367`, `use_format_hdkey` fixed to false), and no format setting is offered; the file records the missing choice in a comment (`ui/qrmode.c:120`) |
 | **Show xpub details** | ADVANCED / on | `:634-638` | **Partly.** `Features > Xpub Info` (`dashboard.c:2479`, `qrmode.c:682`) skips the description screen, but that screen shows only wallet type and derivation path (`ui/qrmode.c:62-70`). SeedSigner also shows the fingerprint and xpub text (`seed_views.py:942-947`) |
-| **BIP-39 passphrase** | ADVANCED / Enabled | `settings_definition.py:640-646`; Enabled / Disabled / Required (`:31-33`) | **Partly.** `Security > BIP39 Passphrase` (`dashboard.c:2916`, `ui/dashboard.c:200`) has Disabled / Next Login Only / Always Ask and Manual / WordList (`dashboard.c:1466-1474`). There is no separate Required choice: entry offers Enter / Skip (`mnemonic.c:2166-2182`). SeedSigner's Required routes a scanned seed to entry (`scan_views.py:86-90`), but still permits skipping through a confirmation (`seed_views.py:370-411`) |
+| **BIP-39 passphrase** | ADVANCED / Enabled | `settings_definition.py:640-646`; Enabled / Disabled / Required (`:31-33`) | **Partly.** `Security > BIP39 Passphrase` (`dashboard.c:2921`, `ui/dashboard.c:200`) has Disabled / Next Login Only / Always Ask and Manual / WordList (`dashboard.c:1466-1474`). There is no separate Required choice: entry offers Enter / Skip (`mnemonic.c:2166-2182`). SeedSigner's Required routes a scanned seed to entry (`scan_views.py:86-90`), but still permits skipping through a confirmation (`seed_views.py:370-411`) |
 | **Compact SeedQR** | ADVANCED / on | `settings_definition.py:657-661`; disabling it bypasses the format picker for Standard (`seed_views.py:1428-1438`) | **Partly.** Both formats exist, but `mnemonic_export_qr()` asks Compact / Standard on each export (`mnemonic.c:138-140`); there is no stored switch to suppress Compact |
 | **BIP-85 child seeds** on/off | ADVANCED / **off** | `:663-668` | **Present.** `Features > BIP85` (`dashboard.c:2476`), read where the row is laid out (`:3457`). Default is on here, off there |
 | **Electrum seeds** on/off | ADVANCED / off | `:670-676` | **Absent** (so is the feature itself) |
@@ -176,15 +176,16 @@ options are specific to the port, and neither side offers another mnemonic langu
 Two measured facts decide whether a row above is a gap or a decision:
 
 1. **A wallet reloaded through PIN has no backup entropy in its slot.** The blob can hold
-   serialised keys or mnemonic entropy (`main/keychain.c:805-817`); current non-temporary setup
-   caches entropy for storage regardless of passphrase (`mnemonic.c:2971-2974`). PIN unlock
-   loads either form (`keychain.c:862-873`), derives keys if needed (`auth_user.c:239-265`),
-   and clears the cache (`keychain.c:84-88`, `:608`). It does not populate the slot's backup
-   entropy (`keychain.c:75-80`). So `View Words`, `Export SeedQR`, `Verify Backup` and
+   serialised keys, mnemonic entropy, or a SLIP-0039 master secret behind a tag byte
+   (`main/keychain.c:851-873`); current non-temporary setup caches entropy for storage regardless
+   of passphrase (`mnemonic.c:2971-2974`). PIN unlock loads any of the three
+   (`keychain.c:918-949`), derives keys if needed (`auth_user.c:239-265`), and clears the two
+   caches (`keychain.c:105-113`, `:653`). It does not populate the slot's backup
+   entropy (`keychain.c:96-101`). So `View Words`, `Export SeedQR`, `Verify Backup` and
    `Split (SeedXOR)` are unavailable after PIN reload. A newly created persistent wallet can
    still have backup entropy in its initial session when the passphrase is empty
    (`mnemonic.c:2641-2643`). The whole `Backup` row follows the slot's entropy condition
-   (`dashboard.c:3465-3467`).
+   (`dashboard.c:3470-3472`).
 2. **For a wallet with a passphrase, entropy is deliberately not kept in its backup slot** (decision, 2026-08-31;
    `mnemonic.c:2641-2643`, stored only while `passphrase_len == 0`, the reasoning written at
    `:2303-2308`). The reason: a
@@ -194,7 +195,7 @@ Two measured facts decide whether a row above is a gap or a decision:
    adopting it is not an automatic improvement but a separate decision.
 
 Also, `Log Out`, `Sleep`, the idle timeout's power-off/reboot paths and a successful `Factory Reset`
-clear the slot table with `wally_bzero` (`keychain.c:298-305`; `dashboard.c:3560`, `:3571`, `:725`;
+clear the slot table with `wally_bzero` (`keychain.c:323-330`; `dashboard.c:3565`, `:3571`, `:725`;
 `idletimer.c:275-283`). Backup helpers separately wipe their mnemonic buffers on return
 (`mnemonic.c:396-402`, `:705-709`) and QR image data during cleanup (`:344-356`,
 `qrcode.c:1151-1157`); the slot wipe alone does not establish that every display copy is gone.
@@ -216,7 +217,7 @@ both sides have the feature, the row identifies the narrower difference:
 
 | Feature | Where | What it is |
 |---|---|---|
-| **SLIP-0039 recovery** | `main/slip39.c`, `main/shamir.c`; `Restore Wallet > Split Backup > SLIP39` (`ui/mnemonic.c:117`) | Restoring a wallet from Shamir shares: typed or scanned, 20 or 33 words, one group or several.  Recovery only, by decision; this fork does not produce shares.  SeedSigner has no SLIP-0039 path at all, so this row is an addition rather than a narrower difference |
+| **SLIP-0039 recovery** | `main/slip39.c`, `main/shamir.c`; `Restore Wallet > Split Backup > SLIP39` (`ui/mnemonic.c:117`) | Restoring a wallet from Shamir shares: typed or scanned, 20 or 33 words, one group or several.  Recovery only, by decision; this fork does not produce shares.  Kept behind a PIN, such a wallet is written to the card as its master secret behind a tag byte and re-derived on unlock (`main/keychain.c:859-868`, `:930-944`), so it comes back carrying a seed and the seed-gated screens (OTP, identity) keep working after a restart.  SeedSigner has no SLIP-0039 path at all, and no persistence to put behind one, so this row is an addition rather than a narrower difference |
 | **Seed XOR** | `main/seedxor.c`; `Backup > Split (SeedXOR)` (`mnemonic.c:870`), `Restore Wallet > Split Backup > SeedXOR` (`ui/mnemonic.c:116`) | Splitting a wallet into parts, each a valid BIP39 mnemonic of its own, and combining them back. Not a threshold scheme: every part is needed |
 | **BBQr text import** | `main/bbqr.c`; the scanner branches on the file type at `qrmode.c:2909-2930` | Both sides read BBQr PSBTs; SeedSigner recognises type P (`models/decode_qr.py:366-367`, decoder at `:724`). This fork also routes type U text to its text import handlers (`qrmode.c:2922-2926`), including multisig setup files (`:2087-2092`). Reading only; this fork does not produce BBQr |
 | **Combined entropy** | `Entropy Source > Combined` (`entropy_sources.c:230`) | Dice, camera frames and the device CSPRNG in one chain, so no single source has to be trusted |
@@ -260,7 +261,7 @@ The rest of the list is what the settings comparison in section 3.1 turned up.
 
 No open items. The constraint itself still holds and is now expressed in one place: the whole
 `Backup` group is offered only where `keychain_slot_has_entropy()` is true
-(`dashboard.c:3465-3467`), so `View Words`, `Export SeedQR`, `Verify Backup` and
+(`dashboard.c:3470-3472`), so `View Words`, `Export SeedQR`, `Verify Backup` and
 `Split (SeedXOR)` share a single condition instead of each failing when pressed.
 
 **C. Items that need a decision and are not automatically "missing"**
@@ -268,7 +269,7 @@ No open items. The constraint itself still holds and is now expressed in one pla
 | Item | Why it is a decision |
 |---|---|
 | A per-seed passphrase model (SeedSigner style) | Today's architecture keeps the passphrase as device policy; changing it reopens the entropy decision too |
-| `Discard` for a persistent wallet | Today `Log Out` drops them all at once; dropping one runs into the `keychain_load()` constraint (`dashboard.c:3470-3473`) |
+| `Discard` for a persistent wallet | Today `Log Out` drops them all at once; dropping one runs into the `keychain_load()` constraint (`dashboard.c:3475-3478`) |
 | Electrum seeds | A new seed format is a new validation surface |
 | Importing settings by QR (SettingsQR) | A new parser on the one input this device has, and a way to change the device's behaviour without the menus; the security question comes before the convenience |
 | Interface language (Turkish included) | Needs font and localisation infrastructure; in SeedSigner Turkish is still marked incomplete (`settings_definition.py:149`) |
