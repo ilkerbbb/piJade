@@ -3,8 +3,8 @@
 
 #include <inttypes.h>
 #include <stdbool.h>
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #ifndef LIBJADE_API
 #if defined(_WIN32)

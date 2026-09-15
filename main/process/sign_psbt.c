@@ -756,8 +756,8 @@ static void offer_wallet_named_by_psbt(const struct wally_psbt* psbt)
         char* fphex = NULL;
         JADE_WALLY_VERIFY(wally_hex_from_bytes(slot_fingerprint, sizeof(slot_fingerprint), &fphex));
         map_string(fphex, toupper);
-        const int ret = snprintf(
-            label, sizeof(label), "%s (%u/%u)", fphex, (unsigned)(position + 1), (unsigned)num_slots);
+        const int ret
+            = snprintf(label, sizeof(label), "%s (%u/%u)", fphex, (unsigned)(position + 1), (unsigned)num_slots);
         JADE_ASSERT(ret > 0 && ret < sizeof(label));
         JADE_WALLY_VERIFY(wally_free_string(fphex));
 
@@ -838,7 +838,7 @@ int sign_psbt(jade_process_t* process, CborValue* params, const network_t networ
     // slot activation does not touch (main/keychain.c:65) - if that restriction ever becomes
     // per-wallet, this ordering has to be revisited.
     //
-    // A NULL process means the psbt came from a scan (main/qrmode.c:2176) or from usb storage
+    // A NULL process means the psbt came from a scan (main/qrmode.c:2174) or from usb storage
     // (main/usbhmsc/usbmode.c:843), ie. the user is at the device.  The rpc entry point has
     // already asserted that its own interface unlocked the wallet in use
     // (ASSERT_KEYCHAIN_UNLOCKED_BY_MESSAGE_SOURCE, main/process/process_utils.h:102); switching

@@ -253,7 +253,7 @@ static const fixture_t FIXTURES[] = {
 
     /*
      * Why the screen counter is still needed once the mark is a job count. Auto-scan leaves the
-     * camera loop the moment a QR decodes (main/camera.c:538) and the caller puts up a confirm
+     * camera loop the moment a QR decodes (main/camera.c:537) and the caller puts up a confirm
      * screen. No press was dispatched, so nothing was armed; only the screen number catches it.
      */
     { "QR_DECODE_SWAPS_SCREEN_WITH_NO_PRESS",

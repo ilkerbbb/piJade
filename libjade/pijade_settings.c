@@ -150,12 +150,10 @@ static bool user_entry_valid(
     }
 
     const size_t index = ns - 1;
-    if (value_len < PERSISTED_NAMESPACES[index].min_len
-        || value_len > PERSISTED_NAMESPACES[index].max_len) {
+    if (value_len < PERSISTED_NAMESPACES[index].min_len || value_len > PERSISTED_NAMESPACES[index].max_len) {
         return false;
     }
-    return !PERSISTED_NAMESPACES[index].modulo
-        || (value_len - AES_BLOCK_LEN) % PERSISTED_NAMESPACES[index].modulo == 0;
+    return !PERSISTED_NAMESPACES[index].modulo || (value_len - AES_BLOCK_LEN) % PERSISTED_NAMESPACES[index].modulo == 0;
 }
 
 // Writes the digest of `body` into the header of `output`.
@@ -187,8 +185,7 @@ bool pijade_settings_serialize(const struct wally_map* const prefs, uint8_t** ou
             = wally_map_get(prefs, (const unsigned char*)PERSISTED_FIELDS[i].key, key_len);
         // A field Jade has never written, or one whose width is outside the range above,
         // is left out. Leaving it out means the device keeps its default for that setting.
-        if (item && item->value_len >= PERSISTED_FIELDS[i].min_len
-            && item->value_len <= PERSISTED_FIELDS[i].max_len) {
+        if (item && item->value_len >= PERSISTED_FIELDS[i].min_len && item->value_len <= PERSISTED_FIELDS[i].max_len) {
             body_len += 1 + 1 + key_len + 2 + item->value_len;
         }
     }
@@ -221,8 +218,7 @@ bool pijade_settings_serialize(const struct wally_map* const prefs, uint8_t** ou
         const size_t key_len = strlen(PERSISTED_FIELDS[i].key);
         const struct wally_map_item* const item
             = wally_map_get(prefs, (const unsigned char*)PERSISTED_FIELDS[i].key, key_len);
-        if (!item || item->value_len < PERSISTED_FIELDS[i].min_len
-            || item->value_len > PERSISTED_FIELDS[i].max_len) {
+        if (!item || item->value_len < PERSISTED_FIELDS[i].min_len || item->value_len > PERSISTED_FIELDS[i].max_len) {
             continue;
         }
         *p++ = 0;
@@ -313,8 +309,8 @@ static bool walk_entries(struct wally_map* const prefs, const uint8_t* const bod
             // main/storage.c:564 asserts the replay counter stays below UINT32_MAX; refuse a file that would
             // hand that assert a value it cannot accept.
             if (!strcmp(PERSISTED_FIELDS[field].key, "antireplay")) {
-                const uint32_t antireplay = (uint32_t)p[0] | ((uint32_t)p[1] << 8)
-                    | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+                const uint32_t antireplay
+                    = (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
                 if (antireplay == UINT32_MAX) {
                     return false;
                 }
@@ -328,8 +324,8 @@ static bool walk_entries(struct wally_map* const prefs, const uint8_t* const bod
             // successful PIN unlock (main/process/auth_user.c:473-477); network_type_t (network.h:23) only defines
             // 0, 1, 2, so refuse a stored value outside that range.
             if (!strcmp(PERSISTED_FIELDS[field].key, "networktype")) {
-                const uint32_t networktype = (uint32_t)p[0] | ((uint32_t)p[1] << 8)
-                    | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+                const uint32_t networktype
+                    = (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
                 if (networktype > 2) {
                     return false;
                 }
@@ -361,11 +357,9 @@ static bool walk_entries(struct wally_map* const prefs, const uint8_t* const bod
     return true;
 }
 
-bool pijade_settings_deserialize(
-    struct wally_map* const prefs, const uint8_t* const bytes, const size_t bytes_len)
+bool pijade_settings_deserialize(struct wally_map* const prefs, const uint8_t* const bytes, const size_t bytes_len)
 {
-    if (!prefs || !bytes || bytes_len < SETTINGS_HEADER_LEN
-        || memcmp(bytes, SETTINGS_MAGIC, sizeof(SETTINGS_MAGIC))) {
+    if (!prefs || !bytes || bytes_len < SETTINGS_HEADER_LEN || memcmp(bytes, SETTINGS_MAGIC, sizeof(SETTINGS_MAGIC))) {
         return false;
     }
 

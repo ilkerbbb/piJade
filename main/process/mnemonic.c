@@ -577,7 +577,7 @@ static bool display_confirm_mnemonic(const size_t nwords, char* mnemonic, const 
             // gui_set_current_activity() only queues the switch, and this activity's handlers go
             // live later, on the gui task.  What is discarded is the second half of the press that
             // opened this screen - a single press posts GUI_BUTTON_EVENT via select_action() and
-            // then, unconditionally, its own GUI_EVENT click (main/gui.c:2702-2722), and the
+            // then, unconditionally, its own GUI_EVENT click (main/gui.c:2692-2712), and the
             // registration above takes any GUI_EVENT.  This screen is rebuilt for every word, so
             // the press that confirmed the previous word is exactly what would land here and
             // confirm this one at whichever option it opened on - almost always the wrong one,
@@ -2435,7 +2435,7 @@ static bool restore_slip39(const bool scan_shares, const bool temporary_restore,
             // Same reason as in slip39_share_words(): when the shares are typed, the next turn of
             // this loop reopens that escape-disabled keyboard.  Read unconditionally rather than
             // only for the typed arm, because the scanner reaches the same answer one wasted
-            // screen later anyway - its loop head polls the same flag (main/camera.c:521) - and
+            // screen later anyway - its loop head polls the same flag (main/camera.c:520) - and
             // one condition is cheaper than two paths that must be kept in agreement.
             if (gui_escape_pending()) {
                 break;

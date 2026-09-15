@@ -30,7 +30,7 @@
  * navigation cost the user a further 250 ms of dropped clicks - the very symptom being fixed.
  *
  * The screen counter is still needed, because a screen can be replaced with no press behind it:
- * auto-scan leaves the camera loop the moment a QR decodes (main/camera.c:538) and the caller puts
+ * auto-scan leaves the camera loop the moment a QR decodes (main/camera.c:537) and the caller puts
  * up a confirm screen, so a press dispatched at that instant would land on a screen nobody read.
  *
  * The rule:

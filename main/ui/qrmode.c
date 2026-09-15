@@ -70,11 +70,9 @@ gui_activity_t* make_show_xpub_qr_activity(const char* label, const char* pathst
     gui_set_align(node, GUI_ALIGN_CENTER, GUI_ALIGN_MIDDLE);
 
     // buttons
-    btn_data_t ftrbtns[] = { { .txt = "Show QR",
-                                 .font = GUI_DEFAULT_FONT,
-                                 .ev_id = BTN_QR_SHOW_FULLSCREEN,
-                                 .borders = GUI_BORDER_TOP },
-        { .txt = "Options", .font = GUI_DEFAULT_FONT, .ev_id = BTN_XPUB_OPTIONS, .borders = GUI_BORDER_TOP } };
+    btn_data_t ftrbtns[]
+        = { { .txt = "Show QR", .font = GUI_DEFAULT_FONT, .ev_id = BTN_QR_SHOW_FULLSCREEN, .borders = GUI_BORDER_TOP },
+              { .txt = "Options", .font = GUI_DEFAULT_FONT, .ev_id = BTN_XPUB_OPTIONS, .borders = GUI_BORDER_TOP } };
     add_buttons(vsplit, UI_ROW, ftrbtns, 2);
 
     return act;
@@ -335,8 +333,7 @@ gui_activity_t* make_show_otp_qr_actvity(const char* otp_name, Icon* qr_icon)
 
 // BBB-AIRGAP: as with the xpub screen above, this now only describes what is being exported;
 // the code itself is shown by make_fullscreen_qr_activity().
-gui_activity_t* make_show_qr_activity(
-    const char* message[], const size_t message_size, const bool show_options_button)
+gui_activity_t* make_show_qr_activity(const char* message[], const size_t message_size, const bool show_options_button)
 {
     JADE_ASSERT(message);
     JADE_ASSERT(message_size < 4);
@@ -370,11 +367,9 @@ gui_activity_t* make_show_qr_activity(
     }
 
     // Buttons, optionally options
-    btn_data_t ftrbtns[] = { { .txt = "Show QR",
-                                 .font = GUI_DEFAULT_FONT,
-                                 .ev_id = BTN_QR_SHOW_FULLSCREEN,
-                                 .borders = GUI_BORDER_TOP },
-        { .txt = "Options", .font = GUI_DEFAULT_FONT, .ev_id = BTN_QR_OPTIONS, .borders = GUI_BORDER_TOP } };
+    btn_data_t ftrbtns[]
+        = { { .txt = "Show QR", .font = GUI_DEFAULT_FONT, .ev_id = BTN_QR_SHOW_FULLSCREEN, .borders = GUI_BORDER_TOP },
+              { .txt = "Options", .font = GUI_DEFAULT_FONT, .ev_id = BTN_QR_OPTIONS, .borders = GUI_BORDER_TOP } };
     add_buttons(vsplit, UI_ROW, ftrbtns, show_options_button ? 2 : 1);
 
     return act;

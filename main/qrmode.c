@@ -2,9 +2,9 @@
 #include "qrmode.h"
 
 #include "bcur.h"
-#include "descriptor_text.h"
 #include "button_events.h"
 #include "descriptor.h"
+#include "descriptor_text.h"
 #include "gui.h"
 #include "idletimer.h"
 #include "jade_assert.h"
@@ -722,8 +722,7 @@ void display_xpub_qr(void)
 // '<name>/0' because the search-root helpers below use it as the screen label and rewrite its last
 // character, but descriptor_to_address() wants the record name on its own.
 static bool load_registered_wallet(const size_t* script_type, char* name_out, const size_t name_out_len,
-    char* raw_name_out, const size_t raw_name_out_len, multisig_data_t** multisig_data,
-    descriptor_data_t** descriptor)
+    char* raw_name_out, const size_t raw_name_out_len, multisig_data_t** multisig_data, descriptor_data_t** descriptor)
 {
     JADE_ASSERT(name_out);
     JADE_ASSERT(name_out_len > NVS_KEY_NAME_MAX_SIZE);
@@ -995,9 +994,8 @@ static bool handle_address_options(
     gui_view_node_t* script_item = NULL;
     gui_view_node_t* account_item = NULL;
     gui_view_node_t* change_item = NULL;
-    gui_activity_t* const act_options
-        = make_search_address_options_activity(
-            show_script, show_account, show_change, &script_item, &account_item, &change_item);
+    gui_activity_t* const act_options = make_search_address_options_activity(
+        show_script, show_account, show_change, &script_item, &account_item, &change_item);
     JADE_ASSERT(!account_item == !show_account);
     JADE_ASSERT(!script_item == !show_script);
     JADE_ASSERT(!change_item == !show_change);
@@ -1075,7 +1073,7 @@ static bool handle_address_options(
             if (ev_id == BTN_SCAN_ADDRESS_OPTIONS_SCRIPTTYPE && show_script) {
                 // Switch synchronously, then discard what is left of the press that opened this
                 // carousel.  A single press posts the menu's GUI_BUTTON_EVENT via select_action()
-                // and then, unconditionally, its own GUI_EVENT click (main/gui.c:2702-2722); the
+                // and then, unconditionally, its own GUI_EVENT click (main/gui.c:2692-2712); the
                 // registration above takes any GUI_EVENT, so that second half would be read here
                 // as the click that closes the carousel, before the user had turned it.  The
                 // asynchronous gui_set_current_activity() cannot be drained against, as it only
@@ -1589,8 +1587,8 @@ static bool address_explorer(char* out_address, const size_t out_address_len)
         const char* question[] = { "List addresses of a", "registered wallet?" };
         if (await_yesno_activity("Address Explorer", question, 2, false, NULL)) {
             // No script-type filter: any record can be listed, there is no address to match here
-            if (!load_registered_wallet(NULL, root_path, sizeof(root_path), descriptor_name,
-                    sizeof(descriptor_name), &multisig_data, &descriptor)) {
+            if (!load_registered_wallet(NULL, root_path, sizeof(root_path), descriptor_name, sizeof(descriptor_name),
+                    &multisig_data, &descriptor)) {
                 // Nothing selected, or the record would not load - the error is already on screen
                 return false;
             }
@@ -1608,8 +1606,8 @@ static bool address_explorer(char* out_address, const size_t out_address_len)
 
     // A page of addresses and their row labels lives on the heap: this runs on the dashboard task,
     // whose stack the strings would otherwise sit on for as long as the screen is up.
-    char (*addresses)[MAX_ADDRESS_LEN] = JADE_CALLOC(ADDR_EXPLORER_PAGE_SIZE, sizeof(addresses[0]));
-    char (*labels)[ADDR_LABEL_LEN] = JADE_CALLOC(ADDR_EXPLORER_PAGE_SIZE, sizeof(labels[0]));
+    char(*addresses)[MAX_ADDRESS_LEN] = JADE_CALLOC(ADDR_EXPLORER_PAGE_SIZE, sizeof(addresses[0]));
+    char(*labels)[ADDR_LABEL_LEN] = JADE_CALLOC(ADDR_EXPLORER_PAGE_SIZE, sizeof(labels[0]));
 
     // One search root per signer for multisig, one for singlesig, none for a descriptor - which
     // carries its own keys.  Allocated once: the count cannot change while this screen is up.
@@ -2409,14 +2407,14 @@ static gui_activity_t* make_mining_activity(const char* title, const uint64_t re
 // this file and used by the 'Scan address' flow) so the address is laid out the way the device
 // already shows addresses. MINING_ADDRESS_MAX (90) < MAX_DISPLAY_ADDRESS_LEN (96): always a single
 // screen, act2 stays NULL. Default event BTN_ADDRESS_ACCEPT: on the device the pressed button
-// decides (main/gui.c:3232-3235); the unattended-CI emulator build returns the default after 1 ms
-// (main/gui.c:3236-3238), exactly as await_yesno_activity returns BTN_YES there (main/ui/dialogs.c:1020), so
+// decides (main/gui.c:3218-3221); the unattended-CI emulator build returns the default after 1 ms
+// (main/gui.c:3222-3224), exactly as await_yesno_activity returns BTN_YES there (main/ui/dialogs.c:1020), so
 // the emulator walkthrough reaches the mining screen. The initial highlight is still the reject
 // button (default_selection = false), so a real user has to move to the tick on purpose.
 static bool confirm_mining_template(const mining_template_t* t)
 {
     JADE_ASSERT(t);
-    char title[24]; // same size and pattern as the 'Address %u' title, main/qrmode.c:1473-1474
+    char title[24]; // same size and pattern as the 'Address %u' title, main/qrmode.c:1471-1472
     const int ret = snprintf(title, sizeof(title), "Mine block %u", (unsigned)t->height);
     JADE_ASSERT(ret > 0 && ret < sizeof(title));
 
@@ -3003,8 +3001,7 @@ void handle_sign_message(void)
 // Populate an Icon with a QR code of text
 // Handles up to v6 codes - ie. text up to 134 bytes
 // Caller takes ownership of Icon data and must free
-static void bytes_to_qr_icon(
-    const uint8_t* bytes, const size_t bytes_len, const bool fullscreen, Icon* const qr_icon)
+static void bytes_to_qr_icon(const uint8_t* bytes, const size_t bytes_len, const bool fullscreen, Icon* const qr_icon)
 {
     JADE_ASSERT(bytes);
     JADE_ASSERT(bytes_len);

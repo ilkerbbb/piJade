@@ -26,7 +26,7 @@ WARN_UNUSED_RESULT bool registration_seal(
 
 // Verify and open a sealed record into 'body' (body_len is the capacity; 'written' the body size).
 // Returns false, never asserts, for a record of the wrong length, HMAC or version.
-WARN_UNUSED_RESULT bool registration_open(uint8_t expected_version, const uint8_t* bytes, size_t bytes_len,
-    uint8_t* body, size_t body_len, size_t* written);
+WARN_UNUSED_RESULT bool registration_open(
+    uint8_t expected_version, const uint8_t* bytes, size_t bytes_len, uint8_t* body, size_t body_len, size_t* written);
 
 #endif /* REGISTRATION_SEAL_H_ */

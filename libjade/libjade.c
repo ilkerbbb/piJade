@@ -272,8 +272,7 @@ esp_err_t esp_efuse_mac_get_default(uint8_t* out)
     while (begin < end && (id[begin] == ' ' || id[begin] == '\t' || id[begin] == '\r' || id[begin] == '\n')) {
         ++begin;
     }
-    while (end > begin && (id[end - 1] == ' ' || id[end - 1] == '\t' || id[end - 1] == '\r'
-                              || id[end - 1] == '\n')) {
+    while (end > begin && (id[end - 1] == ' ' || id[end - 1] == '\t' || id[end - 1] == '\r' || id[end - 1] == '\n')) {
         --end;
     }
 
@@ -345,8 +344,8 @@ static bool sensitive_clear_stack_impl(struct sens_stack* stack)
     if (stack) {
         while (stack->top > stack->elems) {
             stack->top--;
-            JADE_LOGW("sensitive: clearing %p %u bytes pushed from %s:%d", stack->top->addr,
-                (unsigned)stack->top->size, stack->top->file, stack->top->line);
+            JADE_LOGW("sensitive: clearing %p %u bytes pushed from %s:%d", stack->top->addr, (unsigned)stack->top->size,
+                stack->top->file, stack->top->line);
             JADE_WALLY_VERIFY(wally_bzero(stack->top->addr, stack->top->size));
             had_items = true;
         }
@@ -709,8 +708,7 @@ void libjade_display_flushed(const uint16_t* buffer)
 {
     pthread_mutex_lock(&_display_flush_mutex);
     if (_display_flush_fn) {
-        _display_flush_fn(buffer, CONFIG_DISPLAY_WIDTH * CONFIG_DISPLAY_HEIGHT * sizeof(uint16_t),
-            _display_flush_ctx);
+        _display_flush_fn(buffer, CONFIG_DISPLAY_WIDTH * CONFIG_DISPLAY_HEIGHT * sizeof(uint16_t), _display_flush_ctx);
     }
     pthread_mutex_unlock(&_display_flush_mutex);
 }

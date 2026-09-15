@@ -96,9 +96,8 @@ void qrcode_freeIconData(Icon* icon);
 
 // Blockstream added function
 // NOTE: only supports v1 to v3 qrcodes atm.
-WARN_UNUSED_RESULT bool qrcode_toFragmentsIcons(
-    QRCode* qrcode, uint16_t target_size, bool show_grid, uint8_t context_modules, Icon** icons_out,
-    size_t* num_icons_out);
+WARN_UNUSED_RESULT bool qrcode_toFragmentsIcons(QRCode* qrcode, uint16_t target_size, bool show_grid,
+    uint8_t context_modules, Icon** icons_out, size_t* num_icons_out);
 WARN_UNUSED_RESULT bool qrcode_fragmentsContextFits(uint8_t version, uint16_t target_size, uint8_t context_modules);
 
 #ifdef __cplusplus

@@ -300,7 +300,8 @@ gui_activity_t* make_otp_activity(void)
     // Order (ROADMAP item 66): the record is made once, then viewed on every use, and the clock
     // is a prerequisite of viewing rather than an OTP action of its own, so it sits last instead
     // of between the two OTP rows, where upstream's pair had been split by it.
-    btn_data_t menubtns[] = { { .txt = "New OTP Record", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_OTP_NEW },
+    btn_data_t menubtns[] = {
+        { .txt = "New OTP Record", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_OTP_NEW },
         { .txt = "View OTP", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_OTP_VIEW },
 #ifdef CONFIG_HAS_CAMERA
         { .txt = "Set Clock", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_OTP_SET_CLOCK },
@@ -418,7 +419,7 @@ gui_activity_t* make_wallet_erase_pin_options_activity(void)
 
 // BBB-AIRGAP: the loaded wallet appears here under its fingerprint, and its operations hang off
 // that entry. 'seed_label' is only read while the menu is built - the builder keeps its own copy
-// of the text (main/gui.c:1300-1302) - so a caller's stack buffer is enough.
+// of the text (main/gui.c:1290-1292) - so a caller's stack buffer is enough.
 gui_activity_t* make_ble_activity(gui_view_node_t** ble_status_item)
 {
     JADE_INIT_OUT_PPTR(ble_status_item);

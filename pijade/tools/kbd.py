@@ -86,7 +86,7 @@ def is_keyboard(px):
 def forward_direction(j):
     """MEASURE which way 'right' moves through the list; cache the result.
 
-    With Flip Orientation enabled (main/gui.c:2861-2868), gui_next() selects the previous
+    With Flip Orientation enabled (main/gui.c:2849-2856), gui_next() selects the previous
     item, so 'right' moves backward. Measure instead of assuming: keyboard selection
     is readable, allowing one direction measurement here to also drive the suggestion
     carousel, whose text cannot be read."""
@@ -139,7 +139,7 @@ def select_letter(j, target):
     """Navigate to and select the target letter. Raise if it is currently disabled.
 
     Settings > Display > Flip Orientation INVALIDATES the direction cache
-    (main/gui.c:2861-2868): gui_next() reverses direction while the cache keeps the old
+    (main/gui.c:2849-2856): gui_next() reverses direction while the cache keeps the old
     measurement. No RPC reports the setting change, so detect it by FAILURE TO REACH
     the target: if the first attempt lands on a different letter, discard the cache,
     remeasure direction, and retry before. A second failure is a real error and is raised.
@@ -250,7 +250,7 @@ _ASCII_OPPOSITE = {'down': 'up', 'up': 'down', 'right': 'left', 'left': 'right'}
 def _ascii_calibrate(j, page):
     """MEASURE which key moves the selection one cell forward on each axis; cache the pair.
 
-    Flip Orientation reverses both axes (main/gui.c:2861-2880) and no RPC reports the setting,
+    Flip Orientation reverses both axes (main/gui.c:2849-2868) and no RPC reports the setting,
     so the meaning of 'down' and 'right' is read off the screen once rather than assumed.  Two
     presses cost less than being wrong silently, and the calibration cell is left where it is:
     the caller navigates from wherever the selection ends up."""

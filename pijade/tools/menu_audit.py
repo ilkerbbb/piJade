@@ -43,12 +43,12 @@ so shortening the setting or waking a dimmed screen does not wait for the curren
 to the second dimming after wake; both paths took up to 60 seconds before the fix).
 `Disabled` prevents dimming (measured: idle for 80 seconds, no dimming log line).
 The FIRST press after dimming only restores the screen; its event is never sent
-(`gui_front_click()` first calls `idletimer_register_activity(true)`, `main/gui.c:2716`,
+(`gui_front_click()` first calls `idletimer_register_activity(true)`, `main/gui.c:2706`,
 which returns `true` on a dimmed screen, `main/idletimer.c:163-170`). Emulator dimming does
 not touch the framebuffer, so the change check correctly reports "screen did not change"
 and stops; the press was swallowed, not dropped. After long pauses, wake a screen without
 selectable buttons with `still:first`: `gui_select_first()` returns early on
-`!current_activity->selectables` (`main/gui.c:2913`), keeping the frame identical in both cases."""
+`!current_activity->selectables` (`main/gui.c:2901`), keeping the frame identical in both cases."""
 import hashlib
 import os
 import socket
@@ -173,8 +173,8 @@ class Audit:
         """Push a camera frame and verify the camera screen was actually LEFT.
 
         A changed screen is NOT the criterion, and measuring it as one was wrong: the camera
-        loop copies EVERY captured frame into the displayed image (main/camera.c:556 and
-        its gui_update_picture() at :570), so a frame the decoder rejects repaints the preview
+        loop copies EVERY captured frame into the displayed image (main/camera.c:555 and
+        its gui_update_picture() at :569), so a frame the decoder rejects repaints the preview
         just as a decoded one does.  The audit would then walk on across the camera screen
         believing the code had been read.
 

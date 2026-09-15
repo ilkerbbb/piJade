@@ -94,8 +94,7 @@ static bool run_dice_entry(char* rolls, const size_t total_rolls)
     gui_view_node_t* const parent = add_title_bar(act, "Dice Rolls", NULL, 0, NULL);
 
     gui_view_node_t* vsplit;
-    gui_make_vsplit(
-        &vsplit, GUI_SPLIT_RELATIVE, 3, DICE_COUNT_BAND_PCNT, DICE_CELL_BAND_PCNT, DICE_BAR_BAND_PCNT);
+    gui_make_vsplit(&vsplit, GUI_SPLIT_RELATIVE, 3, DICE_COUNT_BAND_PCNT, DICE_CELL_BAND_PCNT, DICE_BAR_BAND_PCNT);
     gui_set_parent(vsplit, parent);
 
     dice_display_t display = { 0 };
@@ -158,7 +157,7 @@ static bool run_dice_entry(char* rolls, const size_t total_rolls)
     // gui_set_current_activity() only queues the switch, and this activity's handlers go live
     // later, on the gui task.  What is discarded is the second half of the press that opened this
     // screen - a single press posts the menu's GUI_BUTTON_EVENT via select_action() and then,
-    // unconditionally, its own GUI_EVENT click (main/gui.c:2702-2722), and the registration above
+    // unconditionally, its own GUI_EVENT click (main/gui.c:2692-2712), and the registration above
     // takes any GUI_EVENT.  Here that click would be read as a roll the user never made: the loop
     // below records DICE_CHARS[selected] on a click, and 'selected' still points at the first
     // face.  Same 10ms idle timeout as run_list_activity() (main/ui/dialogs.c).
@@ -214,9 +213,7 @@ gui_activity_t* make_new_mnemonic_source_activity(void)
 {
     // BBB-AIRGAP: only the advanced arm of the setup-method menu opens this screen
     // (make_mnemonic_setup_method_activity), so 'back' always returns there.
-    btn_data_t hdrbtns[] = { { .txt = "=",
-                                 .font = JADE_SYMBOLS_16x16_FONT,
-                                 .ev_id = BTN_MNEMONIC_METHOD },
+    btn_data_t hdrbtns[] = { { .txt = "=", .font = JADE_SYMBOLS_16x16_FONT, .ev_id = BTN_MNEMONIC_METHOD },
         { .txt = NULL, .font = GUI_DEFAULT_FONT, .ev_id = GUI_BUTTON_EVENT_NONE } };
 
     // BBB-AIRGAP: 'Combined' is last because it is the longest ceremony, and it is named for what

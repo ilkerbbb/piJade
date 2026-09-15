@@ -17,8 +17,8 @@
 // Digits emitted per word index, plus the NUL that snprintf() writes
 #define SEEDQR_DIGITS_PER_WORD 4
 
-bool seedqr_digits_from_entropy(const uint8_t* entropy, const size_t entropy_len, char* digits_out,
-    const size_t digits_len, size_t* written)
+bool seedqr_digits_from_entropy(
+    const uint8_t* entropy, const size_t entropy_len, char* digits_out, const size_t digits_len, size_t* written)
 {
     if (!entropy || !digits_out || !written) {
         return false;

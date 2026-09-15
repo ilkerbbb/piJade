@@ -73,7 +73,7 @@ main/amalgamated.c:129    #include "./random.c"
 ```
 
 piJade is built with `CONFIG_LIBJADE`, so `main/random.c` is **never compiled**. What runs instead
-is `get_random` in `libjade/libjade.c:436`, and that reads `getrandom(2)` only. For the same reason
+is `get_random` in `libjade/libjade.c:435`, and that reads `getrandom(2)` only. For the same reason
 the announcement's own RNG-hardening commit (`e850c3be`) is inert here: that commit changes
 **only `main/random.c`** (`git show --stat`: 1 file, +32/-3).
 
@@ -88,17 +88,17 @@ ours too" cannot be made. Our defence is a different defence (one strong source,
 a multi-source mix. That has to be on the record; otherwise a future upstream improvement to the
 RNG will be assumed to have been inherited and will sit here inert. (Same class:
 `random_start_collecting()` and `random_full_initialization()` are empty bodies in libjade,
-`libjade.c:490-492`.)
+`libjade.c:489-491`.)
 
 ### B2. Fail-closed verification ; there is NO downgrade path (evidence)
 
 Coldcard's hole was a downgraded fallback path. In this port the fallback path ends in `abort()`:
 
 ```c
-libjade/libjade.c:471   if (getrandom_enosys) {
-libjade/libjade.c:472       // FIXME: find another source of entropy of cryptographic strength or abort()
-libjade/libjade.c:474   }
-libjade/libjade.c:475   abort();
+libjade/libjade.c:470   if (getrandom_enosys) {
+libjade/libjade.c:471       // FIXME: find another source of entropy of cryptographic strength or abort()
+libjade/libjade.c:473   }
+libjade/libjade.c:474   abort();
 ```
 
 `EINTR` retries, a short read completes in the loop, `ENOSYS` and every other error `abort()`s.
@@ -144,7 +144,7 @@ of bits comes straight from the kernel.
 
 ### C1. The dice path deliberately does not mix in device randomness (a design decision, recorded)
 
-`main/entropy_sources.c:262-267`, comment verbatim: *"As SeedSigner does: hash the rolls as an ascii
+`main/entropy_sources.c:259-264`, comment verbatim: *"As SeedSigner does: hash the rolls as an ascii
 string, take the leading bytes. No device randomness is mixed in, so the result stays verifiable."*
 
 This is a deliberate parity decision and it is verified: SeedSigner's own test vectors reproduce
@@ -160,7 +160,7 @@ bits **by construction** (the roll count is fixed); the camera path gives an **u
 of sensor noise plus a near-constant `macid` and a narrow-range tick. For a wallet seed
 "unmeasured" is not an acceptable level of assurance, and closing it costs one line.
 
-`main/entropy_sources.c:349-360`: the hash input is, in order, `macid` (6 bytes),
+`main/entropy_sources.c:346-357`: the hash input is, in order, `macid` (6 bytes),
 `xTaskGetTickCount()` and the 25 accepted frames. `get_random()` **never enters** that chain.
 
 The reason that holds on the dice path (reproducibility) does not hold here: the camera path is
@@ -265,7 +265,7 @@ is provably sufficient**, because we cannot measure what the camera gives.
 ### C3. `get_uniform_random_byte` modulo bias ; **P3 (information)**
 
 The upstream ESP side uses rejection sampling and is unbiased (`main/random.c:165-177`). The
-libjade shim returns `ret % upper_bound` (`libjade/libjade.c:483-488`) and its comment says "not
+libjade shim returns `ret % upper_bound` (`libjade/libjade.c:482-487`) and its comment says "not
 used for crypto". **The claim was verified:** none of the ten call sites produces key material; the
 two most meaningful are the factory reset confirmation code (`dashboard.c:681`, a code already
 shown to the user) and the random starting letter of the word keyboard (`mnemonic.c:770`). For
@@ -387,12 +387,12 @@ reason why turning that flag into a build option was the right decision.
 The constraint: mining code calls nothing in keychain/wallet/storage and no sensitive function. The
 measurement: `grep -rnE "keychain_|storage_|wallet_|SENSITIVE_|get_random|mnemonic" components/miner/*.c *.h`
 returns **no match at all**. Template parsing validates its input and rejects a template without an
-identity (`qrmode.c:2143-2178`).
+identity (`qrmode.c:2141-2176`).
 
 ### A5. Sensitive memory ; **the fork filled in what upstream left empty**
 
 `sensitive_push/pop/clear_stack` are a real implementation in libjade (pthread TLS,
-`libjade.c:392-434`); upstream libjade left them empty. Entropy enters the slot through a single
+`libjade.c:391-433`); upstream libjade left them empty. Entropy enters the slot through a single
 door and that door depends on the path by which the user supplied the words in this session
 (`keychain.c:208-229`); an unsupported length is wiped with `wally_bzero`.
 
@@ -461,11 +461,11 @@ measurements themselves.
 | B3 | The image chain does not enforce the authenticity of its inputs (an unpinned Docker tag, an unverified SHA256, unpinned `apk add`) | **not verified** |
 
 **Verification of A3 (done in this round).** `handle_qr_bytes()` relies on a NUL terminator
-contract and reads `strbytes[bytes_len]` (`main/qrmode.c:1805`). On the BC-UR path that buffer is
+contract and reads `strbytes[bytes_len]` (`main/qrmode.c:1803`). On the BC-UR path that buffer is
 allocated **at exactly the right size** with `JADE_MALLOC_PREFER_SPIRAM(result_len + offset)`, with
-no extra byte for the NUL (`main/bcur.c:745`); unlike the non-bc-ur branch, which does append a
+no extra byte for the NUL (`main/bcur.c:746`); unlike the non-bc-ur branch, which does append a
 terminator. And `bcur_parse_bytes()` returns not a copy but **a pointer into the CBOR buffer**
-(`main/bcur.c:266-285`). If the byte string is the last element of the CBOR, the byte read is one
+(`main/bcur.c:265-284`). If the byte string is the last element of the CBOR, the byte read is one
 past the allocation. The value read does not escape (it is only compared `== '\0'`), so this is not
 an information leak; but it is a defined out-of-bounds read triggered by attacker-controlled input.
 
@@ -529,11 +529,11 @@ review and two open counts were measured. Every item was either verified or reje
 | 0.1 | UR decoder `stoul` overflow | **VERIFIED** | `ur-decoder.cpp:150-151` calls `stoul(comps[0])`, `stoul(comps[1])`; nothing ever checks that the input is numeric (`:145` only looks at `comps.size() != 2`). `-fno-exceptions` is on in two places: `libjade/CMakeLists.txt:94` and `components/esp32_bc-ur/CMakeLists.txt:24`. A non-numeric or overflowing sequence component throws `std::invalid_argument` / `std::out_of_range`, there is no one to catch it, and the process dies through `std::terminate`. |
 | 0.2 | Unbounded `seq_len` allocation | **VERIFIED** | `fountain-encoder.hpp:33` `is_valid()` only looks at `message_len_ && !data_.empty()`; there is no upper bound on `seq_len_`. `choose_fragments()` in `fountain-utils.cpp` does `indexes.reserve(seq_len)` with that value, and `fountain-decoder.cpp:205` calls `insert(i)` `seq_len` times. The value is an attacker-controlled `size_t`. |
 | 0.3 | The seed loading confirmation | **VERIFIED** | `dashboard.c:876-877`, the text is only "Wallet QR identified." / "Load this wallet?"; the fourth argument is `true`, and `dialogs.c:930` makes that YES button the initial selection with `ftrbtns[default_selection ? 1 : 0]`. No fingerprint is shown. |
-| 0.4 | The `esp_camera_deinit` call surface | **MEASURED** | The single production call is `main/camera.c:372`. The implementation is `libjade/esp_camera.c:61`, the QEMU wrapper `main/qemu/qemu_display.c:58`. Wiping can go in one place. |
+| 0.4 | The `esp_camera_deinit` call surface | **MEASURED** | The single production call is `main/camera.c:371`. The implementation is `libjade/esp_camera.c:61`, the QEMU wrapper `main/qemu/qemu_display.c:58`. Wiping can go in one place. |
 | 0.5 | The upstream divergence count | **65, THE CONTRADICTION IS CLOSED** | `git rev-list --count fdb67a3f..upstream/master` = 65; with `--no-merges` also 65, so it is not a merge artefact. The figure of 61 from the second review could not be reproduced. **No missed security fix:** urldecode validation (`dd0d699d`), OTP URL validation (`b0552c8e`) and the libjade deadlock (`072dd3b1`) are present in the fork. The two commits not in the fork (`69627745` limited digit entry, `b5329010` removing `free_callback`) are a feature and a refactor; not security fixes. |
 | 0.6 | Flag support in the cross compiler | **ALL SUPPORTED** | gcc 12.2.0 in the container (Raspbian 12.2.0-14+rpi1+deb12u1). `_FORTIFY_SOURCE=3`, `_FORTIFY_SOURCE=2`, `-fstack-protector-strong`, `-fstack-clash-protection`, `-Wl,-z,relro,-z,now`, `-fPIE -pie`, `_GLIBCXX_ASSERTIONS`: all compile. The `__stack_chk` symbol really is present in the produced binary (2 matches) and `readelf -d` shows `BIND_NOW`. There is no technical obstacle in front of A6's recommendation. |
 | 0.7 | The interface that reads whether a duress PIN exists | **VERIFIED, HEAVIER THAN EXPECTED** | `dashboard.c:1337` does not merely read existence: if `storage_get_wallet_erase_pin()` succeeds it **prints the stored PIN on the screen in the clear** with `format_pin()` and offers Change / Delete. So the duress PIN has to be readable back; a one-way hash makes that screen unworkable. **Phase 3 outcome:** the screen was changed, the display was reduced to "set", and the field became a one-way verifier; the obstacle was the screen itself, not a requirement of the duress mechanism. |
-| 0.8 | Behaviour on a magic number mismatch | **MEASURED** | `pijade_settings.c:359-361`: on a mismatch `pijade_settings_deserialize` returns `false`; the rejection is **per file, not per field**. The single call site is `libjade.c:738`, which passes the return value through unchanged. A card in an older format is not silently misread, but everything in it (the wallet blob, the counter, all preferences) goes together. |
+| 0.8 | Behaviour on a magic number mismatch | **MEASURED** | `pijade_settings.c:355-357`: on a mismatch `pijade_settings_deserialize` returns `false`; the rejection is **per file, not per field**. The single call site is `libjade.c:736`, which passes the return value through unchanged. A card in an older format is not silently misread, but everything in it (the wallet blob, the counter, all preferences) goes together. |
 
 ### The consequence of 0.7: phase 3 is reopened for decision
 
@@ -572,7 +572,7 @@ coredump package in the image. So a residue left on the stack has **no path to d
 is process-local. Its value appears in combination with a memory-read hole (the class fixed in
 phase 1.1), that is, it is defence in depth.
 
-**Reachability ; what the QR path accepts.** `handle_qr_bytes()` (`main/qrmode.c:1747`) does not
+**Reachability ; what the QR path accepts.** `handle_qr_bytes()` (`main/qrmode.c:1745`) does not
 take arbitrary RPC; it recognises a narrow list of formats: a message to be signed (behind a flag),
 an OTP URI, an OTP migrate URI, a multisig registration file, a mnemonic. There is no source
 restriction in the method dispatch chain (`dashboard.c:560+`), but the only carrier that reaches
@@ -642,7 +642,7 @@ silent):
 | `main/process/sign_tx.c:159` | `pubkeys` | not a secret |
 | `main/process/update_pinserver.c:131` | `user_pubkey` | not a secret |
 | `main/process/update_pinserver.c:32` | `pubkey` | not a secret |
-| `main/qrmode.c:1456` | `pubkeys` | not a secret |
+| `main/qrmode.c:1454` | `pubkeys` | not a secret |
 | `main/wallet.c:1039` | `pubkeys` | not a secret |
 | `main/wallet.c:832` | `pubkeys` | not a secret |
 | `main/selfcheck.c:191` | `aeskey` | test vector |
@@ -735,7 +735,7 @@ that copy is wiped separately inside `esp_camera_deinit()` (phase 1.3).
 Phase 1's only verified memory error rested, after the fix, on "it compiles" alone. The probe uses
 the real decoder: `esp32_bc-ur` is built with ASAN, a single-part `ur:bytes` is produced and
 decoded, the pointer returned by `urresult_ur_decoder` is put through the allocate-and-copy pattern
-of `bcur_scan_qr`, and then the read from `handle_qr_bytes` (`qrmode.c:1805`,
+of `bcur_scan_qr`, and then the read from `handle_qr_bytes` (`qrmode.c:1803`,
 `strbytes[bytes_len]`) is applied.
 
 **The positive control is essential:** the same probe was also run against the old allocation. If
@@ -825,7 +825,7 @@ Two notes, both from that end-to-end run. First, the value on the success screen
 `time(NULL)` and the system clock does not change in the emulator (that needs root), so what was
 measured is the formatting path; actually setting the clock had already been closed on the device.
 Second, when the user declines, the caller logs
-`ERROR:qrmode.c:2501: Processing BC-UR as epoch failed`; there is no counterpart on screen, but a
+`ERROR:qrmode.c:2499: Processing BC-UR as epoch failed`; there is no counterpart on screen, but a
 deliberate refusal is logged at error level. Left out of scope, recorded.
 
 ---
@@ -841,7 +841,7 @@ had.
 
 **What `get_random()` means in this product (measured):** on the libjade target `main/random.c` is
 not compiled (it is not in `libjade/CMakeLists.txt`); `get_random` is the implementation at
-`libjade/libjade.c:436-473` and it wraps the `getrandom(2)` system call directly. The `ENOSYS` path
+`libjade/libjade.c:435-472` and it wraps the `getrandom(2)` system call directly. The `ENOSYS` path
 `abort()`s, so it does not silently fall back to a weak source. The floor is therefore the kernel
 CSPRNG.
 
@@ -879,9 +879,9 @@ precondition, so it can never silently return zero again.
 | Question | Measurement |
 |---|---|
 | How does the SeedSigner pool work | It **keeps** the last 50 frames, drops the oldest when the 51st arrives, and hashes once at the end (`tools_screens.py:113-119`). The sliding window is not a design preference but a memory constraint: full `Image` objects are held in Python. Our chain is incremental, a frame is hashed and dropped, so going past 50 loses nothing |
-| How does the user end the collection | `BTN_CAMERA_EXIT` ends the camera loop with `done = true` (`main/camera.c:556`); on exit `gather_camera_entropy` looks at the `nframes` condition and decides whether to produce a seed. So early exit is already supported; what changes is the callback stopping itself |
-| Is on-screen feedback possible | The label node `label_node` is updated inside the function (`camera.c:547`, "Processing..."), but it is not exposed to the callback; `progress_bar`, on the other hand, is updated through `ctx` |
-| How are synthetic frames fed to the emulator | The daemon RPC `set_camera_bytes` → `libjade_push_camera_frame` (`libjade/libjade.c:889-893`). The frame is 320x240 greyscale, 76800 bytes |
+| How does the user end the collection | `BTN_CAMERA_EXIT` ends the camera loop with `done = true` (`main/camera.c:555`); on exit `gather_camera_entropy` looks at the `nframes` condition and decides whether to produce a seed. So early exit is already supported; what changes is the callback stopping itself |
+| Is on-screen feedback possible | The label node `label_node` is updated inside the function (`camera.c:546`, "Processing..."), but it is not exposed to the callback; `progress_bar`, on the other hand, is updated through `ctx` |
+| How are synthetic frames fed to the emulator | The daemon RPC `set_camera_bytes` → `libjade_push_camera_frame` (`libjade/libjade.c:887-891`). The frame is 320x240 greyscale, 76800 bytes |
 
 ### 2.2 / 2.3 / 2.4 (and the threshold fix)
 
@@ -1334,9 +1334,9 @@ not exist at all.
 ### 5.3 The order of the wallet menu
 
 The requested order was written into the code: Scan QR, Address Explorer, Export Xpub, Sign
-Message, Registered Wallets, BIP85, Backup, Forget (`dashboard.c:3104-3140`). The conditions under
+Message, Registered Wallets, BIP85, Backup, Forget (`dashboard.c:3103-3139`). The conditions under
 which rows appear did not change; only the order did. The array size was reinterpreted as `4 + 4`
-(`dashboard.c:3058-3065`): four unconditional, four conditional (BIP85 and Sign Message on a
+(`dashboard.c:3057-3064`): four unconditional, four conditional (BIP85 and Sign Message on a
 feature flag, Backup on entropy, Forget on a temporary wallet), and in a camera-less build three
 drop out at compile time, so the size is an upper bound rather than a count.
 
@@ -1434,7 +1434,7 @@ In the first verification round the `right` selection did not move and `click` p
 button (`No` instead of `Yes`). The root cause is not in the GUI: when the screen has dimmed, the
 first event to arrive only wakes the screen. `idletimer_register_activity(true)` returns `true`
 while the screen is dim, and `select_next_right()` and `gui_front_click()` return early
-(`main/idletimer.c`, `main/gui.c:2576-2590`). The evidence is in the log:
+(`main/idletimer.c`, `main/gui.c:2566-2580`). The evidence is in the log:
 `INFO:idletimer.c:154: Activity while screen disabled - powering screen`, exactly on the tick of
 the swallowed event. The fix is on the measurement side, not in the code: `Screen Timeout` was
 raised to 10 minutes and a disposable wake-up press was put at the head of the sequences. This is a
@@ -1517,7 +1517,7 @@ carousel marker added this round (below) is exactly that indication.
 | The QR, address explorer and signing paths already use only valid records | `main/qrmode.c:688,693,1278,1286`; `main/process/sign_psbt.c:411-440,455-470`; the RPC listing `main/process/get_registered_multisigs.c:96-118` ("Corrupt or for another wallet - just log and skip") |
 | Capacity is device-wide, not per wallet | `main/multisig.h:13` and `main/descriptor.h:14`, both 16 |
 | Records sit unencrypted on the card | `libjade/pijade_settings.c:92-99`: multisig and descriptor entries are `modulo 0` (they do not have OTP's `modulo 16` AES); `main/multisig.c:296-300` is an HMAC gate, not decryption |
-| **A descriptor record can never be created on this device** | The QR path recognises only a multisig file (`main/qrmode.c:1789-1800`); the serial carrier is an empty function in piJade (`libjade/libjade.c:290`). The descriptor branch in the menu is always empty on a production device |
+| **A descriptor record can never be created on this device** | The QR path recognises only a multisig file (`main/qrmode.c:1787-1798`); the serial carrier is an empty function in piJade (`libjade/libjade.c:289`). The descriptor branch in the menu is always empty on a production device |
 
 There is NO risk of signing with the wrong wallet: signing skips a record that fails the HMAC. The
 problem lies on the axes of visibility, data loss, capacity and privacy.
@@ -1592,9 +1592,9 @@ Seen during the measurement: with wallet A loaded, when wallet B was loaded thro
 menu does not fix it either (`t8_home`).
 
 **Why.** The home screen's label is written only by `UPDATE_HOME_SCREEN`
-(`main/process/dashboard.c:3564-3570`), which runs after `do_dashboard()` returns; and
+(`main/process/dashboard.c:3562-3568`), which runs after `do_dashboard()` returns; and
 `do_dashboard` does not return as long as `keychain_get() == initial_keychain`
-(`dashboard.c:3468`). Every call to `keychain_set()` empties and refills **slot 0**
+(`dashboard.c:3466`). Every call to `keychain_set()` empties and refills **slot 0**
 (`main/keychain.c:104-108`), and `occupy_slot()` sets `keychain_data` to
 `&keychain_slots[0].keydata` (`keychain.c:70`) ; so even when the wallet changes, **the pointer is
 the same address**. The loop sees no change and the screen is not rewritten.

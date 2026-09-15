@@ -297,8 +297,8 @@ TickType_t xTaskGetTickCount(void)
 
     // Signed while subtracting: the nanosecond halves are not ordered, and TickType_t is unsigned,
     // so a borrow computed in the return type would come out as an enormous number of ticks.
-    const long long ms = (((long long)ts.tv_sec - epoch.tv_sec) * 1000)
-        + (((long long)ts.tv_nsec - epoch.tv_nsec) / 1000000);
+    const long long ms
+        = (((long long)ts.tv_sec - epoch.tv_sec) * 1000) + (((long long)ts.tv_nsec - epoch.tv_nsec) / 1000000);
     return ms > 0 ? (TickType_t)ms : 0;
 }
 

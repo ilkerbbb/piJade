@@ -1787,7 +1787,7 @@ static bool show_otp_code(otpauth_ctx_t* otp_ctx)
         // BBB-AIRGAP: upstream sends the user to the Blockstream companion app over USB or
         // Bluetooth.  Neither exists here - the radio is physically cut and the port is QR only -
         // so the message named a route this device does not have.  The route it does have is the
-        // epoch message over a scanned QR (main/qrmode.c:2733, ur:jade-epoch; the host side is
+        // epoch message over a scanned QR (main/qrmode.c:2731, ur:jade-epoch; the host side is
         // pijade/tools/epoch_qr.py).
         await_error_3("Clock not set.", "Scan a time QR", "to set it.");
         return false;
@@ -2943,7 +2943,6 @@ static void handle_settings(const bool startup_menu)
     gui_activity_t* act = startup_menu ? make_startup_options_activity() : NULL;
     settings_list_t open_list = startup_menu ? SETTINGS_LIST_NONE : SETTINGS_LIST_OPTIONS;
 
-
     // Selection is remembered per list, so coming back from a sub-screen lands where it was left.
     size_t options_selected = 0;
     size_t prefs_selected = 0;
@@ -3250,7 +3249,7 @@ static void handle_settings(const bool startup_menu)
 
 #ifdef CONFIG_HAS_CAMERA
         // BBB-AIRGAP: reuses the existing scan flow rather than adding a second dispatcher; an
-        // epoch QR lands in handle_epoch_qr() (main/qrmode.c:2733) which reports the time it set.
+        // epoch QR lands in handle_epoch_qr() (main/qrmode.c:2731) which reports the time it set.
         // Sets 'done' for the same reason the pinserver QR case above does: the scan is generic, so
         // a psbt or a wallet QR can also arrive here, and those screens free the managed activities
         // this loop is holding in 'act' - coming back to the OTP menu would use freed memory.  The
@@ -3273,8 +3272,7 @@ static void handle_settings(const bool startup_menu)
             // for this: the same screen already carries the pinserver-unlock address (line 754).
             // All three rows are the address; a label row was tried and measured, and it clipped
             // ("Open on phone:" came out as "Open on pho"), so the rows carry the address alone.
-            const char* message[]
-                = { PIJADE_HELP_HOST_1, PIJADE_HELP_HOST_2, PIJADE_HELP_CLOCK_PATH };
+            const char* message[] = { PIJADE_HELP_HOST_1, PIJADE_HELP_HOST_2, PIJADE_HELP_CLOCK_PATH };
             if (!await_qr_back_continue_activity(message, 3, PIJADE_HELP_CLOCK_URL, true)) {
                 // Declined before the camera opened, so the menu activities are still valid
                 break;
@@ -3355,7 +3353,7 @@ static void handle_session(void)
 
     // Fingerprints in uppercase hex, the same form the home screen shows, so the user can match
     // the two screens. Copied into local buffers because the label text is copied by the builder
-    // anyway (main/gui.c:1300-1302).
+    // anyway (main/gui.c:1290-1292).
     char slot_labels[MAX_SEED_SLOTS][2 * BIP32_KEY_FINGERPRINT_LEN + 1];
     list_item_t session_items[MAX_SEED_SLOTS + 2];
     size_t num_session_items = 0;
@@ -3586,7 +3584,7 @@ static void handle_session(void)
             // returns, while power_shutdown() does not return on this port (_power_request is
             // noreturn and the host _exit()s), so the frame could die with the process. This
             // is the only public entry point that waits for the gui task, and the job signals
-            // its semaphore after render_activity() (main/gui.c:2552-2574); the flush reaches
+            // its semaphore after render_activity() (main/gui.c:2542-2564); the flush reaches
             // the panel synchronously from that same task (main/display.c:1018 ->
             // display_hw_flush() -> libjade_display_flushed()). Nothing is destroyed
             // here (first argument NULL): the menu screen belongs to run_list_activity(), and

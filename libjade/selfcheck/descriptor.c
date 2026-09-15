@@ -1,5 +1,5 @@
-#include "bcur.h"
 #include "descriptor.h"
+#include "bcur.h"
 #include "descriptor_text.h"
 #include "registration_seal.h"
 #include "selfcheck.h"
@@ -668,89 +668,92 @@ static bool test_miniscript_descriptors(void)
 }
 
 // Task 5 fixture: device A m/48h/0h/0h/2h + BIP32 TV1 m/0H/1/2H/2, 1-of-2 wsh(sortedmulti)
-static const char CANONICAL_TEXT[]
-    = "wsh(sortedmulti(1,[73c5da0a/48h/0h/0h/2h]xpub6DkFAXWQ2dHxq2vatrt9qyA3bXYU4ToWQwCHbf5XB2mSTexcHZCeKS1VZYcPoBd5X8yV"
-      "cbXFHJR9R8UCVpt82VX1VhR28mCyxUFL4r6KFrf/<0;1>/*,[3442193e/0h/1/2h/2]xpub6FHa3pjLCk84BayeJxFW2SP4XRrFd1JYnxeLeU8Eq"
-      "N3vDfZmbqBqaGJAyiLjTAwm6ZLRQUMv1ZACTj37sR62cfN7fe5JnJ7dh8zL4fiyLHV/<0;1>/*))";
+static const char CANONICAL_TEXT[] = "wsh(sortedmulti(1,[73c5da0a/48h/0h/0h/"
+                                     "2h]xpub6DkFAXWQ2dHxq2vatrt9qyA3bXYU4ToWQwCHbf5XB2mSTexcHZCeKS1VZYcPoBd5X8yV"
+                                     "cbXFHJR9R8UCVpt82VX1VhR28mCyxUFL4r6KFrf/<0;1>/*,[3442193e/0h/1/2h/"
+                                     "2]xpub6FHa3pjLCk84BayeJxFW2SP4XRrFd1JYnxeLeU8Eq"
+                                     "N3vDfZmbqBqaGJAyiLjTAwm6ZLRQUMv1ZACTj37sR62cfN7fe5JnJ7dh8zL4fiyLHV/<0;1>/*))";
 static const char EXPECTED_SCRIPT[] = "wsh(sortedmulti(1,@0/<0;1>/*,@1/<0;1>/*))";
-static const char EXPECTED_V0[] = "[73c5da0a/48h/0h/0h/2h]xpub6DkFAXWQ2dHxq2vatrt9qyA3bXYU4ToWQwCHbf5XB2mSTexcHZCeKS1VZYcPoBd5X8yV"
-                                  "cbXFHJR9R8UCVpt82VX1VhR28mCyxUFL4r6KFrf";
-static const char EXPECTED_V1[] = "[3442193e/0h/1/2h/2]xpub6FHa3pjLCk84BayeJxFW2SP4XRrFd1JYnxeLeU8EqN3vDfZmbqBqaGJAyiLjTAwm6ZLRQ"
-                                  "UMv1ZACTj37sR62cfN7fe5JnJ7dh8zL4fiyLHV";
+static const char EXPECTED_V0[]
+    = "[73c5da0a/48h/0h/0h/2h]xpub6DkFAXWQ2dHxq2vatrt9qyA3bXYU4ToWQwCHbf5XB2mSTexcHZCeKS1VZYcPoBd5X8yV"
+      "cbXFHJR9R8UCVpt82VX1VhR28mCyxUFL4r6KFrf";
+static const char EXPECTED_V1[]
+    = "[3442193e/0h/1/2h/2]xpub6FHa3pjLCk84BayeJxFW2SP4XRrFd1JYnxeLeU8EqN3vDfZmbqBqaGJAyiLjTAwm6ZLRQ"
+      "UMv1ZACTj37sR62cfN7fe5JnJ7dh8zL4fiyLHV";
 // Task 5 '--hex' output (single / children / bad)
 static const char UR_SINGLE_HEX[]
     = "d90191d90197a201010282d9012fa5035821021a3bf5fbf737d0f36993fd46dc4913093beb532d654fe0dfd98bd27585dc9f"
-    "29045820bba0c7ca160a870efeb940ab90d0f4284fea1b5e0d2117677e823fc37e2d576305d90131a20100020006d90130a3"
-    "01881830f500f500f502f5021a73c5da0a0304081a1cf29716d9012fa503582102e8445082a72f29b75ca48748a914df6062"
-    "2a609cacfce8ed0e35804560741d29045820cfb71883f01676f587d023cc53a35bc7f88f724b1f8c2892ac1275ac822a3edd"
-    "05d90131a20100020006d90130a3018800f501f402f502f4021a3442193e0304081aee7ab90c";
+      "29045820bba0c7ca160a870efeb940ab90d0f4284fea1b5e0d2117677e823fc37e2d576305d90131a20100020006d90130a3"
+      "01881830f500f500f502f5021a73c5da0a0304081a1cf29716d9012fa503582102e8445082a72f29b75ca48748a914df6062"
+      "2a609cacfce8ed0e35804560741d29045820cfb71883f01676f587d023cc53a35bc7f88f724b1f8c2892ac1275ac822a3edd"
+      "05d90131a20100020006d90130a3018800f501f402f502f4021a3442193e0304081aee7ab90c";
 // BBB-AIRGAP: B3, the first key has no origin components: depth 0, no parent fingerprint.
 static const char UR_EMPTY_ORIGIN_HEX[]
     = "d90191d90197a201010282d9012fa4035821021a3bf5fbf737d0f36993fd46dc4913093beb532d654fe0dfd98bd27585dc9f"
-    "29045820bba0c7ca160a870efeb940ab90d0f4284fea1b5e0d2117677e823fc37e2d576305d90131a20100020006d90130a3"
-    "0180021a73c5da0a0300d9012fa503582102e8445082a72f29b75ca48748a914df60622a609cacfce8ed0e35804560741d29"
-    "045820cfb71883f01676f587d023cc53a35bc7f88f724b1f8c2892ac1275ac822a3edd05d90131a20100020006d90130a301"
-    "8800f501f402f502f4021a3442193e0304081aee7ab90c";
+      "29045820bba0c7ca160a870efeb940ab90d0f4284fea1b5e0d2117677e823fc37e2d576305d90131a20100020006d90130a3"
+      "0180021a73c5da0a0300d9012fa503582102e8445082a72f29b75ca48748a914df60622a609cacfce8ed0e35804560741d29"
+      "045820cfb71883f01676f587d023cc53a35bc7f88f724b1f8c2892ac1275ac822a3edd05d90131a20100020006d90130a301"
+      "8800f501f402f502f4021a3442193e0304081aee7ab90c";
 static const char UR_CHILDREN_HEX[]
     = "d90191d90197a201010282d9012fa6035821021a3bf5fbf737d0f36993fd46dc4913093beb532d654fe0dfd98bd27585dc9f"
-    "29045820bba0c7ca160a870efeb940ab90d0f4284fea1b5e0d2117677e823fc37e2d576305d90131a20100020006d90130a3"
-    "01881830f500f500f502f5021a73c5da0a0304081a1cf2971607d90130a101838400f401f480f4d9012fa603582102e84450"
-    "82a72f29b75ca48748a914df60622a609cacfce8ed0e35804560741d29045820cfb71883f01676f587d023cc53a35bc7f88f"
-    "724b1f8c2892ac1275ac822a3edd05d90131a20100020006d90130a3018800f501f402f502f4021a3442193e0304081aee7a"
-    "b90c07d90130a101838400f401f480f4";
+      "29045820bba0c7ca160a870efeb940ab90d0f4284fea1b5e0d2117677e823fc37e2d576305d90131a20100020006d90130a3"
+      "01881830f500f500f502f5021a73c5da0a0304081a1cf2971607d90130a101838400f401f480f4d9012fa603582102e84450"
+      "82a72f29b75ca48748a914df60622a609cacfce8ed0e35804560741d29045820cfb71883f01676f587d023cc53a35bc7f88f"
+      "724b1f8c2892ac1275ac822a3edd05d90131a20100020006d90130a3018800f501f402f502f4021a3442193e0304081aee7a"
+      "b90c07d90130a101838400f401f480f4";
 static const char UR_BAD_HEX[]
     = "d90191d90197a201010282d9012fa6035821021a3bf5fbf737d0f36993fd46dc4913093beb532d654fe0dfd98bd27585dc9f"
-    "29045820bba0c7ca160a870efeb940ab90d0f4284fea1b5e0d2117677e823fc37e2d576305d90131a20100020006d90130a3"
-    "01881830f500f500f502f5021a73c5da0a0304081a1cf2971607d90130a10184820005f480f4d9012fa603582102e8445082"
-    "a72f29b75ca48748a914df60622a609cacfce8ed0e35804560741d29045820cfb71883f01676f587d023cc53a35bc7f88f72"
-    "4b1f8c2892ac1275ac822a3edd05d90131a20100020006d90130a3018800f501f402f502f4021a3442193e0304081aee7ab9"
-    "0c07d90130a10184820005f480f4";
+      "29045820bba0c7ca160a870efeb940ab90d0f4284fea1b5e0d2117677e823fc37e2d576305d90131a20100020006d90130a3"
+      "01881830f500f500f502f5021a73c5da0a0304081a1cf2971607d90130a10184820005f480f4d9012fa603582102e8445082"
+      "a72f29b75ca48748a914df60622a609cacfce8ed0e35804560741d29045820cfb71883f01676f587d023cc53a35bc7f88f72"
+      "4b1f8c2892ac1275ac822a3edd05d90131a20100020006d90130a3018800f501f402f502f4021a3442193e0304081aee7ab9"
+      "0c07d90130a10184820005f480f4";
 // Codex Gate G finding 1: the use-info was not being read to the end.  Three variants off the same
 // single-signature fixture: registry tag 40305 + network 1, a non-Bitcoin coin type, an unknown tag.
 static const char UR_USEINFO_NEW_TESTNET_HEX[]
     = "d90191d90197a201010282d9012fa5035821021a3bf5fbf737d0f36993fd46dc4913093beb532d654fe0dfd98bd27585"
-    "dc9f29045820bba0c7ca160a870efeb940ab90d0f4284fea1b5e0d2117677e823fc37e2d576305d99d71a20100020106"
-    "d90130a301881830f500f500f502f5021a73c5da0a0304081a1cf29716d9012fa503582102e8445082a72f29b75ca487"
-    "48a914df60622a609cacfce8ed0e35804560741d29045820cfb71883f01676f587d023cc53a35bc7f88f724b1f8c2892"
-    "ac1275ac822a3edd05d99d71a20100020106d90130a3018800f501f402f502f4021a3442193e0304081aee7ab90c";
+      "dc9f29045820bba0c7ca160a870efeb940ab90d0f4284fea1b5e0d2117677e823fc37e2d576305d99d71a20100020106"
+      "d90130a301881830f500f500f502f5021a73c5da0a0304081a1cf29716d9012fa503582102e8445082a72f29b75ca487"
+      "48a914df60622a609cacfce8ed0e35804560741d29045820cfb71883f01676f587d023cc53a35bc7f88f724b1f8c2892"
+      "ac1275ac822a3edd05d99d71a20100020106d90130a3018800f501f402f502f4021a3442193e0304081aee7ab90c";
 static const char UR_USEINFO_ALTCOIN_HEX[]
     = "d90191d90197a201010282d9012fa5035821021a3bf5fbf737d0f36993fd46dc4913093beb532d654fe0dfd98bd27585"
-    "dc9f29045820bba0c7ca160a870efeb940ab90d0f4284fea1b5e0d2117677e823fc37e2d576305d90131a201183c0200"
-    "06d90130a301881830f500f500f502f5021a73c5da0a0304081a1cf29716d9012fa503582102e8445082a72f29b75ca4"
-    "8748a914df60622a609cacfce8ed0e35804560741d29045820cfb71883f01676f587d023cc53a35bc7f88f724b1f8c28"
-    "92ac1275ac822a3edd05d90131a201183c020006d90130a3018800f501f402f502f4021a3442193e0304081aee7ab90c";
+      "dc9f29045820bba0c7ca160a870efeb940ab90d0f4284fea1b5e0d2117677e823fc37e2d576305d90131a201183c0200"
+      "06d90130a301881830f500f500f502f5021a73c5da0a0304081a1cf29716d9012fa503582102e8445082a72f29b75ca4"
+      "8748a914df60622a609cacfce8ed0e35804560741d29045820cfb71883f01676f587d023cc53a35bc7f88f724b1f8c28"
+      "92ac1275ac822a3edd05d90131a201183c020006d90130a3018800f501f402f502f4021a3442193e0304081aee7ab90c";
 static const char UR_USEINFO_BADTAG_HEX[]
     = "d90191d90197a201010282d9012fa5035821021a3bf5fbf737d0f36993fd46dc4913093beb532d654fe0dfd98bd27585"
-    "dc9f29045820bba0c7ca160a870efeb940ab90d0f4284fea1b5e0d2117677e823fc37e2d576305d903e7a20100020006"
-    "d90130a301881830f500f500f502f5021a73c5da0a0304081a1cf29716d9012fa503582102e8445082a72f29b75ca487"
-    "48a914df60622a609cacfce8ed0e35804560741d29045820cfb71883f01676f587d023cc53a35bc7f88f724b1f8c2892"
-    "ac1275ac822a3edd05d903e7a20100020006d90130a3018800f501f402f502f4021a3442193e0304081aee7ab90c";
+      "dc9f29045820bba0c7ca160a870efeb940ab90d0f4284fea1b5e0d2117677e823fc37e2d576305d903e7a20100020006"
+      "d90130a301881830f500f500f502f5021a73c5da0a0304081a1cf29716d9012fa503582102e8445082a72f29b75ca487"
+      "48a914df60622a609cacfce8ed0e35804560741d29045820cfb71883f01676f587d023cc53a35bc7f88f724b1f8c2892"
+      "ac1275ac822a3edd05d903e7a20100020006d90130a3018800f501f402f502f4021a3442193e0304081aee7ab90c";
 
 // BBB-AIRGAP: C1, the first key carries the text; the coin type and network it declares cannot be
 // ignored.
 static const char UR_USEINFO_TEXT_FIRST_HEX[]
     = "d90191d90197a201010282d9012fa5035821021a3bf5fbf737d0f36993fd46dc4913093beb532d654fe0dfd98bd27585"
-    "dc9f29045820bba0c7ca160a870efeb940ab90d0f4284fea1b5e0d2117677e823fc37e2d576305d90131a36178000118"
-    "3c020106d90130a301881830f500f500f502f5021a73c5da0a0304081a1cf29716d9012fa503582102e8445082a72f29"
-    "b75ca48748a914df60622a609cacfce8ed0e35804560741d29045820cfb71883f01676f587d023cc53a35bc7f88f724b"
-    "1f8c2892ac1275ac822a3edd05d90131a20100020006d90130a3018800f501f402f502f4021a3442193e0304081aee7a"
-    "b90c";
+      "dc9f29045820bba0c7ca160a870efeb940ab90d0f4284fea1b5e0d2117677e823fc37e2d576305d90131a36178000118"
+      "3c020106d90130a301881830f500f500f502f5021a73c5da0a0304081a1cf29716d9012fa503582102e8445082a72f29"
+      "b75ca48748a914df60622a609cacfce8ed0e35804560741d29045820cfb71883f01676f587d023cc53a35bc7f88f724b"
+      "1f8c2892ac1275ac822a3edd05d90131a20100020006d90130a3018800f501f402f502f4021a3442193e0304081aee7a"
+      "b90c";
 // BBB-AIRGAP: C1, a repeated key; matching the first one must not hide what the second declares.
 static const char UR_USEINFO_DUPLICATE_HEX[]
     = "d90191d90197a201010282d9012fa5035821021a3bf5fbf737d0f36993fd46dc4913093beb532d654fe0dfd98bd27585"
-    "dc9f29045820bba0c7ca160a870efeb940ab90d0f4284fea1b5e0d2117677e823fc37e2d576305d90131a3010001183c"
-    "020006d90130a301881830f500f500f502f5021a73c5da0a0304081a1cf29716d9012fa503582102e8445082a72f29b7"
-    "5ca48748a914df60622a609cacfce8ed0e35804560741d29045820cfb71883f01676f587d023cc53a35bc7f88f724b1f"
-    "8c2892ac1275ac822a3edd05d90131a20100020006d90130a3018800f501f402f502f4021a3442193e0304081aee7ab9"
-    "0c";
+      "dc9f29045820bba0c7ca160a870efeb940ab90d0f4284fea1b5e0d2117677e823fc37e2d576305d90131a3010001183c"
+      "020006d90130a301881830f500f500f502f5021a73c5da0a0304081a1cf29716d9012fa503582102e8445082a72f29b7"
+      "5ca48748a914df60622a609cacfce8ed0e35804560741d29045820cfb71883f01676f587d023cc53a35bc7f88f724b1f"
+      "8c2892ac1275ac822a3edd05d90131a20100020006d90130a3018800f501f402f502f4021a3442193e0304081aee7ab9"
+      "0c";
 // BBB-AIRGAP: C1, the last key carries the text; earlier matches must not hide the bad one.
 static const char UR_USEINFO_TEXT_LAST_HEX[]
     = "d90191d90197a201010282d9012fa5035821021a3bf5fbf737d0f36993fd46dc4913093beb532d654fe0dfd98bd27585"
-    "dc9f29045820bba0c7ca160a870efeb940ab90d0f4284fea1b5e0d2117677e823fc37e2d576305d90131a30100020061"
-    "780006d90130a301881830f500f500f502f5021a73c5da0a0304081a1cf29716d9012fa503582102e8445082a72f29b7"
-    "5ca48748a914df60622a609cacfce8ed0e35804560741d29045820cfb71883f01676f587d023cc53a35bc7f88f724b1f"
-    "8c2892ac1275ac822a3edd05d90131a20100020006d90130a3018800f501f402f502f4021a3442193e0304081aee7ab9"
-    "0c";
+      "dc9f29045820bba0c7ca160a870efeb940ab90d0f4284fea1b5e0d2117677e823fc37e2d576305d90131a30100020061"
+      "780006d90130a301881830f500f500f502f5021a73c5da0a0304081a1cf29716d9012fa503582102e8445082a72f29b7"
+      "5ca48748a914df60622a609cacfce8ed0e35804560741d29045820cfb71883f01676f587d023cc53a35bc7f88f724b1f"
+      "8c2892ac1275ac822a3edd05d90131a20100020006d90130a3018800f501f402f502f4021a3442193e0304081aee7ab9"
+      "0c";
 
 static bool check_parsed(const descriptor_data_t* desc, const char* name, const char* expected_name)
 {
@@ -776,16 +779,16 @@ static bool test_descriptor_text(void)
     // BBB-AIRGAP: 1. A real Sparrow checksum is verified; the name is 'desc-' plus a digest.
     snprintf(text, sizeof(text), "%s#xs3zjaxw", CANONICAL_TEXT);
     if (!descriptor_text_is_descriptor(text, strlen(text))
-        || !descriptor_text_parse(text, strlen(text), desc, name, sizeof(name), &errmsg) || !check_parsed(desc, name, NULL)
-        || strncmp(name, "desc-", 5) || strlen(name) != 13) {
+        || !descriptor_text_parse(text, strlen(text), desc, name, sizeof(name), &errmsg)
+        || !check_parsed(desc, name, NULL) || strncmp(name, "desc-", 5) || strlen(name) != 13) {
         FAIL();
     }
     strcpy(hash_name, name);
 
     // BBB-AIRGAP: B1, change the child path but keep the old checksum and the text must be refused.
     snprintf(text, sizeof(text), "wsh(sortedmulti(1,%s/<0;1>/*,%s/<2;3>/*))#xs3zjaxw", EXPECTED_V0, EXPECTED_V1);
-    if (descriptor_text_parse(text, strlen(text), desc, name, sizeof(name), &errmsg)
-        || !errmsg || strcmp(errmsg, "Invalid descriptor")) {
+    if (descriptor_text_parse(text, strlen(text), desc, name, sizeof(name), &errmsg) || !errmsg
+        || strcmp(errmsg, "Invalid descriptor")) {
         FAIL();
     }
 
@@ -793,7 +796,8 @@ static bool test_descriptor_text(void)
     // original {0,1} path and ' hardening; the label and the canonical body survive.
     snprintf(text, sizeof(text),
         "{\"label\": \"Vault One\", \"blockheight\": 0, \"descriptor\": "
-        "\"wsh(sortedmulti(1,[73C5DA0A\\/48'\\/0'\\/0'\\/2']%s\\/{0,1}\\/*,[3442193e\\/0'\\/1\\/2'\\/2]%s\\/{0,1}\\/*))#pdrq4248\"}",
+        "\"wsh(sortedmulti(1,[73C5DA0A\\/48'\\/0'\\/0'\\/2']%s\\/{0,1}\\/*,[3442193e\\/0'\\/1\\/2'\\/2]%s\\/{0,1}\\/"
+        "*))#pdrq4248\"}",
         EXPECTED_V0 + 23, EXPECTED_V1 + 20);
     if (!descriptor_text_is_descriptor(text, strlen(text))
         || !descriptor_text_parse(text, strlen(text), desc, name, sizeof(name), &errmsg)
@@ -804,7 +808,8 @@ static bool test_descriptor_text(void)
     // BBB-AIRGAP: C2, a label whose value is "descriptor" must not hide the real descriptor member.
     snprintf(text, sizeof(text),
         "{\"label\": \"descriptor\", \"blockheight\": 0, \"descriptor\": "
-        "\"wsh(sortedmulti(1,[73C5DA0A\\/48'\\/0'\\/0'\\/2']%s\\/{0,1}\\/*,[3442193e\\/0'\\/1\\/2'\\/2]%s\\/{0,1}\\/*))#pdrq4248\"}",
+        "\"wsh(sortedmulti(1,[73C5DA0A\\/48'\\/0'\\/0'\\/2']%s\\/{0,1}\\/*,[3442193e\\/0'\\/1\\/2'\\/2]%s\\/{0,1}\\/"
+        "*))#pdrq4248\"}",
         EXPECTED_V0 + 23, EXPECTED_V1 + 20);
     if (!descriptor_text_is_descriptor(text, strlen(text))
         || !descriptor_text_parse(text, strlen(text), desc, name, sizeof(name), &errmsg)
@@ -815,7 +820,8 @@ static bool test_descriptor_text(void)
     // BBB-AIRGAP: C2, members in reverse order, and a number ahead of the label, are still accepted.
     snprintf(text, sizeof(text),
         "{\"descriptor\": "
-        "\"wsh(sortedmulti(1,[73C5DA0A\\/48'\\/0'\\/0'\\/2']%s\\/{0,1}\\/*,[3442193e\\/0'\\/1\\/2'\\/2]%s\\/{0,1}\\/*))#pdrq4248\", "
+        "\"wsh(sortedmulti(1,[73C5DA0A\\/48'\\/0'\\/0'\\/2']%s\\/{0,1}\\/*,[3442193e\\/0'\\/1\\/2'\\/2]%s\\/{0,1}\\/"
+        "*))#pdrq4248\", "
         "\"blockheight\": 0, \"label\": \"Vault One\"}",
         EXPECTED_V0 + 23, EXPECTED_V1 + 20);
     if (!descriptor_text_is_descriptor(text, strlen(text))
@@ -828,7 +834,8 @@ static bool test_descriptor_text(void)
     // name is used instead.
     snprintf(text, sizeof(text),
         "{\"label\": \"Vault\\u0020One\", \"descriptor\": "
-        "\"wsh(sortedmulti(1,[73C5DA0A\\/48'\\/0'\\/0'\\/2']%s\\/{0,1}\\/*,[3442193e\\/0'\\/1\\/2'\\/2]%s\\/{0,1}\\/*))#pdrq4248\"}",
+        "\"wsh(sortedmulti(1,[73C5DA0A\\/48'\\/0'\\/0'\\/2']%s\\/{0,1}\\/*,[3442193e\\/0'\\/1\\/2'\\/2]%s\\/{0,1}\\/"
+        "*))#pdrq4248\"}",
         EXPECTED_V0 + 23, EXPECTED_V1 + 20);
     if (!descriptor_text_is_descriptor(text, strlen(text))
         || !descriptor_text_parse(text, strlen(text), desc, name, sizeof(name), &errmsg)
@@ -860,8 +867,7 @@ static bool test_descriptor_text(void)
     // registering a different valid descriptor; '2147483648' is the first hardened index.
     const char* const bad_children[] = { "/<4294967296;1>/*", "/<0;4294967296>/*", "/<2147483648;1>/*" };
     for (size_t i = 0; i < 3; ++i) {
-        snprintf(text, sizeof(text), "wsh(sortedmulti(1,%s%s,%s/<0;1>/*))", EXPECTED_V0, bad_children[i],
-            EXPECTED_V1);
+        snprintf(text, sizeof(text), "wsh(sortedmulti(1,%s%s,%s/<0;1>/*))", EXPECTED_V0, bad_children[i], EXPECTED_V1);
         if (descriptor_text_parse(text, strlen(text), desc, name, sizeof(name), &errmsg)) {
             JADE_LOGE("child index %s was accepted", bad_children[i]);
             FAIL();
@@ -903,8 +909,8 @@ static bool test_crypto_output(void)
 
     // BBB-AIRGAP: B3, an empty origin path is written without the slash; '[fp/]' is never produced.
     JADE_WALLY_VERIFY(wally_hex_to_bytes(UR_EMPTY_ORIGIN_HEX, cbor, sizeof(cbor), &cbor_len));
-    if (!bcur_parse_crypto_output(cbor, cbor_len, text, text_len, &errmsg)
-        || !strstr(text, "[73c5da0a]") || strstr(text, "[73c5da0a/]")) {
+    if (!bcur_parse_crypto_output(cbor, cbor_len, text, text_len, &errmsg) || !strstr(text, "[73c5da0a]")
+        || strstr(text, "[73c5da0a/]")) {
         free(text);
         FAIL();
     }

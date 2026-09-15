@@ -137,7 +137,7 @@ equal "P1 returned to dashboard from camera screen" /probe/k47a_anchor.rgb565 /p
 # N4: escape did not leave the device stuck; the same screen can be entered again.
 #
 # This assertion is deliberately narrow. It does NOT measure the dashboard's OWN
-# gui_escape_clear() (main/process/dashboard.c:3802): the intervening btn:click already
+# gui_escape_clear() (main/process/dashboard.c:3800): the intervening btn:click already
 # clears the flag (gui_front_click(), main/gui.c), so this comparison would pass even
 # without dashboard cleanup. It does measure successful reentry without immediately
 # bouncing back; a stuck flag would close the new screen as soon as it opened.
@@ -407,7 +407,7 @@ $M btn:right btn:right shot:anchor || report "N10: could not capture dashboard a
 $M btn:click btn:down btn:down btn:down btn:down btn:down btn:down btn:click shot:info \
     || report "N10: could not reach Info menu"
 $M btn:down btn:down btn:down btn:click shot:iotest || report "N10: could not reach I/O Test menu"
-# I/O Test rows: Screen, Buttons, Camera (main/ui/dashboard.c:510-523); three down presses reach Camera.
+# I/O Test rows: Screen, Buttons, Camera (main/ui/dashboard.c:511-524); three down presses reach Camera.
 $M btn:down btn:down btn:down btn:click shot:camera || report "N10: could not open camera"
 # Positive control: the camera actually ran. Frame comparison alone could pass
 # even if the camera had never been entered.

@@ -479,7 +479,7 @@ bool gui_set_flipped_orientation(bool flipped_orientation);
 // that happen to work. Any other build, libjade's own 320x200 default included, keeps upstream's
 // fixed-angle behaviour and compiles unchanged. main/camera.c asserts that the sizes really do
 // agree, so a change to the camera frame size fails the build rather than drawing out of bounds.
-#if defined(CONFIG_LIBJADE) && defined(CONFIG_LIBJADE_CAMERA) && (CONFIG_DISPLAY_WIDTH == 240)                       \
+#if defined(CONFIG_LIBJADE) && defined(CONFIG_LIBJADE_CAMERA) && (CONFIG_DISPLAY_WIDTH == 240)                         \
     && (CONFIG_DISPLAY_HEIGHT == 240)
 #define HAVE_CAMERA_ROTATION_SETTING 1
 #endif

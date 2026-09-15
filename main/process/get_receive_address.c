@@ -272,8 +272,7 @@ void get_receive_address_process(void* process_ptr)
         const char* warning[] = { warning_msg };
         if (await_message_escaped(warning, 1)) {
             JADE_LOGW("User abandoned address confirmation at the warning");
-            jade_process_reject_message(
-                process, CBOR_RPC_USER_CANCELLED, "User declined to confirm address");
+            jade_process_reject_message(process, CBOR_RPC_USER_CANCELLED, "User declined to confirm address");
             goto cleanup;
         }
     }

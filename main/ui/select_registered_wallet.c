@@ -67,7 +67,7 @@ bool select_registered_wallet(const char multisig_names[][NVS_KEY_NAME_MAX_SIZE]
     // gui_set_current_activity() only queues the switch, and this activity's handlers go live
     // later, on the gui task.  What is discarded is the second half of the press that opened this
     // carousel - select_action() posts the caller's GUI_BUTTON_EVENT and then gui_front_click()
-    // posts its own GUI_EVENT click for the same press (main/gui.c:2702-2722), and the
+    // posts its own GUI_EVENT click for the same press (main/gui.c:2692-2712), and the
     // registration above takes any GUI_EVENT, so that click would otherwise be read here as the
     // user picking whichever wallet the carousel opened on.  Same 10ms idle timeout as
     // run_list_activity() (main/ui/dialogs.c).

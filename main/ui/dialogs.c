@@ -181,8 +181,8 @@ void populate_title_bar(
     } else {
         // Split the bar into three sections, [lbtn | title | rbtn]
         gui_view_node_t* hsplit;
-        gui_make_hsplit(&hsplit, GUI_SPLIT_RELATIVE, 3, (100 - TITLE_CELL_PCNT) / 2, TITLE_CELL_PCNT,
-            (100 - TITLE_CELL_PCNT) / 2);
+        gui_make_hsplit(
+            &hsplit, GUI_SPLIT_RELATIVE, 3, (100 - TITLE_CELL_PCNT) / 2, TITLE_CELL_PCNT, (100 - TITLE_CELL_PCNT) / 2);
         gui_set_parent(hsplit, bar);
 
         // If not otherwise specified, put a border around the buttons
@@ -314,7 +314,7 @@ gui_activity_t* make_menu_activity(
 // BBB-AIRGAP: width of the list scroll indicator, given as the percentage of the screen left to
 // the rows beside it. The indicator itself takes what remains, so nothing is lost to rounding:
 // a percentage on both sides of the split would floor each one separately (get_step(),
-// main/gui.c:1911) and leave a dead column at the screen edge. Three percent is 8px at 240px
+// main/gui.c:1901) and leave a dead column at the screen edge. Three percent is 8px at 240px
 // wide - enough to read at arm's length without taking width the row labels need.
 #define LIST_SCROLLBAR_PERCENT 3
 
@@ -386,7 +386,7 @@ static void update_list_symbols(
 // clipping nor vertical scrolling, so nothing on screen says there is more below.  A thin bar down
 // the right edge carries that.  It is built from LIST_VISIBLE_ROWS cells whose colour changes
 // rather than one block that moves, because a split's proportions are fixed once the node tree is
-// built - gui_set_colors() (main/gui.c:1601) is the only thing that can be changed afterwards.
+// built - gui_set_colors() (main/gui.c:1591) is the only thing that can be changed afterwards.
 // This mirrors make_menu_activity() for the rows themselves, rather than calling it, because the
 // rows have to become one side of a horizontal split and that function owns its own layout.
 static gui_activity_t* make_list_activity_with_scrollbar(const char* title, btn_data_t* hdrbtns,
@@ -477,7 +477,7 @@ gui_activity_t* make_list_activity(const char* title, btn_data_t* hdrbtns, const
     // Selection must not wrap: on the last row 'down' has to leave the selection where it is, so
     // that run_list_activity() can read that press as "move the window" instead. Measured on the
     // emulator: the press still reaches the activity, as select_next_right() posts an event
-    // whether or not it moved the selection (main/gui.c:2724-2730).
+    // whether or not it moved the selection (main/gui.c:2714-2720).
     act->selectables_wrap = false;
 
     return act;
@@ -570,7 +570,7 @@ int32_t run_list_activity(
     JADE_ASSERT(event_data);
 
     // Navigate: only the four wheel/dpad ids and KEY1's jump, not ESP_EVENT_ANY_ID. On a single press,
-    // gui_wheel_click()/gui_front_click() (main/gui.c:2702-2722) post GUI_BUTTON_EVENT via
+    // gui_wheel_click()/gui_front_click() (main/gui.c:2692-2712) post GUI_BUTTON_EVENT via
     // select_action() and then, unconditionally, their own GUI_EVENT (GUI_WHEEL_CLICK_EVENT/
     // GUI_FRONT_CLICK_EVENT) for the same press. If that click event also matched this
     // registration, both dispatches would give the same event_data: sync_wait_event_handler()
@@ -599,7 +599,7 @@ int32_t run_list_activity(
     // dispatch into event_data.
     gui_activity_register_event(act, GUI_EVENT, GUI_ALT_EVENT, sync_wait_event_handler, event_data);
 
-    // Activate: select_action() (main/gui.c:715-725) only posts GUI_BUTTON_EVENT for the click
+    // Activate: select_action() (main/gui.c:705-715) only posts GUI_BUTTON_EVENT for the click
     // control configured via gui_click_event, and only when the selected node's click_event_id
     // is not GUI_BUTTON_EVENT_NONE, so ESP_EVENT_ANY_ID here cannot pick up a press on the
     // unconfigured control or the header's blank second button (ev_id GUI_BUTTON_EVENT_NONE
@@ -610,7 +610,7 @@ int32_t run_list_activity(
     gui_set_current_activity_sync(act, true);
 
     // Drain input still in flight from the screen this list replaced. gui_set_current_activity_sync()
-    // above blocks until the gui task has fully run the switch (main/gui.c:2520-2560): the
+    // above blocks until the gui task has fully run the switch (main/gui.c:2510-2550): the
     // outgoing activity's handlers are unregistered and this activity's are registered before it
     // returns, so by this point this list's handlers are live and nothing here has had time to be
     // a real reaction to this screen. libjade still dispatches events on its own pthread
@@ -621,7 +621,7 @@ int32_t run_list_activity(
     // handlers once they go live, silently activating a row nobody pressed here (row 0 = Export
     // Xpub on the Wallet list that opens next). Everything in event_data at this point is that
     // kind of leftover, so it is safe to discard - until the queue is quiet for 10ms, the same
-    // idle timeout main/camera.c:579 and main/qrmode.c:1086 use.
+    // idle timeout main/camera.c:578 and main/qrmode.c:1084 use.
     while (sync_wait_event(event_data, NULL, NULL, NULL, 10 / portTICK_PERIOD_MS) == ESP_OK) {
         // discard - see comment above
     }
@@ -631,8 +631,8 @@ int32_t run_list_activity(
     // engine's selection, which would leave *io_selected pointing at a row that is no longer
     // highlighted. This is safe to read here because it is already set: render_activity()
     // selects the initial node while gui_set_current_activity_sync() is still switching
-    // (main/gui.c:2552, first_time path), and that call does not return until the gui task has
-    // gone on to save 'done' (main/gui.c:2564) and give it back (main/gui.c:2574).
+    // (main/gui.c:2542, first_time path), and that call does not return until the gui task has
+    // gone on to save 'done' (main/gui.c:2554) and give it back (main/gui.c:2564).
     size_t row = 0;
     bool on_row = list_selected_row(rowbtns, num_visible, &row);
     bool on_title = hdrbtns[0].btn->is_selected;
@@ -654,7 +654,7 @@ int32_t run_list_activity(
         }
 
         // Activation always comes from GUI_BUTTON_EVENT - the row/exit button's own ev_id,
-        // captured at the moment of the click by select_action() (main/gui.c:715-725) - never
+        // captured at the moment of the click by select_action() (main/gui.c:705-715) - never
         // from the engine's live selection: select_next_right()/select_prev_left() (main/gui.c)
         // can move the highlight and post their own GUI_EVENT before this loop drains a queued
         // click, so reading is_selected here would race with the very next keypress - the bug
@@ -996,7 +996,7 @@ gui_activity_t* display_processing_message_activity()
 // BBB-AIRGAP: 'escaped' is optional, and is how a caller learns that KEY3 - rather than the
 // screen's own button - is what closed the screen.  It matters because gui_escape_pending()
 // cannot answer that question after the fact: every other press clears the flag
-// (gui_escape_clear(), main/gui.c:2704 and its six siblings), so a direction arriving between
+// (gui_escape_clear(), main/gui.c:2694 and its six siblings), so a direction arriving between
 // the screen closing and the caller's check would read as consent.  Here the answer is taken
 // at the event that closed the screen and no later press can revise it.  Callers whose next
 // step is destructive or outward-facing use this; the rest can keep polling the flag, where a

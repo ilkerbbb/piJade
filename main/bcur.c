@@ -1,12 +1,12 @@
 #ifndef AMALGAMATED_BUILD
 #include "bcur.h"
 #include "bbqr.h"
+#include "descriptor.h"
+#include "descriptor_text.h"
 #include "jade_assert.h"
 #include "keychain.h"
 #include "qrcode.h"
 #include "qrmode.h"
-#include "descriptor.h"
-#include "descriptor_text.h"
 #include "qrscan.h"
 #include "ui.h"
 #include "utils/malloc_ext.h"
@@ -73,8 +73,7 @@ uint32_t qr_fullscreen_scale_factor(const uint8_t qr_version)
     // display_icon() asserts an icon is no larger than the screen (main/display.c), and on a 128px
     // panel the table asks for more than that from version 4 up, so cap the floor at what fits.
     const uint32_t fits_panel = shorter_side / modules;
-    const uint32_t floor
-        = QR_SCALE_FACTOR[qr_version] < fits_panel ? QR_SCALE_FACTOR[qr_version] : fits_panel;
+    const uint32_t floor = QR_SCALE_FACTOR[qr_version] < fits_panel ? QR_SCALE_FACTOR[qr_version] : fits_panel;
     return with_quiet_zone > floor ? with_quiet_zone : floor;
 }
 
@@ -618,7 +617,8 @@ static bool children_to_child_path(const CborValue* array, char* child, const si
     if (!get_uint32(&pair, &a) || cbor_value_advance(&pair) != CborNoError || !cbor_value_is_boolean(&pair)
         || cbor_value_get_boolean(&pair, &ha) != CborNoError || cbor_value_advance(&pair) != CborNoError
         || !get_uint32(&pair, &b) || cbor_value_advance(&pair) != CborNoError || !cbor_value_is_boolean(&pair)
-        || cbor_value_get_boolean(&pair, &hb) != CborNoError || ha || hb
+        || cbor_value_get_boolean(&pair, &hb) != CborNoError || ha
+        || hb
         // Unhardened by flag is not enough: an index above the unhardened range would be written
         // out as a plain number and read back as a hardened child.  origin_components_to_path()
         // above already refuses that; this branch had the same gap.
@@ -718,7 +718,8 @@ static bool hdkey_to_text(CborValue* value, char* out, const size_t out_len, siz
         *errmsg = UR_ERR_UNSUPPORTED;
         return false;
     }
-    if (!map_find_uint_key(&origin, 1, &item) || !origin_components_to_path(&item, path, sizeof(path), &depth, &child_num)
+    if (!map_find_uint_key(&origin, 1, &item)
+        || !origin_components_to_path(&item, path, sizeof(path), &depth, &child_num)
         || !map_find_uint_key(&origin, 2, &item) || !get_uint32(&item, &fingerprint)) {
         *errmsg = UR_ERR_UNSUPPORTED;
         return false;
@@ -757,8 +758,8 @@ static bool hdkey_to_text(CborValue* value, char* out, const size_t out_len, siz
     uint8_t parent160[BIP32_KEY_FINGERPRINT_LEN];
     uint32_to_be(parent_fingerprint, parent160);
     struct ext_key hdkey;
-    if (bip32_key_init(version, depth, depth ? child_num : 0, chain_code, sizeof(chain_code), key, sizeof(key), NULL,
-            0, NULL, 0, parent160, sizeof(parent160), &hdkey)
+    if (bip32_key_init(version, depth, depth ? child_num : 0, chain_code, sizeof(chain_code), key, sizeof(key), NULL, 0,
+            NULL, 0, parent160, sizeof(parent160), &hdkey)
         != WALLY_OK) {
         *errmsg = UR_ERR_INVALID;
         return false;
@@ -1475,9 +1476,8 @@ void bcur_create_qr_icons(const uint8_t* payload, const size_t len, const char* 
     // qrcode version we need to check the passed 'capacity' produces fragments <= 'qrcode_alphanumeric_capacity'
     // as the qrcode.c library is not very robust if too much data is passed to 'qrcode_initText()'.
     const uint16_t qrcode_alphanumeric_capacity = QR_ALPHANUMERIC_CAPACITY[qr_version];
-    const uint16_t bcur_max_fragment_size = qr_version == 3
-        ? BCUR_FRAGMENT_SIZE_V3
-        : BCUR_MAX_FRAGMENT_SIZE(qrcode_alphanumeric_capacity, bcur_type);
+    const uint16_t bcur_max_fragment_size
+        = qr_version == 3 ? BCUR_FRAGMENT_SIZE_V3 : BCUR_MAX_FRAGMENT_SIZE(qrcode_alphanumeric_capacity, bcur_type);
     JADE_ASSERT(bcur_max_fragment_size < qrcode_alphanumeric_capacity); // didn't 'under'flow
 
     // Encode the message as bc-ur

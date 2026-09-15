@@ -1021,8 +1021,7 @@ void qrcode_toIcon(QRCode* qrcode, Icon* icon, const uint8_t scale)
 // fyi: target_size of 105 works well for jade v1 icons of v1 and v2 qrcodes
 // and: target_size of 150 works well for jade v2 icons of v1 and v2 qrcodes
 // and: target_size of 210 works well for large device icons of v1 and v2 qrcodes
-bool qrcode_fragmentsContextFits(
-    const uint8_t version, const uint16_t target_size, const uint8_t context_modules)
+bool qrcode_fragmentsContextFits(const uint8_t version, const uint16_t target_size, const uint8_t context_modules)
 {
     // BBB-AIRGAP: v3 (29x29) uses the same 5-module fragment size as v2.
     if (version < 1 || version > 3) {
@@ -1113,8 +1112,7 @@ bool qrcode_toFragmentsIcons(QRCode* qrcode, const uint16_t target_size, const b
                 const uint8_t dest_bit = dest_pixel % 32;
                 JADE_ASSERT(dest_elem < num_uints);
 
-                const bool in_range
-                    = !(src_x < 0 || src_x >= qrcode->size || src_y < 0 || src_y >= qrcode->size);
+                const bool in_range = !(src_x < 0 || src_x >= qrcode->size || src_y < 0 || src_y >= qrcode->size);
                 const bool center = dest_x >= cx0 && dest_x <= cx1 && dest_y >= cy0 && dest_y <= cy1;
 
                 // BBB-AIRGAP: modules off the end of the code stay blank as before, EXCEPT
@@ -1132,12 +1130,11 @@ bool qrcode_toFragmentsIcons(QRCode* qrcode, const uint16_t target_size, const b
                     paint = !(dest_x % 2 == 0 && dest_y % 2 == 0);
                 }
                 if (show_grid && center) {
-                    const bool gridline = (dest_x == cx1) || (dest_x % scale == 0) || (dest_y == cy1)
-                        || (dest_y % scale == 0);
+                    const bool gridline
+                        = (dest_x == cx1) || (dest_x % scale == 0) || (dest_y == cy1) || (dest_y % scale == 0);
                     paint = (paint != gridline);
                 }
-                if (context_modules && center
-                    && (dest_x == cx0 || dest_x == cx1 || dest_y == cy0 || dest_y == cy1)) {
+                if (context_modules && center && (dest_x == cx0 || dest_x == cx1 || dest_y == cy0 || dest_y == cy1)) {
                     paint = 1;
                 }
                 icon->data[dest_elem] |= paint << dest_bit;

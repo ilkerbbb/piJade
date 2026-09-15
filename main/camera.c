@@ -167,8 +167,7 @@ static void copy_camera_image_270(
     }
 }
 #endif
-#if defined(HAVE_CAMERA_ROTATION_SETTING)                                                                          \
-    || !(defined(CONFIG_CAMERA_ROTATE_90) || defined(CONFIG_CAMERA_ROTATE_270))
+#if defined(HAVE_CAMERA_ROTATION_SETTING) || !(defined(CONFIG_CAMERA_ROTATE_90) || defined(CONFIG_CAMERA_ROTATE_270))
 static void copy_camera_image_0(
     uint8_t dest[DISPLAY_IMAGE_HEIGHT][DISPLAY_IMAGE_WIDTH], const uint8_t src[CAMERA_IMAGE_HEIGHT][CAMERA_IMAGE_WIDTH])
 {
