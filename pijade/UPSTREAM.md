@@ -129,7 +129,7 @@ All work happens on `bbb-airgap`.
 | `README.md` | +22 / -0 | Upstream file | With the repository made public, a fork introduction was added at the top of the root README: what it is, the warning that it is experimental, and pointers to the documents under `pijade/` and to the two helper pages. Upstream's own build document stays below exactly as it was; only a prefix was added, and not one line was removed |
 | `libjade/gui.py` | +22 / -2 | Upstream file | camera: capture at VGA, and refuse a message the screen cannot show |
 | `main/descriptor_text.h` | +22 / -0 | **New file** | descriptor: a parser reducing text and Specter JSON descriptors to wally's canonical policy-template form |
-| `main/selfcheck.c` | +21 / -642 | Upstream file | test: descriptor tests moved into the libjade verification branch; multisig: record v4, body sealed with AES; the legacy v0-v2 read paths were removed; the same-record check happens in the clear |
+| `main/selfcheck.c` | +94 / -641 | Upstream file | test: descriptor tests moved into the libjade verification branch; multisig: record v4, body sealed with AES; the legacy v0-v2 read paths were removed; the same-record check happens in the clear; storage: a third case stores and reloads a SLIP-0039 master secret, so the tagged blob branch is exercised at both supported lengths |
 | `jadepy/jade.py` | +21 / -0 | Upstream file | `set_network_restriction()`, the client side of the debug handler above; section 28 |
 | `libjade/include/esp_attr.h` | +19 / -0 | **New file** | feat(miner): take in the mining component, write two sims, close three defects |
 | `main/multisig.h` | +20 / -7 | Upstream file | multisig: record v4, body sealed with AES; the legacy v0-v2 read paths were removed; the same-record check happens in the clear |
@@ -219,8 +219,8 @@ All work happens on `bbb-airgap`.
 | `main/process/get_blinding_factor.c` | +1 / -1 | Upstream file | The upstream `uint32_t` RPC series (`c95ed4ee` to `58c11066`, ten commits), taken on 2026-09-15; this file carried no divergence before it |
 | `docs/.nojekyll` | +0 / -0 | **New file** | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
 
-**Totals (measured 2026-09-15 at `5a2a1043`):** 212 files, of which 185 are text
-(+37741 / -3028) and 27 are binary fixtures, listed below rather than in the table because
+**Totals (measured 2026-09-15 at `d082d348`):** 212 files, of which 185 are text
+(+37814 / -3027) and 27 are binary fixtures, listed below rather than in the table because
 `--numstat` reports no line counts for them. A refresh on 2026-09-12 listed 175 files and 148 text
 files, and a later one the same day listed 187 and 160; the macOS port of libjade, the
 `_Static_assert` round, the quirc round and the test-suite network adaptation are the difference.
