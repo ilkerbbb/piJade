@@ -5,6 +5,7 @@
 #include "jade_wally_verify.h"
 #include "random.h"
 #include "sensitive.h"
+#include "slip39.h"
 #include "storage.h"
 #include "utils/malloc_ext.h"
 #include "utils/network.h"
@@ -21,6 +22,17 @@
 
 // Encrypted length plus hmac (input length given)
 #define ENCRYPTED_DATA_LEN(len) (AES_ENCRYPTED_LEN(len) + HMAC_SHA256_LEN)
+
+// BBB-AIRGAP: a persisted SLIP-0039 wallet stores its master secret, behind a tag byte.  The tag
+// is what keeps the shapes apart: a 16 or 32 byte secret written bare would be indistinguishable
+// from the BIP39 entropy keychain_store() already writes, and keychain_load() would hand it to
+// bip39_mnemonic_from_bytes() and open a different wallet.  Tagged, the three lengths are 16/32,
+// 17/33 and SERIALIZED_KEY_LEN, all distinct.  The card format is untouched: no version bump and
+// no new field, because the blob this makes is 80 or 96 bytes and the settings file already
+// allows 80 to 256 for that field (libjade/pijade_settings.c).  The tag value is the standard
+// number, which is a reminder of what the bytes are rather than a check of it.
+#define SLIP39_BLOB_TAG 0x39
+#define SLIP39_BLOB_LEN(secret_len) (1 + (secret_len))
 
 // BBB-AIRGAP: upstream holds one wallet in one static struct, so a second seed can only be
 // loaded by overwriting the first.  The struct becomes a fixed table and 'keychain_data' points
@@ -58,6 +70,15 @@ static bool has_encrypted_blob = false;
 static uint8_t mnemonic_entropy[BIP39_ENTROPY_LEN_256]; // Maximum supported entropy is 24 words
 static size_t mnemonic_entropy_len = 0;
 
+// BBB-AIRGAP: what a SLIP-0039 recovery yields is a master secret and not a phrase, so it cannot
+// share the cache above - bip39_mnemonic_from_bytes() would turn those bytes into words that are
+// not the user's backup.  It gets its own, filled by slip39_load_wallet() once the wallet is in
+// memory and read by keychain_store() to write the tagged blob.  The two are cleared together in
+// finalise_slot() and keychain_clear(), and are mutually exclusive by assertion, so neither can
+// outlive the wallet it belongs to nor be taken for the other.
+static uint8_t slip39_master_secret[SLIP39_MASTER_SECRET_MAX];
+static size_t slip39_master_secret_len = 0;
+
 // Cached key flags
 static uint8_t key_flags = 0;
 
@@ -86,6 +107,10 @@ static void finalise_slot(const uint8_t userdata, const bool temporary)
     // Clear any mnemonic entropy we may have been holding
     JADE_WALLY_VERIFY(wally_bzero(mnemonic_entropy, sizeof(mnemonic_entropy)));
     mnemonic_entropy_len = 0;
+
+    // BBB-AIRGAP: and any SLIP-0039 master secret, for the same reason
+    JADE_WALLY_VERIFY(wally_bzero(slip39_master_secret, sizeof(slip39_master_secret)));
+    slip39_master_secret_len = 0;
 
     // Reload key flags
     key_flags = storage_get_key_flags();
@@ -310,6 +335,10 @@ void keychain_clear(void)
     JADE_WALLY_VERIFY(wally_bzero(mnemonic_entropy, sizeof(mnemonic_entropy)));
     mnemonic_entropy_len = 0;
 
+    // BBB-AIRGAP: and any SLIP-0039 master secret, for the same reason
+    JADE_WALLY_VERIFY(wally_bzero(slip39_master_secret, sizeof(slip39_master_secret)));
+    slip39_master_secret_len = 0;
+
     // Reload key flags
     key_flags = storage_get_key_flags();
 }
@@ -423,12 +452,28 @@ void keychain_cache_mnemonic_entropy(const char* mnemonic)
     JADE_ASSERT(mnemonic);
     JADE_ASSERT(!keychain_has_temporary());
     JADE_ASSERT(!mnemonic_entropy_len);
+    JADE_ASSERT(!slip39_master_secret_len);
 
     JADE_WALLY_VERIFY(
         bip39_mnemonic_to_bytes(NULL, mnemonic, mnemonic_entropy, sizeof(mnemonic_entropy), &mnemonic_entropy_len));
 
     // Only 12 or 24 word mnemonics are supported
     JADE_ASSERT(mnemonic_entropy_len == BIP39_ENTROPY_LEN_128 || mnemonic_entropy_len == BIP39_ENTROPY_LEN_256);
+}
+
+// BBB-AIRGAP: hold the master secret a SLIP-0039 recovery produced, so that keychain_store() writes
+// that rather than the serialised keychain, which carries no seed.  Call it AFTER keychain_set():
+// that call is what clears the caches, so a call before it would leave nothing here.
+void keychain_cache_slip39_master_secret(const uint8_t* master_secret, const size_t master_secret_len)
+{
+    JADE_ASSERT(master_secret);
+    JADE_ASSERT(master_secret_len == SLIP39_MASTER_SECRET_MIN || master_secret_len == SLIP39_MASTER_SECRET_MAX);
+    JADE_ASSERT(!keychain_has_temporary());
+    JADE_ASSERT(!mnemonic_entropy_len);
+    JADE_ASSERT(!slip39_master_secret_len);
+
+    memcpy(slip39_master_secret, master_secret, master_secret_len);
+    slip39_master_secret_len = master_secret_len;
 }
 
 // Clear the network type restriction
@@ -797,6 +842,7 @@ bool keychain_store(const uint8_t* aeskey, const size_t aeslen)
     SENSITIVE_PUSH(serialized, sizeof(serialized));
 
     // If we have cached mnemonic entropy, we store that (as the wallet is passphrase-protected)
+    // BBB-AIRGAP: if instead we have a cached SLIP-0039 master secret, we store that, tagged
     // Otherwise we store the master keychain data (classic)
     uint8_t* p_serialized_data;
     size_t serialized_data_len;
@@ -810,6 +856,16 @@ bool keychain_store(const uint8_t* aeskey, const size_t aeslen)
         JADE_ASSERT(mnemonic_entropy_len < sizeof(serialized));
         p_serialized_data = mnemonic_entropy;
         serialized_data_len = mnemonic_entropy_len;
+    } else if (slip39_master_secret_len) {
+        // BBB-AIRGAP: use the SLIP-0039 master secret, behind its tag byte.  'serialized' is sized
+        // for the key structure and so has ample room for this.
+        JADE_ASSERT(slip39_master_secret_len == SLIP39_MASTER_SECRET_MIN
+            || slip39_master_secret_len == SLIP39_MASTER_SECRET_MAX);
+        JADE_ASSERT(SLIP39_BLOB_LEN(slip39_master_secret_len) < sizeof(serialized));
+        serialized[0] = SLIP39_BLOB_TAG;
+        memcpy(serialized + 1, slip39_master_secret, slip39_master_secret_len);
+        p_serialized_data = serialized;
+        serialized_data_len = SLIP39_BLOB_LEN(slip39_master_secret_len);
     } else {
         // Use serialised keychain
         serialize(serialized, sizeof(serialized), keychain_data);
@@ -859,7 +915,7 @@ bool keychain_load(const uint8_t* aeskey, const size_t aeslen)
         return false;
     }
 
-    // 2. Cache mnemonic entropy or deserialise keychain
+    // 2. Cache mnemonic entropy, deserialise keychain, or derive from a SLIP-0039 master secret
     if (serialized_data_len == BIP39_ENTROPY_LEN_128 || serialized_data_len == BIP39_ENTROPY_LEN_256) {
         // Write mnemonic entropy - only 12 or 24 word mnemonics are supported
         memcpy(mnemonic_entropy, serialized, serialized_data_len);
@@ -869,6 +925,21 @@ bool keychain_load(const uint8_t* aeskey, const size_t aeslen)
         keychain_t keydata = { 0 };
         SENSITIVE_PUSH(&keydata, sizeof(keydata));
         unserialize(serialized, serialized_data_len, &keydata);
+        keychain_set(&keydata, 0, false);
+        SENSITIVE_POP(&keydata);
+    } else if ((serialized_data_len == SLIP39_BLOB_LEN(SLIP39_MASTER_SECRET_MIN)
+                   || serialized_data_len == SLIP39_BLOB_LEN(SLIP39_MASTER_SECRET_MAX))
+        && serialized[0] == SLIP39_BLOB_TAG) {
+        // BBB-AIRGAP: a tagged SLIP-0039 master secret - derive the wallet from it, rather than
+        // cache it for a passphrase the way the entropy branch above does.  That is the format's
+        // own shape: in SLIP-0039 the passphrase is applied when the shares are combined, so the
+        // secret persisted here is already the one the user's phrase chose and there is nothing
+        // left to ask.  The wallet therefore comes back carrying its seed, exactly as a BIP39
+        // wallet re-derived from its entropy does, so OTP and identity keys keep working after a
+        // restart.  The length test runs first so the tag is only read once there is a byte there.
+        keychain_t keydata = { 0 };
+        SENSITIVE_PUSH(&keydata, sizeof(keydata));
+        keychain_derive_from_seed(serialized + 1, serialized_data_len - 1, &keydata);
         keychain_set(&keydata, 0, false);
         SENSITIVE_POP(&keydata);
     } else {

@@ -98,6 +98,10 @@ uint8_t keychain_get_userdata(void);
 // Temporarily cache mnemonic entropy (if using passphrase)
 void keychain_cache_mnemonic_entropy(const char* mnemonic);
 
+// BBB-AIRGAP: cache the master secret a SLIP-0039 recovery produced, so a persisted wallet is
+// written as that secret rather than as the serialised keychain.  Call after keychain_set().
+void keychain_cache_slip39_master_secret(const uint8_t* master_secret, size_t master_secret_len);
+
 // Clear/set/get/compare the pinned/restricted network type
 void keychain_clear_network_type_restriction(void);
 void keychain_set_network_type_restriction(const network_type_t network_type);

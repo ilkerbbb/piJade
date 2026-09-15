@@ -2777,10 +2777,12 @@ static int32_t run_options_list(size_t* selected)
     // OTP records are encrypted under a key derived from the seed of the wallet in use
     // (get_otp_encryption_key(), main/otpauth.c), and a wallet read back from the blob as a
     // serialised xpriv carries no seed - so with one of those loaded every record would fail to
-    // decrypt and be offered for deletion.  A persisted SLIP-0039 wallet is deliberately made
-    // seedless the same way (main/process/mnemonic.c, slip39_load_wallet), so this reads false
-    // for it from the moment it is loaded, not only after the next reload.  The row follows what
-    // the screen can actually do.
+    // decrypt and be offered for deletion.  Neither of the two shapes a wallet is persisted in
+    // today lands there: BIP39 stores its entropy and SLIP-0039 its master secret, and both are
+    // re-derived on load and so carry a seed (main/keychain.c, keychain_load()).  The condition
+    // stays because the serialised branch still exists and still reads back seedless, and because
+    // the row should follow what the screen can actually do rather than an assumption about which
+    // branch wrote the card.
     const bool otp_usable = wallet_loaded && keychain_get()->seed_len;
 
     list_item_t items[10];
@@ -3532,7 +3534,7 @@ static void handle_session(void)
             // had fired two or three times (ROADMAP item 70).  handle_scan_qr() cannot say which
             // it was, so the two things the lists depend on are compared across the call: how
             // many wallets are held, and which one is in use.  A load adds a slot, a switch moves
-            // keychain_get() to another slot's storage (main/keychain.c:208-209); anything else -
+            // keychain_get() to another slot's storage (main/keychain.c:233-234); anything else -
             // a cancel, an epoch, a psbt for the wallet already in use - leaves both as they were
             // and the menu is simply redrawn, as it is for 'Sign Message' above.
             const size_t slots_before = keychain_slot_count();

@@ -23,6 +23,7 @@
 #define SLIP39_SHORT_SHARE_WORDS 20
 #define SLIP39_LONG_SHARE_WORDS 33
 #define SLIP39_SHARE_VALUE_MAX 32
+#define SLIP39_MASTER_SECRET_MIN 16
 #define SLIP39_MASTER_SECRET_MAX 32
 
 // The wordlist is vendored in main/slip39_english.c.

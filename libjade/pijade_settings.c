@@ -47,8 +47,8 @@ static const struct {
     { "privatekey", 32, 32, false },
     // keychain.c only ever encrypts the mnemonic entropy (16 or 32 bytes) or the serialised key
     // (206 bytes) through ENCRYPTED_DATA_LEN(), which is AES_BLOCK_LEN + AES_PADDED_LEN(len) +
-    // HMAC_SHA256_LEN (aes.h, main/keychain.c:23): 80, 96, and 256 bytes respectively. 80 is the floor
-    // so a shorter value can never reach main/keychain.c:674's JADE_ASSERT(bytes_len > HMAC_SHA256_LEN).
+    // HMAC_SHA256_LEN (aes.h, main/keychain.c:24): 80, 96, and 256 bytes respectively. 80 is the floor
+    // so a shorter value can never reach main/keychain.c:719's JADE_ASSERT(bytes_len > HMAC_SHA256_LEN).
     { "blob", 80, 256, false },
     { "counter", 1, 1, false },
     { "antireplay", 4, 4, false },
@@ -324,7 +324,7 @@ static bool walk_entries(struct wally_map* const prefs, const uint8_t* const bod
             // raw digits, which format_pin() asserted were < 10; keeping that check would now reject
             // ordinary hash bytes and, because the refusal is per file (see below), would take the
             // whole settings file and the stored wallet blob down with it.
-            // main/keychain.c:448 JADE_ASSERT(keychain_is_network_type_consistent(network_type)) on every
+            // main/keychain.c:493 JADE_ASSERT(keychain_is_network_type_consistent(network_type)) on every
             // successful PIN unlock (main/process/auth_user.c:473-477); network_type_t (network.h:23) only defines
             // 0, 1, 2, so refuse a stored value outside that range.
             if (!strcmp(PERSISTED_FIELDS[field].key, "networktype")) {

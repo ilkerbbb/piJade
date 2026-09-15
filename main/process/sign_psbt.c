@@ -835,7 +835,7 @@ int sign_psbt(jade_process_t* process, CborValue* params, const network_t networ
     // wallet question, and before derivation so the input loop runs against the chosen wallet the
     // first time.  Nothing computed above depends on which wallet is in use: the network comes
     // from the psbt and the device-wide network restriction (network_from_psbt_type), which
-    // slot activation does not touch (main/keychain.c:53) - if that restriction ever becomes
+    // slot activation does not touch (main/keychain.c:65) - if that restriction ever becomes
     // per-wallet, this ordering has to be revisited.
     //
     // A NULL process means the psbt came from a scan (main/qrmode.c:2176) or from usb storage

@@ -2309,14 +2309,14 @@ static bool slip39_share_words(const size_t nwords, slip39_share_t* share)
 // BBB-AIRGAP: the tail of a SLIP-0039 recovery - passphrase, decryption, wallet.  This is the C2
 // design note's section 7 table in code: the steps initialise_with_mnemonic() runs once it has a
 // recovery phrase, kept or dropped one by one, because what a SLIP-0039 backup yields is a master
-// secret and not a phrase.  Dropped here: bip39 validation (no phrase to validate), the SeedQR
-// export offer (no entropy to draw) and keychain_cache_mnemonic_entropy() (same reason - a
-// persisted SLIP-0039 wallet is stored as the serialised keychain instead, which is the branch
-// keychain_store() has always had and nothing but selfcheck has ever taken).  That branch does
-// not carry a seed, so a wallet reloaded from it has none; the seed derived below is cleared
-// before keychain_set() for a persisted wallet so this session matches every session after a
-// restart instead of granting OTP/identity use once and losing it on reload - both are out of
-// scope for SLIP-0039 in this fork, not a session-one privilege.
+// secret and not a phrase.  Dropped here: bip39 validation (no phrase to validate) and the SeedQR
+// export offer (no entropy to draw).  Kept, in the shape this format has: where a BIP39 restore
+// caches its entropy for keychain_store() to persist, this caches the master secret, and
+// keychain_store() writes it behind a tag byte (main/keychain.c).  A wallet read back from that
+// blob is derived from the secret again, so it carries its seed and OTP and identity keys keep
+// working across a restart, exactly as they do for BIP39.  The serialised-keychain branch, which
+// carries no seed, is what a persisted SLIP-0039 wallet used to take and now nothing but
+// selfcheck does.
 static bool slip39_load_wallet(const slip39_ctx_t* ctx, const bool temporary_restore, const bool advanced_mode)
 {
     JADE_ASSERT(ctx);
@@ -2363,19 +2363,19 @@ static bool slip39_load_wallet(const slip39_ctx_t* ctx, const bool temporary_res
     // which is the format's own shape rather than a gap here.  C2 design note section 4.2.
     keychain_derive_from_seed(master_secret, ctx->value_len, &keydata);
 
-    // See the function comment above for why; a temporary wallet is never written to the card,
-    // so it keeps the seed this derivation made.
-    if (!temporary_restore) {
-        JADE_WALLY_VERIFY(wally_bzero(keydata.seed, sizeof(keydata.seed)));
-        keydata.seed_len = 0;
-    }
-
     // The two settings every other restore method also applies (see derive_keychain()): the
     // blinding-key question follows the mode this wallet was set up in, and the network-type
     // restriction is device policy that a newly loaded single wallet clears.
     keychain_set_confirm_export_blinding_key(advanced_mode);
     keychain_set(&keydata, SOURCE_NONE, temporary_restore);
     keychain_clear_network_type_restriction();
+
+    // Hand the master secret over so that a persisted wallet is written as that secret rather than
+    // as the serialised keychain.  After keychain_set(), because that call is what clears the
+    // cache.  A temporary wallet is never written to the card, so it has nothing to cache.
+    if (!temporary_restore) {
+        keychain_cache_slip39_master_secret(master_secret, ctx->value_len);
+    }
     loaded = true;
 
 cleanup:
