@@ -11,19 +11,12 @@ section says what a plain Zero needs instead.
 > security audit.
 
 This document describes what the fork itself brings and how the device is used. Jade's own
-features, and the build document for Jade's hardware, stay with upstream; `JADE-BUILD.md` at
-the root carries that document unchanged. Every departure from upstream is recorded in
-`UPSTREAM.md`: a row for each text file, and a note accounting for the binary fixtures a row
-cannot describe.
+features, and the build document for Jade's hardware, stay with upstream; `JADE-BUILD.md` at the
+root carries that document unchanged. Every departure from upstream is recorded in `UPSTREAM.md`.
 
 ## The hardware
 
-| Part | What is used |
-|---|---|
-| Board | A Raspberry Pi Zero W with the WiFi and Bluetooth circuitry physically cut. Everything in this document was measured on that board; a plain Raspberry Pi Zero should also work and needs no cutting, but it has not been tried |
-| Screen and buttons | Waveshare 1.3" LCD HAT, 240x240, three buttons and a joystick |
-| Camera | A camera the host opens as `/dev/video0` |
-| Storage | A microSD card, which holds the operating system, the piJade binaries and the settings file |
+The parts are listed in the root `README.md`.
 
 There is no secure element and no secure boot. Neither board has either, so the card is readable
 by anyone who takes it; what that means for stored secrets is written out in
@@ -227,21 +220,10 @@ the keys are in memory.
 The base image is the ARM hard-float Raspberry Pi OS Lite build; the exact release is pinned in
 the bootstrap script.
 
-## Relationship with upstream
-
-The fork tracks Blockstream Jade and takes its updates. Every change made here is marked in the
-source with a `BBB-AIRGAP:` comment saying why, and `UPSTREAM.md` lists them, a row for each text
-file, together with the discipline for merging upstream changes into them. Anything measured
-against SeedSigner,
-menu row by menu row, is in `SEEDSIGNER-COMPARISON.md`; the threat model and what is deliberately
-not claimed are in `SECURITY-AUDIT-2026-09-03.md`.
-
 ## Licence
 
-Blockstream Jade is MIT licensed and this fork is under the same licence. The `LICENSE` file at
-the root of the repository is untouched, and so is the `COPYING` file upstream ships beside it;
-upstream's own wording is that the collection is subject to GPL3 while individual source
-components can be used under their specific licences.
+Blockstream Jade is MIT licensed and this fork is under the same licence; the root `README.md`
+carries the detail.
 
 Third-party code brought in by the fork keeps its own licence, recorded where it sits:
 
