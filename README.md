@@ -1,7 +1,10 @@
 # piJade
 
-A fork of the Blockstream Jade firmware that turns a Raspberry Pi Zero W into an airgapped
+A fork of the Blockstream Jade firmware that turns a Raspberry Pi Zero W or Zero into an airgapped
 hardware wallet. The only cable reaching the device is power; everything else travels by QR code.
+The board this was built and measured on is a Zero W with its radio circuitry physically cut; a
+plain Zero has no such circuitry to begin with, and `pijade/README.md` describes what each variant
+needs.
 
 > **Warning: this is experimental work.** The device is not used with real funds; testing is done
 > on testnet or with an empty wallet. The code in this repository has not had an independent

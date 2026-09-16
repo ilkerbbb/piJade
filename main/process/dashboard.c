@@ -1785,10 +1785,10 @@ static bool show_otp_code(otpauth_ctx_t* otp_ctx)
     switch (otp_set_default_value(otp_ctx, &value)) {
     case OTP_ERR_TOTP_TIME: {
         // BBB-AIRGAP: upstream sends the user to the Blockstream companion app over USB or
-        // Bluetooth.  Neither exists here - the radio is physically cut and the port is QR only -
-        // so the message named a route this device does not have.  The route it does have is the
-        // epoch message over a scanned QR (main/qrmode.c:2731, ur:jade-epoch; the host side is
-        // pijade/tools/epoch_qr.py).
+        // Bluetooth.  Neither exists here - neither channel is compiled in and the port is QR
+        // only - so the message named a route this device does not have.  The route it does
+        // have is the epoch message over a scanned QR (main/qrmode.c:2731, ur:jade-epoch; the
+        // host side is pijade/tools/epoch_qr.py).
         await_error_3("Clock not set.", "Scan a time QR", "to set it.");
         return false;
     }

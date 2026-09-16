@@ -654,7 +654,7 @@ gui_activity_t* make_device_info_activity(const bool show_ble)
 #endif
         { .txt = "Storage", .font = GUI_DEFAULT_FONT, .ev_id = BTN_SETTINGS_DEVICE_INFO_STORAGE },
         // BBB-AIRGAP: the radio row sits here rather than among the preferences, because on this
-        // hardware it cannot act: the Bluetooth circuit is cut and handle_ble() only says the
+        // build it cannot act: no Bluetooth is compiled in and handle_ble() only says the
         // firmware has it disabled.  A row that states a fact about the device belongs with the
         // other facts about the device.  It keeps its event id and its behaviour, so a build that
         // does have Bluetooth still opens the real screen from here.

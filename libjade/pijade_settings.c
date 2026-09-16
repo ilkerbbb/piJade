@@ -61,8 +61,8 @@ static const struct {
     // (main/storage.c:694) writes sizeof(uint8_t).
     //
     // Two other fields main/storage.c names are deliberately still absent, and the reason is that
-    // nothing on this port writes them: 'bleflags' because ble is not compiled here (the radio is
-    // physically cut and main/ble/ble.h:27 supplies the empty implementation), and 'clickevent'
+    // nothing on this port writes them: 'bleflags' because the port builds without
+    // CONFIG_BT_ENABLED, so main/ble/ble.h:27 is the empty implementation, and 'clickevent'
     // because only main/storage.c:363 touches it, to erase it.  Either would need its writer back
     // before persisting it would mean anything.
     { "featflags", 1, 1, false },

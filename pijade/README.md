@@ -1,9 +1,10 @@
 # piJade
 
-Blockstream Jade's firmware, running on a Raspberry Pi Zero W whose WiFi and Bluetooth circuitry
-has been physically cut, with a Waveshare 1.3" 240x240 LCD HAT and a camera. The only cable
-reaching the device is power. Everything else travels by QR code: the device reads with its
-camera and answers on its screen.
+Blockstream Jade's firmware, running on a Raspberry Pi Zero W or Zero with a Waveshare 1.3"
+240x240 LCD HAT and a camera. The only cable reaching the device is power. Everything else travels
+by QR code: the device reads with its camera and answers on its screen. The board this fork was
+built and measured on is a Zero W whose WiFi and Bluetooth circuitry has been physically cut; the
+next section says what a plain Zero needs instead.
 
 > **Warning: this is experimental work.** The device is not used with real funds; testing is done
 > on testnet or with an empty wallet. The code in this repository has not had an independent
@@ -18,14 +19,31 @@ row for each text file, and a note accounting for the binary fixtures a row cann
 
 | Part | What is used |
 |---|---|
-| Board | Raspberry Pi Zero W with the WiFi and Bluetooth circuitry physically cut |
+| Board | A Raspberry Pi Zero W with the WiFi and Bluetooth circuitry physically cut. Everything in this document was measured on that board; a plain Raspberry Pi Zero should also work and needs no cutting, but it has not been tried |
 | Screen and buttons | Waveshare 1.3" LCD HAT, 240x240, three buttons and a joystick |
 | Camera | A camera the host opens as `/dev/video0` |
 | Storage | A microSD card, which holds the operating system, the piJade binaries and the settings file |
 
-There is no secure element and no secure boot. A Pi Zero W has neither, so the card is readable
+There is no secure element and no secure boot. Neither board has either, so the card is readable
 by anyone who takes it; what that means for stored secrets is written out in
 `SECURITY-AUDIT-2026-09-03.md`.
+
+### The two boards
+
+The airgap is a property of the board, not of the software. A Zero W has the radio hardware on it,
+so it has to be cut; that is what was done to the board this fork was built and measured on. A
+plain Zero carries no WiFi and no Bluetooth chip at all, so there is nothing to cut and nothing to
+switch off, and that variant is airgapped as it arrives.
+
+The software is the same on both. piJade is built without `CONFIG_BT_ENABLED`, so `main/ble/ble.c`
+contributes no code and the firmware has no Bluetooth in it on either board. The card image also
+masks the radio services, NetworkManager, wpa_supplicant, bluetooth and the rest, but masking is a
+filesystem link that does not ask what hardware is present; it is housekeeping, not the guarantee.
+The guarantee is the cut on a Zero W and the absence on a plain Zero.
+
+What has not been tried: piJade has only ever been built, written and measured on a Zero W. A
+plain Zero has never been booted with this image. Nothing in the build or in the image depends on
+the radio being present, which is a reason to expect it to work, not a measurement of it.
 
 ## Two ways to hold a wallet
 
@@ -169,7 +187,7 @@ duress PIN is set.
 about twenty bits; an attacker with the card can try all of them on their own machine, which also
 answers the question of whether a duress PIN exists at all. What the change removes is plaintext
 storage, and nothing more. Upstream Jade gets deniability here from the ESP32's encrypted flash;
-a Pi Zero W has no equivalent, and this is one of the places where that shows.
+a Pi Zero has no equivalent, and this is one of the places where that shows.
 
 ## Installing
 
