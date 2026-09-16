@@ -2,11 +2,11 @@
 
 > piJade is a fork of Blockstream Jade. The aim: to be able to take an upstream Jade release
 > without the update turning brittle. This file keeps the size of the divergence, and the
-> procedure for updating, in one place.
-> The `file:line` references in this file were reread at `01f266aa` on 2026-09-15 and the stale ones
-> corrected; the prose around them was not otherwise remeasured. Later the same day `bb77e43f`
-> brought the tree to the `format.sh` contract, which shifted lines in 13 files; the references
-> here were moved with it and verified against the lines they name, so they stand at `bb77e43f`.
+> procedure for updating, in one place. The `file:line` references in this file were reread at
+> `01f266aa` on 2026-09-15 and the stale ones corrected; the prose around them was not otherwise
+> remeasured. Later the same day `bb77e43f` brought the tree to the `format.sh` contract, which
+> shifted lines in 13 files; the references here were moved with it and verified against the lines
+> they name, so they stand at `bb77e43f`.
 
 ## 1. Remote layout
 
@@ -42,8 +42,9 @@ All work happens on `bbb-airgap`.
 >
 > The reason column has two sources: hand-written rows explain why the divergence exists; rows
 > added in the 2026-09-06 and 2026-09-12 refreshes instead carry the subject line of the commit
-> that changed that file MOST. The second kind is a record, not a reason; it does not stand in for a sentence
-> explaining the divergence, and it must be written by hand the next time the file is touched.
+> that changed that file MOST. The second kind is a record, not a reason; it does not stand in for
+> a sentence explaining the divergence, and it must be written by hand the next time the file is
+> touched.
 
 | File | Added / removed | Kind | Reason |
 |---|---|---|---|
@@ -249,30 +250,30 @@ commit named in the heading.
 That trap caught this paragraph itself, which is worth recording rather than quietly fixing. It
 stood at 189 files, measured at `c68c114d`, while the table above had already been refreshed twice
 past that commit: the BBQr round added `main/bbqr.c`, `main/bbqr.h` and `libjade/selfcheck/bbqr.c`
-as rows without the totals being taken again. Measured at `838404c5` the count was already 192, and
-the Seed XOR round took it to 195, the SLIP-0039 round took it to 202, and the `uint32_t` RPC
+as rows without the totals being taken again. Measured at `838404c5` the count was already 192,
+and the Seed XOR round took it to 195, the SLIP-0039 round took it to 202, and the `uint32_t` RPC
 series takes it to 212: ten `main/` files that had no divergence at all before it now carry one,
-because the fork is ahead of its branch point by that series. The lesson is the same
-one the table carries: the rows and the totals are one measurement, and refreshing half of it
-leaves a number that reads as current and is not. This refresh was taken after the code commit for
-that reason, so the table, the totals and the area breakdown all name the same commit.
+because the fork is ahead of its branch point by that series. The lesson is the same one the table
+carries: the rows and the totals are one measurement, and refreshing half of it leaves a number
+that reads as current and is not. This refresh was taken after the code commit for that reason, so
+the table, the totals and the area breakdown all name the same commit.
 
 **Binary fixtures (27).** These are the recorded camera frames the QR scan suite replays, and
 `--numstat` reports no line counts for them, so they are named here instead. Measured on
 2026-09-12: the working tree holds **only the VGA set**, 13 `test_data/qr_vga_*.dat` recordings
-(plus their 13 `.json` descriptors, which are in the table above). The 13 `test_data/qr_qvga_*.dat`
-recordings they replaced were **removed** in `14afea47`, the commit that moved capture to VGA, and
-they appear in the inventory only as deletions; the suite does not replay a QVGA frame any more,
-because the device does not produce one. The 27th file, `test_data/sign_message_golden_qr.png`, is
-the golden image for the message-signing QR (`1ab3d4b8`). None of the fixtures carries a secret:
-every one is a public test vector.
+(plus their 13 `.json` descriptors, which are in the table above). The 13
+`test_data/qr_qvga_*.dat` recordings they replaced were **removed** in `14afea47`, the commit that
+moved capture to VGA, and they appear in the inventory only as deletions; the suite does not
+replay a QVGA frame any more, because the device does not produce one. The 27th file,
+`test_data/sign_message_golden_qr.png`, is the golden image for the message-signing QR
+(`1ab3d4b8`). None of the fixtures carries a secret: every one is a public test vector.
 
 
 **Where the removed lines come from.** Most of them sit in three places: the old split-screen
 layout of the wallet QR codes (`main/qrmode.c`, `main/ui/qrmode.c`), the reorganisation of the
-mnemonic flows (`main/ui/mnemonic.c`, `main/process/mnemonic.c`), and moving the verification tests
-out of `main/selfcheck.c` into `libjade/selfcheck/`. A rebase conflict is likelier in those files
-than anywhere else.
+mnemonic flows (`main/ui/mnemonic.c`, `main/process/mnemonic.c`), and moving the verification
+tests out of `main/selfcheck.c` into `libjade/selfcheck/`. A rebase conflict is likelier in those
+files than anywhere else.
 
 **Breakdown by area (measured 2026-09-16, with this commit staged):** the `libjade/` emulator
 layer +4861 / -85 (30 files), Jade's own `main/` files +14961 / -2715 (112 files), the
@@ -310,8 +311,8 @@ the zeroing while dropping the ownership move would put the variable length arra
 
 Every divergence in `main/camera.c` and `main/display_hw.c` sits inside `#ifdef CONFIG_LIBJADE`:
 an ESP32 build is not affected by any of it. The VGA capture size is the one exception worth
-naming, because it is a constant the scan window derives from (`main/camera.h`); an upstream change
-to the capture size has to be read together with `main/qrscan.c`.
+naming, because it is a constant the scan window derives from (`main/camera.h`); an upstream
+change to the capture size has to be read together with `main/qrscan.c`.
 
 ### Registered-wallet serialisation has diverged from upstream
 
@@ -326,10 +327,10 @@ meant to be. It diverged in two places:
   seal layout.
 
 The seal primitives live in one place, `main/registration_seal.c`; both record types call it. The
-layout is `version(1) | IV(16) + AES(body) | HMAC(32)`, and the HMAC is computed over
-`version || encrypted body`. The key derives from the wallet's master key, so only the seed that
-wrote a record can read it; with another seed loaded the record shows as "Record Unreadable" in the
-list and can be deleted.
+layout is `version(1) | IV(16) + AES(body) | HMAC(32)`, and the HMAC is computed over `version ||
+encrypted body`. The key derives from the wallet's master key, so only the seed that wrote a
+record can read it; with another seed loaded the record shows as "Record Unreadable" in the list
+and can be deleted.
 
 Rebase impact: if upstream touches the serialisation in `multisig.c` or `descriptor.c`, a conflict
 is CERTAIN and cannot be resolved automatically. The rule for resolving it: take upstream's field
@@ -340,11 +341,21 @@ the card.
 ## 3. Three rules that keep the divergence small
 
 1. **New logic goes in a new file.** Only the call site sits in an upstream file.
-2. **SeedSigner's solution is not copied; Jade's own counterpart is used.** For example, the device
-   identity comes through Jade's `macid[6]` / `esp_efuse_mac_get_default` path rather than
+2. **SeedSigner's solution is not copied; Jade's own counterpart is used.** For example, the
+   device identity comes through Jade's `macid[6]` / `esp_efuse_mac_get_default` path rather than
    `/proc/cpuinfo`.
-3. **Every changed upstream line is marked with a `BBB-AIRGAP` comment**, so that during a rebase it
-   is visible which line is ours.
+3. **A line the fork writes into an upstream file carries a `BBB-AIRGAP` comment**, so that during
+   a rebase it is visible which line is ours. The rule is about lines written here, not about
+   every line that differs from the branch point: the diff against `fdb67a3f` also contains
+   upstream commits this fork has taken, and those stay as upstream wrote them.
+
+   Measured on 2026-09-16. The diff touches 137 files that existed at the branch point, and 92 of
+   them carry the marker. Of the 45 that do not: 13 are fixtures the fork deleted, 16 are
+   byte-identical to `upstream/master` and so hold nothing of ours, 2 are JSON fixtures that
+   cannot carry a comment, 4 are documents, 1 is `format.sh`, and 9 are source or build files
+   whose own change is genuinely unmarked. That last group is a debt. It is written here rather
+   than dissolved by softening the rule, because a rule that describes less than it promises is
+   worse than a rule with a counted exception.
 
 ## 4. Taking an upstream update
 
@@ -356,9 +367,10 @@ git switch bbb-airgap
 git rebase upstream/master
 ```
 
-If there is a conflict: it can only be in the upstream files listed above. In each of them our side
-is marked with a `BBB-AIRGAP` comment; upstream's new state is kept, and our lines are placed back
-on top of it.
+If there is a conflict: it can only be in the upstream files listed above. In most of them our
+side is marked with a `BBB-AIRGAP` comment; upstream's new state is kept, and our lines are placed
+back on top of it. In the nine files named as debt in rule 3 the marker is missing, so there the
+diff against `upstream/master` is what separates our side from upstream's.
 
 ## 5. Mandatory verification after a rebase
 
@@ -382,20 +394,20 @@ The updated fork is not used until all of the following pass:
 | 14 | The power callback (command below) | The line `probe: handler called action=0` in the output AND exit code 134; both together |
 | 15 | The bc-ur fragment size (command below) | On the `frag=9` row the `v3?` column reads `YES`; version 3 codes still fit the 77-character capacity |
 
-Item 10 checks the allowlist and the length ranges in `libjade/pijade_settings.c`; every persistent
-PIN wallet field has to come back unchanged, and fields off the list have to be rejected. The test
-itself does not use the library's exported API but links the static archive directly (these
-functions are deliberately not `LIBJADE_API`).
+Item 10 checks the allowlist and the length ranges in `libjade/pijade_settings.c`; every
+persistent PIN wallet field has to come back unchanged, and fields off the list have to be
+rejected. The test itself does not use the library's exported API but links the static archive
+directly (these functions are deliberately not `LIBJADE_API`).
 
-**If you touched `pijade_settings.c`, run `make` in `build_linux` first.** The test compiles only its
-own `.c` file and links the rest from the archive; if the archive is stale, the old allowlist runs.
-On 2026-08-27 this trap produced one false RED (a field already fixed in the source was still being
-skipped); the reverse, a false GREEN, is equally possible.
+**If you touched `pijade_settings.c`, run `make` in `build_linux` first.** The test compiles only
+its own `.c` file and links the rest from the archive; if the archive is stale, the old allowlist
+runs. On 2026-08-27 this trap produced one false RED (a field already fixed in the source was
+still being skipped); the reverse, a false GREEN, is equally possible.
 
 `libjade/include` is passed with `-isystem`, not `-I`: the test should take `nvs_flash.h` from its
-real source (hand-written `extern` declarations drift silently when a signature changes), while that
-header's own `-Wextra` warning (the unused parameter of `nvs_close`) must not break the test's
-zero-warning rule.
+real source (hand-written `extern` declarations drift silently when a signature changes), while
+that header's own `-Wextra` warning (the unused parameter of `nvs_close`) must not break the
+test's zero-warning rule.
 
 ```bash
 gcc -Wall -Wextra -O1 -o /tmp/settings_test \
@@ -413,11 +425,11 @@ gcc -Wall -Wextra -O1 -o /tmp/settings_test \
 ```
 
 Item 12 checks the full-screen scale of the wallet QR codes; if `qr_fullscreen_scale_factor()` in
-`main/bcur.c` reverts to upstream's table during a rebase, the codes drop back to the split layout's
-size and external scanners struggle with them. The test checks three claims, in this order: the code
-**fits** the panel (`display_icon()` asserts that the icon is not larger than the screen, so an
-overflow is a crash, not a drawing glitch), it does not **fall** below upstream's table, and it
-leaves two modules of **quiet zone** where the panel has room.
+`main/bcur.c` reverts to upstream's table during a rebase, the codes drop back to the split
+layout's size and external scanners struggle with them. The test checks three claims, in this
+order: the code **fits** the panel (`display_icon()` asserts that the icon is not larger than the
+screen, so an overflow is a crash, not a drawing glitch), it does not **fall** below upstream's
+table, and it leaves two modules of **quiet zone** where the panel has room.
 
 The test is panel-independent; it takes the dimensions of whichever library build it links against
 through `-DPANEL_W/-DPANEL_H` and picks the table accordingly. All five variants are run:
@@ -458,9 +470,9 @@ nm -S --defined-only build_linux/libjade/libjade_static.a \
 ```
 
 Item 14 checks that sleep and restart requests reach the host. Upstream satisfies
-`esp_deep_sleep_start()` and `esp_restart()` with `abort()` in libjade; in that state the Sleep menu
-froze the device with `Internal error WRAPPED:0`. If a rebase brings those two bodies back, the probe
-below shows that the handler was never called:
+`esp_deep_sleep_start()` and `esp_restart()` with `abort()` in libjade; in that state the Sleep
+menu froze the device with `Internal error WRAPPED:0`. If a rebase brings those two bodies back,
+the probe below shows that the handler was never called:
 
 ```bash
 LIBS="build_linux/libjade/libjade_static.a build_linux/libjade/libcbor_target.a \
@@ -478,9 +490,9 @@ echo "$OUT" | grep -qx "probe: handler called action=0" && [ "$RC" -eq 134 ] \
 # expected: "probe: handler called action=0", probe exit 134, and the check above exits 0
 ```
 
-The host half (`systemctl --no-block --job-mode=replace-irreversibly start poweroff.target`) is not
-exercised here: it would replace the process, and whether the service is allowed to do that is a
-question about the image; it is measured on the device.
+The host half (`systemctl --no-block --job-mode=replace-irreversibly start poweroff.target`) is
+not exercised here: it would replace the process, and whether the service is allowed to do that is
+a question about the image; it is measured on the device.
 
 Item 8 catches not a leak but a flag being pinned back: in upstream `libjade/include/sdkconfig.h`
 set `CONFIG_DEBUG_MODE` to `1` unconditionally, which left the debug message handlers and the
@@ -488,19 +500,19 @@ libjade RPC surface open even in a Release build. If that line reverts to upstre
 rebase, the build still passes, most tests still pass, and the lock quietly opens.
 
 This item has a trap the tool cannot close on its own: on a production build a **made-up** method
-name gets the same rejection (measured: `zzz_not_a_real_method` -> `-32002 hardware locked`). So if
-upstream renames a method, the probe list goes stale and the tool still says "passed". During a
+name gets the same rejection (measured: `zzz_not_a_real_method` -> `-32002 hardware locked`). So
+if upstream renames a method, the probe list goes stale and the tool still says "passed". During a
 rebase, therefore, the probe names are compared against the `IS_METHOD(...)` lines in
-`main/process/dashboard.c`; and a `--control` run on a default build shows that the names really are
-routed (in that mode the expected result is that no method gets the lock rejection).
+`main/process/dashboard.c`; and a `--control` run on a default build shows that the names really
+are routed (in that mode the expected result is that no method gets the lock rejection).
 
 Item 15 checks the `BCUR_FRAGMENT_SIZE_V3` constant in `main/bcur.c`. That constant was found by
 measurement: the `BCUR_MAX_FRAGMENT_SIZE()` macro leaves only 4 bytes at version 3, which is below
 bc-ur's own `min_fragment_len=8`, so the encoder hits an assert. 9 is the only value that both
 clears that lower bound and keeps **every** produced fragment inside version 3's 77-character
 capacity. If upstream bc-ur's fountain metadata grows, the fragments exceed that capacity and the
-length assert inside `bcur_create_qr_icons()` becomes a crash on the device; so it is measured again
-at every rebase.
+length assert inside `bcur_create_qr_icons()` becomes a crash on the device; so it is measured
+again at every rebase.
 
 ```bash
 LIBS="build_linux/libjade/libjade_static.a build_linux/libjade/libcbor_target.a \
@@ -540,10 +552,18 @@ Test drivers: `pijade/host/pijade_host.c` for the production build (it needs no 
 
 ---
 
+> **A note on the numbering.** Sections 1 to 6 are this file's own structure: the remote layout,
+> the divergence inventory, the rules, the update procedure, the verification and the build line.
+> From 16 onwards each section is a numbered work item, and the number belongs to the item rather
+> than to this file, which is why the sequence jumps from 6 to 16. Nothing was removed; sections
+> 7 to 15 have never existed in this file's history. The numbers are left as they are so that a
+> section can still be named by its item number, and renumbering would break that link without
+> telling a reader anything new.
+
 ## 16. `qrcode_initText()` silently truncates a payload that does not fit
 
-`bb_appendBits()` (`main/qrcode.c:261-268`) does no bounds checking. On overflow, the
-`padding = (dataCapacity * 8) - codewords.bitOffsetOrWidth` inside `qrcode_initBytes()` wraps under
+`bb_appendBits()` (`main/qrcode.c:261-268`) does no bounds checking. On overflow, the `padding =
+(dataCapacity * 8) - codewords.bitOffsetOrWidth` inside `qrcode_initBytes()` wraps under
 `uint32_t` and the flow continues without an error; the result is a silently truncated QR. The
 return value is NOT proof that the payload fit.
 
@@ -558,21 +578,21 @@ docker exec jade-dev sh -lc 'cd /jade && \
     -Wl,--start-group $LIBS -Wl,--end-group -lpthread -lz -lm -lstdc++ && /tmp/v3probe'
 ```
 
-The expected output today is `2 failure(s)`: v2/96 and v1/48 do not fit, yet `initText=0` is printed.
-If a rebase produces `0 failure(s)`, upstream has added bounds checking, and the version/length assert
-in `main/process/mnemonic.c` can be revisited. This tool is the twin of check 17 in
-`pijade/tools/seedqr_fragments_test.c`.
+The expected output today is `2 failure(s)`: v2/96 and v1/48 do not fit, yet `initText=0` is
+printed. If a rebase produces `0 failure(s)`, upstream has added bounds checking, and the
+version/length assert in `main/process/mnemonic.c` can be revisited. This tool is the twin of
+check 17 in `pijade/tools/seedqr_fragments_test.c`.
 
 ### The shared build recipe for host tests
 
-The `main/qrcode.h` chain pulls in `main/display.h` -> `arch/sys_arch.h` and `esp_log.h`, both under
-`libjade/include`. Also, `<stdbool.h>` has to come BEFORE the QR headers. Hence:
+The `main/qrcode.h` chain pulls in `main/display.h` -> `arch/sys_arch.h` and `esp_log.h`, both
+under `libjade/include`. Also, `<stdbool.h>` has to come BEFORE the QR headers. Hence:
 
 ```
 -I libjade/include -I components/libwally-core/upstream/include
 ```
 
-## 17. Scanning back on the host with `quirc` ; `ds->data` belongs to the caller
+## 17. Scanning back on the host with `quirc`: `ds->data` belongs to the caller
 
 The caller allocates the `data` pointer inside `struct datastream`
 (`components/esp32-quirc/lib/quirc.h:169`, device side `main/qrscan.c:55`). Without that
@@ -600,16 +620,16 @@ Expected: `0 failure(s)`.
 measured: `components/libwally-core/upstream/include` is required for `wally_core.h`, and
 `-lcrypto` is NOT in the container (passing it breaks the link).
 
-A third trap is the library the test links against. Unlike `qr_scale_test.c` (item 5), this test is
-panel specific: it hard codes the 240x240 panel and the icon sizes that follow from it, while
+A third trap is the library the test links against. Unlike `qr_scale_test.c` (item 5), this test
+is panel specific: it hard codes the 240x240 panel and the icon sizes that follow from it, while
 `make_libjade.sh` always writes `build_linux`, defaults to libjade's 320x200 placeholder, and
-resets every flag it is not given.  Link
-the test against a library built without `--display=240x240` and exactly three checks fail,
-`v1/v2/v3 fullscreen icon size is exactly 189/200/203 px`.  That is a mismatched build and not a
-regression: measured 2026-09-12, a 320x200 library returns scale factors 8/6/6 and icons of
-168/150/174 px, and the same source against a 240x240 library returns `0 failure(s)`.  So build the
-library first; the line below does that.  (`-I/jade/build_linux/config` used to be passed here and
-was dropped: that directory does not exist in this build.)
+resets every flag it is not given. Link the test against a library built without
+`--display=240x240` and exactly three checks fail, `v1/v2/v3 fullscreen icon size is exactly
+189/200/203 px`. That is a mismatched build and not a regression: measured 2026-09-12, a 320x200
+library returns scale factors 8/6/6 and icons of 168/150/174 px, and the same source against a
+240x240 library returns `0 failure(s)`. So build the library first; the line below does that.
+(`-I/jade/build_linux/config` used to be passed here and was dropped: that directory does not
+exist in this build.)
 
 ```bash
 docker exec jade-dev sh -lc 'cd /jade && ./libjade/make_libjade.sh Debug --log --camera --no-ci --display=240x240'
@@ -621,15 +641,15 @@ docker exec jade-dev sh -lc 'cd /jade && LIBS=$(find /jade/build_linux -name "*.
 ```
 
 Expected: `0 failure(s)`. The test's QR buffers were raised to 112 bytes (for v3,
-`qrcode_getBufferSize(3) = 106` and the assert is a strict `>`); growing the buffer does NOT change
-the golden fixture, which was measured.
+`qrcode_getBufferSize(3) = 106` and the assert is a strict `>`); growing the buffer does NOT
+change the golden fixture, which was measured.
 
 ## 19. Decoding the on-screen QR independently
 
-Since `qrcode_initText()` returns 0 even for a payload that does not fit (item 16), "the library did
-not complain" is NOT an acceptance criterion. `pijade/tools/screen_qr_decode.c` takes a raw RGB565
-dump of the emulator screen, decodes it with `quirc` and compares it against the expected text; it
-also prints the dark-pixel bounding box (for measuring icon size).
+Since `qrcode_initText()` returns 0 even for a payload that does not fit (item 16), "the library
+did not complain" is NOT an acceptance criterion. `pijade/tools/screen_qr_decode.c` takes a raw
+RGB565 dump of the emulator screen, decodes it with `quirc` and compares it against the expected
+text; it also prints the dark-pixel bounding box (for measuring icon size).
 
 ```bash
 docker exec jade-dev sh -lc 'cd /jade && LIBS=$(find /jade/build_linux -name "*.a" | tr "\n" " ") && \
@@ -640,14 +660,14 @@ docker exec jade-dev sh -lc 'cd /jade && LIBS=$(find /jade/build_linux -name "*.
 docker exec jade-dev /tmp/screenqr /probe/<image>.rgb565 240 240 "<expected digit string>"
 ```
 
-Measured on 2026-08-27 in the 24-word Standard flow: a bounding box of 203x203 px, a 29-module code,
-96 digits, IDENTICAL to the expected string.
+Measured on 2026-08-27 in the 24-word Standard flow: a bounding box of 203x203 px, a 29-module
+code, 96 digits, IDENTICAL to the expected string.
 
 ## 20. Running the device's own verification branch in the emulator
 
-The last step of the export flow reads the QR the user drew back through the camera and compares it
-(`main/process/mnemonic.c:333-337`). To run that in the emulator, the QR on the device's OWN screen
-is fed back to its camera:
+The last step of the export flow reads the QR the user drew back through the camera and compares
+it (`main/process/mnemonic.c:333-337`). To run that in the emulator, the QR on the device's OWN
+screen is fed back to its camera:
 
 ```bash
 # 1) take the full-screen QR dump, learn the bounding box
@@ -666,10 +686,10 @@ not loaded in advance the scan catches nothing and the screen comes up with "No 
 
 The production binary is built with `LOG=1` (the runtime default being `ESP_LOG_NONE`), and the
 service unit appends `stderr` to `/boot/firmware/pijade.log`; that partition is FAT32 and
-unencrypted. So every line produced with `--log-level info` lands on the card permanently. Ten lines
-that wrote sensitive content were therefore stripped of it; the diagnostic scalars (length, count,
-quota, network) were kept. All of them are marked with a `BBB-AIRGAP:` comment, so that a line
-reappearing in an upstream merge can be caught with grep:
+unencrypted. So every line produced with `--log-level info` lands on the card permanently. Ten
+lines that wrote sensitive content were therefore stripped of it; the diagnostic scalars (length,
+count, quota, network) were kept. All of them are marked with a `BBB-AIRGAP:` comment, so that a
+line reappearing in an upstream merge can be caught with grep:
 
 | File | What used to reach the log |
 |---|---|
@@ -687,25 +707,25 @@ The acceptance measurement (2026-08-27, emulator, `--log-level info`): the
 Options > Wallet > Export Xpub > Show QR flow produced 22 fragment lines, every one of them only
 `length: 71`; zero `xpub`/bytewords matches in the log.
 
-**Freeing icons.** `free_view_node_icon_data()` (`main/gui.c`) was releasing animation frames with a
-plain `free()`; icon pixels are a reversible encoding of the exported data. It now calls
+**Freeing icons.** `free_view_node_icon_data()` (`main/gui.c`) was releasing animation frames with
+a plain `free()`; icon pixels are a reversible encoding of the exported data. It now calls
 `qrcode_freeIconData()` (upstream's own clearing helper).
 
-**The condition for this being safe was measured**: there are two separate icon allocators and their
-size calculations DIFFER. `main/qrcode.c:979-980` allocates `((w*h/32)+1)*4` bytes;
-`main/display.c:343,437` allocates `written` bytes for deflate-sourced icons and sets
-`height = written*8/width`. When `written` is a multiple of 4, the QR formula gives 4 bytes MORE, so
+**The condition for this being safe was measured**: there are two separate icon allocators and
+their size calculations DIFFER. `main/qrcode.c:979-980` allocates `((w*h/32)+1)*4` bytes;
+`main/display.c:343,437` allocates `written` bytes for deflate-sourced icons and sets `height =
+written*8/width`. When `written` is a multiple of 4, the QR formula gives 4 bytes MORE, so
 clearing a deflate icon with the QR formula would write outside the allocated block. It is safe
 because the ONLY caller of `gui_set_icon_animation()` is `make_qrcode()` (`main/ui/qrmode.c:16`),
 and every icon reaching it comes from `qrcode_toIcon` / `qrcode_toFragmentsIcons` /
-`bcur_create_qr_icons`. Deflate icons never enter an animation. If an icon from another allocator is
-ever attached to this destructor, that invariant has to be measured again.
+`bcur_create_qr_icons`. Deflate icons never enter an animation. If an icon from another allocator
+is ever attached to this destructor, that invariant has to be measured again.
 
 ## 22. Taking the persistent PIN wallet into the card file
 
-`libjade/pijade_settings.c` raised the file format from `PIJADES1` to `PIJADES2`. Old files are not
-migrated and open with defaults. Every entry is now `key_len(1), key, value_len(2 LE), value`; the
-two-byte length carries both the 256-byte wallet blob and the 2048-byte certificate ceiling.
+`libjade/pijade_settings.c` raised the file format from `PIJADES1` to `PIJADES2`. Old files are
+not migrated and open with defaults. Every entry is now `key_len(1), key, value_len(2 LE), value`;
+the two-byte length carries both the 256-byte wallet blob and the 2048-byte certificate ceiling.
 
 | Field | Min | Max | Content |
 |---|---:|---:|---|
@@ -721,12 +741,12 @@ two-byte length carries both the 256-byte wallet blob and the 2048-byte certific
 | `pinsvrpubkey` | 33 | 33 | The pinserver's EC public key |
 | `pinsvrcert` | 1 | 2048 | The custom pinserver certificate, including the NUL |
 
-The three string fields start at 1, because `nvs_set_str()` writes `strlen + 1`; an empty string is
-a one-byte value, and for `pinsvrurlB` that is a state Jade sets deliberately ("explicitly no second
-url", `main/process/pinclient.c:104`). Say the minimum is 2 and an empty urlB never reaches the
-file; after a restart urlA exists and urlB does not, and the `JADE_ASSERT(urlASet == urlBSet)` at
-`main/process/pinclient.c:113` drops the PIN unlock. A review caught this as a P1 (2026-08-27); the
-unit test now runs with an empty urlB.
+The three string fields start at 1, because `nvs_set_str()` writes `strlen + 1`; an empty string
+is a one-byte value, and for `pinsvrurlB` that is a state Jade sets deliberately ("explicitly no
+second url", `main/process/pinclient.c:104`). Say the minimum is 2 and an empty urlB never reaches
+the file; after a restart urlA exists and urlB does not, and the `JADE_ASSERT(urlASet == urlBSet)`
+at `main/process/pinclient.c:113` drops the PIN unlock. A review caught this as a P1 (2026-08-27);
+the unit test now runs with an empty urlB.
 
 Length alone is not enough; six fields have their content checked too. The reasons are downstream
 assumptions, all of them measured:
@@ -739,39 +759,40 @@ assumptions, all of them measured:
   HMAC_SHA256_LEN)` at `main/keychain.c:719` becomes unreachable.
 - The last byte of each of the three string fields has to be NUL. The body of `nvs_get_str()` is
   `nvs_get_blob()` (`libjade/nvs_flash.c:177-180`), so the storage layer promises no termination;
-  yet `main/process/pinclient.c:96,108` prints those buffers with `snprintf("%s")`. A one-byte empty
-  string is valid, and interior NULs are not searched for.
+  yet `main/process/pinclient.c:96,108` prints those buffers with `snprintf("%s")`. A one-byte
+  empty string is valid, and interior NULs are not searched for.
 - The `antireplay` value cannot be `0xFFFFFFFF`; `main/storage.c:564` has
   `JADE_ASSERT(j < UINT32_MAX)`.
 - `pinsvrurlA` and `pinsvrurlB` either both exist or neither does
   (`main/process/pinclient.c:113`). This cross-check uses ONLY the flags collected during the
   validation pass (`prefs == NULL`); moved to the storing pass, a rejected file would still store
   one half of the pair.
-- There is NO range rule for `walleterasepin`, and there must not be. Under `PIJADES4` the field is
-  not raw digits but a salt and a PBKDF2 verifier (`main/storage.h`), so every byte value is
+- There is NO range rule for `walleterasepin`, and there must not be. Under `PIJADES4` the field
+  is not raw digits but a salt and a PBKDF2 verifier (`main/storage.h`), so every byte value is
   legitimate. In the `PIJADES3` era there was a digit rule, because `format_pin()` printed the
-  stored digits on screen; that screen no longer reads the PIN, so the rule went with it. Keeping it
-  would reject ordinary hash bytes, and since rejection is per file it would take the whole settings
-  file, wallet blob included.
+  stored digits on screen; that screen no longer reads the PIN, so the rule went with it. Keeping
+  it would reject ordinary hash bytes, and since rejection is per file it would take the whole
+  settings file, wallet blob included.
 - `networktype` can only be 0, 1 or 2 (`main/utils/network.h:23`). At startup `main/main.c:203` ->
-  `keychain_init_cache()` caches the value without filtering it (`main/keychain.c:1034`), and neither
-  `keychain_load()` nor `keychain_set()` resets it. On the first successful PIN unlock
+  `keychain_init_cache()` caches the value without filtering it (`main/keychain.c:1034`), and
+  neither `keychain_load()` nor `keychain_set()` resets it. On the first successful PIN unlock
   `main/process/auth_user.c:474-480` calls `keychain_set_network_type_restriction()`
   unconditionally, and the `JADE_ASSERT(keychain_is_network_type_consistent(...))` at
-  `main/keychain.c:493` fails on an out-of-list cached value. This block IS present in a production
-  build: `-DDEBUG_MODE=0` (`pijade/images/build-armv6.sh:54`) defines
-  `CONFIG_LIBJADE_NO_DEBUG_MODE` (`libjade/CMakeLists.txt:101-104`), which leaves `CONFIG_DEBUG_MODE`
-  undefined (`libjade/include/sdkconfig.h:10-12`).
+  `main/keychain.c:493` fails on an out-of-list cached value. This block IS present in a
+  production build: `-DDEBUG_MODE=0` (`pijade/images/build-armv6.sh:54`) defines
+  `CONFIG_LIBJADE_NO_DEBUG_MODE` (`libjade/CMakeLists.txt:101-104`), which leaves
+  `CONFIG_DEBUG_MODE` undefined (`libjade/include/sdkconfig.h:10-12`).
 
 A write error is no longer swallowed. Before this work the callback was `void` and `nvs_commit()`
 returned `ESP_OK` in every case; while the file carried only preferences that was defensible. Once
-the wallet moved in, the same behaviour meant this: if the card is full or read-only, Jade believes
-it saved the wallet, the user believes PIN setup finished, and at the next boot there is no wallet.
-So `libjade_settings_fn` returns `bool`, `libjade_settings_changed()` carries the result, and
-`nvs_commit()` and `nvs_flash_erase()` return `ESP_FAIL` on failure. The rest of the chain is Jade's
-own: the `STORAGE_COMMIT` macro in `main/storage.c` already handles non-OK, `main/keychain.c:765-766`
-surfaces the wallet write and `main/process/dashboard.c:730-732` the factory reset to the user as an
-error. So this addition invents no new error path; it reconnects a chain the fork had broken.
+the wallet moved in, the same behaviour meant this: if the card is full or read-only, Jade
+believes it saved the wallet, the user believes PIN setup finished, and at the next boot there is
+no wallet. So `libjade_settings_fn` returns `bool`, `libjade_settings_changed()` carries the
+result, and `nvs_commit()` and `nvs_flash_erase()` return `ESP_FAIL` on failure. The rest of the
+chain is Jade's own: the `STORAGE_COMMIT` macro in `main/storage.c` already handles non-OK,
+`main/keychain.c:765-766` surfaces the wallet write and `main/process/dashboard.c:730-732` the
+factory reset to the user as an error. So this addition invents no new error path; it reconnects a
+chain the fork had broken.
 
 If no handler is registered the result stays true: running without `--settings` is deliberately a
 temporary mode (the emulator), there is nowhere for a write to go, and returning false would break
@@ -779,37 +800,37 @@ PIN setup in exactly the mode built to exercise it. The in-memory store is not r
 when a commit fails the values in RAM stay current, and ESP32 semantics promise no more than that.
 The honest contract is the false return itself.
 
-The threat model is deliberately narrow. An actor who can edit the settings file can also write the
-`libjade.so` and the rootfs sitting on the same card; so these checks establish no privilege
+The threat model is deliberately narrow. An actor who can edit the settings file can also write
+the `libjade.so` and the rootfs sitting on the same card; so these checks establish no privilege
 boundary. They provide robustness, and they close the assert and buffer assumptions above at their
 source.
 
-There are NO extra checks on the remaining fields, because there Jade defends itself. That is not an
-assumption: the consumption path of all 15 fields was traced, and this is what was measured.
+There are NO extra checks on the remaining fields, because there Jade defends itself. That is not
+an assumption: the consumption path of all 15 fields was traced, and this is what was measured.
 `brightness` is clamped to `BACKLIGHT_MIN..MAX` on the settings screen
 (`main/process/dashboard.c:1943-1948`) and clamped again on the host by `panel_set_backlight()`
 (`pijade/host/panel_st7789.c:387`). The `guiflags` theme value falls through to `default` inside
 `gui_set_highlight_color()` (`main/gui.c`), the camera rotation is taken modulo
 (`main/gui.c:388-389`), and the theme index is bounded on the settings screen
-(`main/process/dashboard.c:2173`). `qrflags` is a bit mask; the `account_index` derived from it comes
-from shifting a 32-bit value by 16, so it is already below `ACCOUNT_INDEX_MAX`
+(`main/process/dashboard.c:2173`). `qrflags` is a bit mask; the `account_index` derived from it
+comes from shifting a 32-bit value by 16, so it is already below `ACCOUNT_INDEX_MAX`
 (`main/qrmode.c:41-42,1239-1240`). `keyflags` is a pure bit mask. `idletimeout` is only compared
-(`main/idletimer.c:217-237`). If `counter` is greater than 3, `storage_decrement_counter()` deletes
-the blob (`main/storage.c:518-519`), so an inflated counter grants no extra attempts. `privatekey`
-is rejected by `wally_ec_private_key_verify` (`main/storage.c:452`) and `pinsvrpubkey` by
-`wally_ec_public_key_verify` (`main/process/pinclient.c:163`); neither is an assert, both return
-false. The URL protocol and the certificate content are deliberately not validated either: a wrong
-value produces a connection error, and validating it would tie the file format to a second set of
-rules independent of Jade's own.
+(`main/idletimer.c:217-237`). If `counter` is greater than 3, `storage_decrement_counter()`
+deletes the blob (`main/storage.c:518-519`), so an inflated counter grants no extra attempts.
+`privatekey` is rejected by `wally_ec_private_key_verify` (`main/storage.c:452`) and
+`pinsvrpubkey` by `wally_ec_public_key_verify` (`main/process/pinclient.c:163`); neither is an
+assert, both return false. The URL protocol and the certificate content are deliberately not
+validated either: a wrong value produces a connection error, and validating it would tie the file
+format to a second set of rules independent of Jade's own.
 
 **A correction to this record.** An earlier version of this paragraph also listed the
-`walleterasepin` digit range as "deliberately not validated", on the grounds that it "neither trips
-an assert nor reads out of bounds". That claim had NOT been measured and was wrong: the assert at
-`main/process/dashboard.c:387` is reachable. The same sweep turned up a second reachable assert, for
-`networktype`. The record stays, because the real mistake was not that two fields were missed but
-that a scoping decision rested on an assumption rather than a measurement. (The `walleterasepin`
-digit rule was later dropped, but not because this record proved wrong: the field no longer carries
-digits. The `networktype` rule is still in place.)
+`walleterasepin` digit range as "deliberately not validated", on the grounds that it "neither
+trips an assert nor reads out of bounds". That claim had NOT been measured and was wrong: the
+assert at `main/process/dashboard.c:387` is reachable. The same sweep turned up a second reachable
+assert, for `networktype`. The record stays, because the real mistake was not that two fields were
+missed but that a scoping decision rested on an assumption rather than a measurement. (The
+`walleterasepin` digit rule was later dropped, but not because this record proved wrong: the field
+no longer carries digits. The `networktype` rule is still in place.)
 
 The four preference fields stay on the same allowlist: `guiflags` 1, `idletimeout` 2, `brightness`
 1, `qrflags` 4 bytes. Serialisation skips an out-of-range value; on read-back, a single field that
@@ -822,8 +843,8 @@ back with an old copy. The remaining defence in that case is the pinserver's own
 
 Two more differences, both particular to this fork:
 
-**`walleterasepin` is NOT in the clear on the card (2026-09-03).** The field is now 16 bytes of salt
-and a 32-byte PBKDF2-HMAC-SHA256 verifier; the storage API lost its getter, replaced by
+**`walleterasepin` is NOT in the clear on the card (2026-09-03).** The field is now 16 bytes of
+salt and a 32-byte PBKDF2-HMAC-SHA256 verifier; the storage API lost its getter, replaced by
 `storage_verify_wallet_erase_pin()` and `storage_wallet_erase_pin_exists()` (`main/storage.c`).
 Upstream's screen printed the stored PIN with `format_pin()`, which is why the field had to be
 readable; the screen now only says "set", so nothing is lost in parity. **It is important not to
@@ -832,8 +853,8 @@ can still try all 10^6 candidates on their own machine. The gain is only that so
 file in a hex editor cannot read the PIN off the screen. On the ESP32 the same field sits in
 encrypted flash, so Jade did not need this layer. `main/storage.c` also compiles for upstream's
 ESP32 target; there there is no card file and no `PIJADES4` rejection, and an old six-byte NVS
-record reads as "not set" through a `read_blob_fixed()` length mismatch. This fork produces no ESP32
-image, so that target was not measured.
+record reads as "not set" through a `read_blob_fixed()` length mismatch. This fork produces no
+ESP32 image, so that target was not measured.
 
 **Two-slot writing on FAT.** Replacing a single file through a temporary file and `rename` is not
 power-cut safe. VFAT may write the target's directory entry and the FAT chain to the card at
@@ -842,30 +863,30 @@ cluster. The host therefore alternates between the `<base>.a` and `<base>.b` slo
 and preserves the other valid generation while writing one. The old single file `<base>` is
 deliberately neither read nor migrated.
 
-Each slot carries the `PJSLOT01` magic, a little-endian 32-bit sequence number, the payload length,
-the libjade blob and a zlib CRC32. A read validates both slots, picks the highest sequence number,
-and prefers A on a tie. If the size, magic, length or CRC is wrong, the slot is logged in one line
-and ignored. A new write goes to the other slot from the winner; if no valid slot is known, the
-target is the sole remaining slot after an erase, and otherwise A.
+Each slot carries the `PJSLOT01` magic, a little-endian 32-bit sequence number, the payload
+length, the libjade blob and a zlib CRC32. A read validates both slots, picks the highest sequence
+number, and prefers A on a tie. If the size, magic, length or CRC is wrong, the slot is logged in
+one line and ignored. A new write goes to the other slot from the winner; if no valid slot is
+known, the target is the sole remaining slot after an erase, and otherwise A.
 
 **State machine guarantees.** The handle keeps the sequence counter monotonic at the highest value
 read or attempted, probes the other slot's 16-byte header before writing, returns `false` on a
 sequence ambiguity it cannot clear, and picks the sole remaining slot after an erase, otherwise A,
 as the next target. **Accepted residual risks:** **R1:** the read path is deliberately not
-fail-closed; if the newest generation is physically unreadable, the previous one is loaded, because
-refusing to read while a sound copy sits on the card would make the device unusable.
+fail-closed; if the newest generation is physically unreadable, the previous one is loaded,
+because refusing to read while a sound copy sits on the card would make the device unusable.
 **R2:** the write target is always the slot that did NOT win; if the winner was chosen wrongly
 because it could not be read, a half-finished write takes away that unreadable and possibly newer
 frame; the generation that survives is the one the device is already running, and the alternative,
-overwriting the winner, would leave no valid copy at all on a torn write.
-**R3:** if power is cut between a successful write and the erasure of a slot whose sequence is
-unknown, that slot may become readable later and, if its sequence is higher, win at the next boot.
+overwriting the winner, would leave no valid copy at all on a torn write. **R3:** if power is cut
+between a successful write and the erasure of a slot whose sequence is unknown, that slot may
+become readable later and, if its sequence is higher, win at the next boot.
 
 A factory reset overwrites the full length of both slots with zeros, calls `fsync`, removes the
-files and syncs the directory. Even so, FAT and the flash or SD layer may leave physical old copies;
-carving could recover `privatekey`, an old `blob` and the `walleterasepin` verifier. The previous
-generation in the other slot also offers a rollback, though an attacker who can copy the card
-already has that. The ESP32's encrypted flash does not have this risk profile.
+files and syncs the directory. Even so, FAT and the flash or SD layer may leave physical old
+copies; carving could recover `privatekey`, an old `blob` and the `walleterasepin` verifier. The
+previous generation in the other slot also offers a rollback, though an attacker who can copy the
+card already has that. The ESP32's encrypted flash does not have this risk profile.
 
 **Three paths where a write error goes to the log, not to the screen.** Upstream's
 `main/process/dashboard.c` checks no `storage_set_*` return (measured: zero calls check it). So
@@ -874,11 +895,11 @@ restriction helpers ignore the error our new `bool` propagation carries: if the 
 turns read-only after the wallet was saved, the user believes the duress PIN was set while the old
 value stays in the file. The error reaches the host log (`pijade: cannot write ...`), not the
 screen. This is an upstream characteristic; this work did not change the code, it changed the
-probability profile (a removable card instead of soldered flash). The setup moment is protected: the
-wallet's own write surfaces the error (`main/keychain.c:765-766`), so PIN setup cannot silently look
-"finished". Fixing it would mean diverging on parity screens under `main/` and a conflict at every
-rebase; by decision the upstream behaviour was kept (2026-08-27), so this is a deliberate
-acceptance.
+probability profile (a removable card instead of soldered flash). The setup moment is protected:
+the wallet's own write surfaces the error (`main/keychain.c:765-766`), so PIN setup cannot
+silently look "finished". Fixing it would mean diverging on parity screens under `main/` and a
+conflict at every rebase; by decision the upstream behaviour was kept (2026-08-27), so this is a
+deliberate acceptance.
 
 **Rebase trap:** the 256 ceiling on `blob` was measured from the `SERIALIZED_KEY_LEN` ->
 `ENCRYPTED_DATA_LEN` chain at `main/keychain.c:20-24`. If upstream grows the key's serialised form
@@ -890,21 +911,21 @@ appears to work but does not survive a restart. This ceiling has to be measured 
 **Divergence:** `libjade/nvs_flash.c`, `libjade/pijade_settings.c`, `libjade/pijade_settings.h`,
 `libjade/libjade.c`, `libjade/libjade.h`, `pijade/host/settings_store.c`.
 
-**The measured defect.** The earlier work wrote only the default namespace (`nvs_storage[0]`) of the
-five to the card. `nvs_commit()` returned `ESP_OK` for the other four handles without writing
-anything; so Jade told the user "multisig saved" and the record vanished at the next boot. The same
-silence also reset the HOTP counter at every boot, which means HOTP codes repeat: a violation of
-that feature's own security assumption.
+**The measured defect.** The earlier work wrote only the default namespace (`nvs_storage[0]`) of
+the five to the card. `nvs_commit()` returned `ESP_OK` for the other four handles without writing
+anything; so Jade told the user "multisig saved" and the record vanished at the next boot. The
+same silence also reset the HOTP counter at every boot, which means HOTP codes repeat: a violation
+of that feature's own security assumption.
 
-**The `PIJADES4` format.** One namespace byte was added to the earlier entry layout:
-`ns(1), key_len(1), key, value_len(2 LE), value`. The last character of the magic is the version;
-a payload headed `PIJADES2` or `PIJADES3` is now rejected by libjade even in an otherwise valid
-slot. The only reason for the `PIJADES3` -> `PIJADES4` step is that the `walleterasepin` field grew
-from six digits to a 48-byte verifier; since rejection is per file, an old card loses not only its
-duress PIN but all its settings and its wallet blob, so existing cards have to be prepared again by
-hand. A backward-compatibility layer was deliberately not written (engineering principle 1); and the
-old single file is unreadable under the two-slot design anyway. With no device in the field, that
-loss was accepted.
+**The `PIJADES4` format.** One namespace byte was added to the earlier entry layout: `ns(1),
+key_len(1), key, value_len(2 LE), value`. The last character of the magic is the version; a
+payload headed `PIJADES2` or `PIJADES3` is now rejected by libjade even in an otherwise valid
+slot. The only reason for the `PIJADES3` -> `PIJADES4` step is that the `walleterasepin` field
+grew from six digits to a 48-byte verifier; since rejection is per file, an old card loses not
+only its duress PIN but all its settings and its wallet blob, so existing cards have to be
+prepared again by hand. A backward-compatibility layer was deliberately not written (engineering
+principle 1); and the old single file is unreadable under the two-slot design anyway. With no
+device in the field, that loss was accepted.
 
 **Upstream's own whole-store format was not used.** `libjade_save_nvs()` / `libjade_load_nvs()`
 (`libjade/nvs_flash.c`) already serialise the five namespaces with the `JADE_NVS` magic. The card
@@ -913,7 +934,8 @@ change made without our knowing would invalidate cards in the field. Keeping it 
 guarantees that a daemon NVS dump cannot be swallowed as a card settings file. Those two functions
 were not touched.
 
-**A sweep for reachable aborts.** Which assert a record coming from the file can reach was measured:
+**A sweep for reachable aborts.** Which assert a record coming from the file can reach was
+measured:
 
 | Bound | Source | Why |
 |---|---|---|
@@ -929,47 +951,48 @@ were not touched.
 (`walk_entries(NULL, ...)`) before returning it. So no rule is written twice. That also closed a
 hidden hole in the earlier design: the ns0 content checks (`antireplay`, `walleterasepin`,
 `networktype`) and the `pinsvrurlA`/`pinsvrurlB` matching check lived only in the loader, so a
-mismatched pair was written without complaint and rejected by libjade at the next boot. Now the same
-situation is a rejected write the user sees immediately.
+mismatched pair was written without complaint and rejected by libjade at the next boot. Now the
+same situation is a rejected write the user sees immediately.
 
 **Validation cuts both ways.** On read, a single bad entry rejects the whole file (the two passes
 were kept). On write, ns0 keeps the earlier behaviour (a field whose length is out of range is
-skipped and the device stays on its default for that setting); in ns1-4 the write fails. The reason:
-every record path calls `storage_key_name_valid()` and produces records within the bounds above, so
-a violation is an impossible state. Skipping it quietly would recreate the very class of silent loss
-this work exists to remove, and in user data rather than preference data.
+skipped and the device stays on its default for that setting); in ns1-4 the write fails. The
+reason: every record path calls `storage_key_name_valid()` and produces records within the bounds
+above, so a violation is an impossible state. Skipping it quietly would recreate the very class of
+silent loss this work exists to remove, and in user data rather than preference data.
 
 **The ceiling went from 8192 to 131072.** The worst case is `16*3281 + 16*3281 + 16*288 + 16*8` of
-record payload plus the per-entry framing and ns0: 113,866 bytes, with every key name at the 15-byte
-ceiling. The two 3281 figures are `MAX_MULTISIG_BYTES_LEN` and `MAX_DESCRIPTOR_BYTES_LEN`, which are
-`REGISTRATION_SEALED_LEN(body)` = `1 + AES_ENCRYPTED_LEN(body) + HMAC_SHA256_LEN`
+record payload plus the per-entry framing and ns0: 113,866 bytes, with every key name at the
+15-byte ceiling. The two 3281 figures are `MAX_MULTISIG_BYTES_LEN` and `MAX_DESCRIPTOR_BYTES_LEN`,
+which are `REGISTRATION_SEALED_LEN(body)` = `1 + AES_ENCRYPTED_LEN(body) + HMAC_SHA256_LEN`
 (`main/registration_seal.h`), not the raw body sizes. Verified against the real binary: the store
 the test builds measures 113,418 bytes (its key names are shorter than that ceiling) and is
 accepted; 131,073 bytes is rejected. Reads and writes are on the heap and at the real size; there
 is no fixed 128 KB buffer anywhere.
 
-**A deliberate behaviour change:** `nvs_commit()` now returns `ESP_FAIL` rather than `ESP_OK` for an
-unrecognised handle. Since `nvs_open()` cannot produce a handle outside the five maps, this path is
-unreachable in practice; it is defensive. A silent `ESP_OK` was precisely the defect this work
-fixed.
+**A deliberate behaviour change:** `nvs_commit()` now returns `ESP_FAIL` rather than `ESP_OK` for
+an unrecognised handle. Since `nvs_open()` cannot produce a handle outside the five maps, this
+path is unreachable in practice; it is defensive. A silent `ESP_OK` was precisely the defect this
+work fixed.
 
 **Rebase trap:** all six bounds above were MEASURED from constants under `main/`. The two
 registration ceilings are no longer hand-copied numbers: `libjade/pijade_settings.h` defines
 `PIJADE_SETTINGS_MAX_MULTISIG_LEN` and `PIJADE_SETTINGS_MAX_DESCRIPTOR_LEN`, and
 `libjade/pijade_settings.c` binds each to `MAX_MULTISIG_BYTES_LEN` and `MAX_DESCRIPTOR_BYTES_LEN`
 with a `_Static_assert`, so a record size that grows under `main/` now fails the build instead of
-being silently rejected at the next restart. They are literals in that header rather than an include
-of `main/multisig.h` because `pijade/tools/settings_test.c` includes the same header and is built on
-its own, without `main/` on its include path. The rest of the table is still written into the
-libjade side as numbers (to preserve the upstream separation): the 114 and 41 floors, which are
-deliberately the pre-sealing values, the OTP 32-288 rule, the 8-byte HOTP counter and the 16-record
-caps. If upstream grows one of those, serialisation SILENTLY rejects that record and the user finds
-out only after a restart, so those rows still have to be measured again at a rebase.
+being silently rejected at the next restart. They are literals in that header rather than an
+include of `main/multisig.h` because `pijade/tools/settings_test.c` includes the same header and
+is built on its own, without `main/` on its include path. The rest of the table is still written
+into the libjade side as numbers (to preserve the upstream separation): the 114 and 41 floors,
+which are deliberately the pre-sealing values, the OTP 32-288 rule, the 8-byte HOTP counter and
+the 16-record caps. If upstream grows one of those, serialisation SILENTLY rejects that record and
+the user finds out only after a restart, so those rows still have to be measured again at a
+rebase.
 
-**The HOTP write cost (accepted, unmeasured):** generating each HOTP code increments the counter and
-commits (`main/otpauth.c:624`, `main/storage.c:883-885`), so in the worst case the entire ~111 KB file
-is rewritten and `fsync`ed. That is the known price of the single-file decision; a realistic file is
-1-10 KB. Measuring the card's write load was left for later.
+**The HOTP write cost (accepted, unmeasured):** generating each HOTP code increments the counter
+and commits (`main/otpauth.c:624`, `main/storage.c:883-885`), so in the worst case the entire ~111
+KB file is rewritten and `fsync`ed. That is the known price of the single-file decision; a
+realistic file is 1-10 KB. Measuring the card's write load was left for later.
 
 ## 24. The device clock handler
 
@@ -988,17 +1011,18 @@ handler may not call its own setter. With no handler the call returns 0 and the 
 change. That preserves the emulator's in-process no-op behaviour.
 
 Only the `pijade-host` device path registers a real `settimeofday()` handler. The service runs as
-root, and the card has neither an RTC nor a network. The headless path and the `libjade` daemon have
-no handler, so as not to change the clock of a development machine.
+root, and the card has neither an RTC nor a network. The headless path and the `libjade` daemon
+have no handler, so as not to change the clock of a development machine.
 
 **A 64-bit `time_t`.** In the target toolchain (armhf Bookworm, glibc 2.36) `time_t` is 4 bytes by
 default; the epoch is narrowed into `tv_sec` inside upstream's `params_set_epoch_time()` before it
-ever reaches the handler, a post-2038 value wraps silently, and Jade still reports success. The fix
-is a build flag: `-D_TIME_BITS=64 -D_FILE_OFFSET_BITS=64` was added to `ARCHFLAGS` in
-`pijade/images/build-armv6.sh` (in the same container `sizeof(time_t)` was measured going from 4 to
-8); the `_Static_assert(sizeof(time_t) >= 8)` in `pijade_host.c` breaks the build if the flag is
-dropped. No upstream file was touched. Evidence: `__settimeofday64`, `__time64` and
-`__clock_gettime64` appear in the dynamic symbol tables of the ARMv6 `pijade-host` and `libjade.so`.
+ever reaches the handler, a post-2038 value wraps silently, and Jade still reports success. The
+fix is a build flag: `-D_TIME_BITS=64 -D_FILE_OFFSET_BITS=64` was added to `ARCHFLAGS` in
+`pijade/images/build-armv6.sh` (in the same container `sizeof(time_t)` was measured going from 4
+to 8); the `_Static_assert(sizeof(time_t) >= 8)` in `pijade_host.c` breaks the build if the flag
+is dropped. No upstream file was touched. Evidence: `__settimeofday64`, `__time64` and
+`__clock_gettime64` appear in the dynamic symbol tables of the ARMv6 `pijade-host` and
+`libjade.so`.
 
 **The persistence decision.** The epoch is not written to the card. When power is cut the clock
 returns to the image build time; this is the same as Jade's behaviour without an RTC. There is no
@@ -1017,19 +1041,19 @@ gcc -Wall -Wextra -Werror -O0 -g -o /tmp/clock_probe -I libjade \
 /tmp/clock_probe
 ```
 
-The expected output shows two CBOR responses in hex; on the first request the handler is called once
-with `1700000000`, and on the second the handler has been removed, so the call count does not change
-and the real clock drifts by less than 5 seconds. The last line is `PROBE OK` and the exit code
-is 0. An error response, a missing response, a wrong epoch, an extra call or clock drift produces
-`PROBE FAILED` and exit code 1.
+The expected output shows two CBOR responses in hex; on the first request the handler is called
+once with `1700000000`, and on the second the handler has been removed, so the call count does not
+change and the real clock drifts by less than 5 seconds. The last line is `PROBE OK` and the exit
+code is 0. An error response, a missing response, a wrong epoch, an extra call or clock drift
+produces `PROBE FAILED` and exit code 1.
 
 ## 25. Generating a `jade-epoch` QR and scanning it in the emulator
 
-Jade takes the epoch by QR as a `ur:jade-epoch` type (`main/qrmode.c:2875`); the body is directly the
-CBOR map `{"id":"1","method":"set_epoch","params":{"epoch":N}}` (`handle_epoch_qr`,
+Jade takes the epoch by QR as a `ur:jade-epoch` type (`main/qrmode.c:2875`); the body is directly
+the CBOR map `{"id":"1","method":"set_epoch","params":{"epoch":N}}` (`handle_epoch_qr`,
 `bcur_parse_jade_message`, `params_set_epoch_time`). The generator is `pijade/tools/epoch_qr.py`
-(cbor2==6.1.2 and qrcode, in a virtualenv of your own). For a TOTP comparison it is generated immediately
-before the scan:
+(cbor2==6.1.2 and qrcode, in a virtualenv of your own). For a TOTP comparison it is generated
+immediately before the scan:
 
 ```bash
 python3 pijade/tools/epoch_qr.py /tmp/epoch.png                       # epoch = now
@@ -1047,13 +1071,13 @@ gcc -Wall -Wextra -Werror -O0 -g -o /tmp/ur_decode_probe -I components/esp32_bc-
 /tmp/ur_decode_probe "$(grep '^ur=' /probe/e.out | cut -d= -f2-)"   # type=jade-epoch + cbor_hex
 ```
 
-End to end in the emulator: a fresh daemon, `menu_audit.py ... "seed:<public test vector>"`, the grey
-frame fed with `set_camera_bytes` BEFORE the Scan QR click and kept flowing afterwards (trap (b) of
-item 20), then `right` and `click` on the home screen. Expected: the log line
-`qrscan.c:30 Detected 1 QR codes`, and the screen showing "Time set successfully" with a date; since
-the daemon registers no clock handler the date will be TODAY, which is not an error. Trap: if the
-screen is asleep the first press only wakes it (`main/idletimer.c:163-171`), so if the log says
-"powering screen" the press is repeated.
+End to end in the emulator: a fresh daemon, `menu_audit.py ... "seed:<public test vector>"`, the
+grey frame fed with `set_camera_bytes` BEFORE the Scan QR click and kept flowing afterwards (trap
+(b) of item 20), then `right` and `click` on the home screen. Expected: the log line `qrscan.c:30
+Detected 1 QR codes`, and the screen showing "Time set successfully" with a date; since the daemon
+registers no clock handler the date will be TODAY, which is not an error. Trap: if the screen is
+asleep the first press only wakes it (`main/idletimer.c:163-171`), so if the log says "powering
+screen" the press is repeated.
 
 ## 26. Two-axis input: joystick up/down and the HAT's three buttons
 
@@ -1061,9 +1085,9 @@ screen is asleep the first press only wakes it (`main/idletimer.c:163-171`), so 
 `main/process/dashboard.c`, `main/button_events.h`, `libjade/libjade.h`, `libjade/libjade.c`,
 `pijade/host/buttons_gpio.h`, `pijade/host/buttons_gpio.c`, `pijade/host/pijade_host.c`.
 
-**The measured limit.** Jade's own hardware carries one navigation axis and the events left, right,
-wheel click and front click. The HAT's joystick has two axes. Since the GUI already keeps its
-selectables in a circular list ordered by the screen's `x` and `y` coordinates, no second data
+**The measured limit.** Jade's own hardware carries one navigation axis and the events left,
+right, wheel click and front click. The HAT's joystick has two axes. Since the GUI already keeps
+its selectables in a circular list ordered by the screen's `x` and `y` coordinates, no second data
 structure was added. A press that wakes the screen is consumed by the existing
 `idletimer_register_activity(true)` rule, and when the screen is flipped, up and down are inverted
 just as left and right already were.
@@ -1071,17 +1095,17 @@ just as left and right already were.
 **The vertical neighbour rule.** On up or down, the nearest row in that direction is found first.
 Within that row the enabled item at the smallest horizontal distance is selected; on a tie the
 earlier item in the list wins. If there is no row in that direction, the existing previous-or-next
-path is used. That fallback preserves today's behaviour on screens that use left and right to change
-a value. One press emits exactly one event. Because `sync_wait_event_handler()` keeps no queue and
-only updates a single event field, emitting a vertical and a horizontal event on the same press
-could lose the first.
+path is used. That fallback preserves today's behaviour on screens that use left and right to
+change a value. One press emits exactly one event. Because `sync_wait_event_handler()` keeps no
+queue and only updates a single event field, emitting a vertical and a horizontal event on the
+same press could lose the first.
 
-FIRST starts from the screen's `is_first` mark and selects the first enabled item; it clicks nothing
-and emits no event. On a screen with no selectable item it quietly does nothing. ALT is a
-screen-specific second action; today only the next keyboard page. The keyboard handler does not route
-ALT into a new page counter of its own, but turns it into the existing `BTN_KEYBOARD_SHIFT` event.
-That keeps the bound activity transition and the text box's keyboard counter advancing in the same
-order as with the real Shift button.
+FIRST starts from the screen's `is_first` mark and selects the first enabled item; it clicks
+nothing and emits no event. On a screen with no selectable item it quietly does nothing. ALT is a
+screen-specific second action; today only the next keyboard page. The keyboard handler does not
+route ALT into a new page counter of its own, but turns it into the existing `BTN_KEYBOARD_SHIFT`
+event. That keeps the bound activity transition and the text box's keyboard counter advancing in
+the same order as with the real Shift button.
 
 | HAT input | GPIO | Event or action |
 |---|---:|---|
@@ -1094,26 +1118,26 @@ order as with the real Shift button.
 | KEY2 | BCM 20 | Select |
 | KEY3 | BCM 16 | ALT |
 
-All eight lines are requested on both the falling and the rising edge. Directions repeat 500 ms after
-the first press and then every 150 ms. Missed intervals are not accumulated; the next repeat time is
-computed from real monotonic time. KEY1, KEY2, KEY3 and the joystick press do not repeat. These
-durations were not measured; they are starting values close to Jade Plus's press-and-hold repeat, to
-be revisited on the device.
+All eight lines are requested on both the falling and the rising edge. Directions repeat 500 ms
+after the first press and then every 150 ms. Missed intervals are not accumulated; the next repeat
+time is computed from real monotonic time. KEY1, KEY2, KEY3 and the joystick press do not repeat.
+These durations were not measured; they are starting values close to Jade Plus's press-and-hold
+repeat, to be revisited on the device.
 
 **The Select Connection divergence.** Upstream offers no way back from this screen. Since a back
 button in the title would become the first item by coordinate order, the activity's initial
-selection was tied explicitly to the first menu button; the screen opens on the same first selection
-as today. All three call contexts were handled: `handle_mnemonic_qr()` and `initialise_wallet()`
-arrive with a new sourceless wallet; `BTN_CONNECT_TO_BACK` may arrive with a sourced wallet, or with
-a new but not yet verified `SOURCE_NONE` wallet. Back calls `keychain_clear()` only while
-`keychain_get_userdata() == SOURCE_NONE`. That keeps a sourceless wallet from reaching the home
-screen's assertion while preserving a sourced one. The clearing is the same operation as on Jade's
-existing `BTN_SESSION_LOGOUT` path.
+selection was tied explicitly to the first menu button; the screen opens on the same first
+selection as today. All three call contexts were handled: `handle_mnemonic_qr()` and
+`initialise_wallet()` arrive with a new sourceless wallet; `BTN_CONNECT_TO_BACK` may arrive with a
+sourced wallet, or with a new but not yet verified `SOURCE_NONE` wallet. Back calls
+`keychain_clear()` only while `keychain_get_userdata() == SOURCE_NONE`. That keeps a sourceless
+wallet from reaching the home screen's assertion while preserving a sourced one. The clearing is
+the same operation as on Jade's existing `BTN_SESSION_LOGOUT` path.
 
 ## 27. Building libjade on macOS (upstream `fe3e3e94`, taken with fork adaptations)
 
-**Divergence:** `libjade/task.c`, `libjade/libjade.c`, `libjade/nvs_flash.c`, `libjade/CMakeLists.txt`,
-`libjade/make_libjade.sh`, `components/libwally-core/config.h`,
+**Divergence:** `libjade/task.c`, `libjade/libjade.c`, `libjade/nvs_flash.c`,
+`libjade/CMakeLists.txt`, `libjade/make_libjade.sh`, `components/libwally-core/config.h`,
 `pijade/host/settings_store.h`, `.gitignore`. Upstream's own files in the commit
 (`libjade/include/libjade_port.h`, `libjade/include/freertos/semphr_darwin.h`,
 `libjade/include/freertos/semphr.h`, `libjade/esp_event.c`, `libjade/README.md`,
@@ -1136,13 +1160,13 @@ is the only such name in the firmware. Truncating matches what the API being emu
 FreeRTOS copies `configMAX_TASK_NAME_LEN` bytes into the TCB, 16 by default (measured in ESP-IDF's
 `components/freertos/Kconfig`), and drops the rest. Task creation no longer fails over a name.
 
-*`libjade/libjade.c`.* `main/process/pinclient.c` and `main/process/update_pinserver.c` ask for the
-embedded pinserver key through `asm("_binary_pinserver_public_key_pub_start")`. Mach-O's linker
-prepends an underscore of its own, so the definition here must drop it on `__APPLE__` and keep it
-everywhere else. Neither file in `main/` is touched.
+*`libjade/libjade.c`.* `main/process/pinclient.c` and `main/process/update_pinserver.c` ask for
+the embedded pinserver key through `asm("_binary_pinserver_public_key_pub_start")`. Mach-O's
+linker prepends an underscore of its own, so the definition here must drop it on `__APPLE__` and
+keep it everywhere else. Neither file in `main/` is touched.
 
-*`libjade/nvs_flash.c`.* The fork added `pijade_settings.h`; upstream added `libjade_port.h` for the
-`le32toh`/`htole32` macros macOS lacks. Both includes are present.
+*`libjade/nvs_flash.c`.* The fork added `pijade_settings.h`; upstream added `libjade_port.h` for
+the `le32toh`/`htole32` macros macOS lacks. Both includes are present.
 
 **Two fork-side portability gates.** Each was measured on the failing build, not guessed.
 
@@ -1152,20 +1176,20 @@ everywhere else. Neither file in `main/` is touched.
 | `pijade/host/settings_store.h` | the same call, from `pijade/host/settings_store.c` (7 sites) and `libjade/daemon.c` (1) | An `__APPLE__`-only `static inline explicit_bzero()` whose `memset` is followed by an empty asm barrier, the technique libwally uses for the same job. `memset_s` was not used here: it compiles on macOS too (measured, in both include orders), but it is Annex K, which is optional and absent from glibc, and it is declared only where `__STDC_WANT_LIB_EXT1__` is set, so using it would push that feature-test macro onto every host translation unit including this header. |
 
 **The third macOS failure was upstream's, and its fix is upstream's too.** clang rejects
-`components/esp32-quirc/openmv/fmath.h` with `invalid output constraint '=f' in asm`: `fast_sqrtf()`
-is an Xtensa `fsqrt.s` instruction with an Xtensa register constraint. It compiled on x86 and on
-32-bit ARM only because nothing calls the function and GCC emits no body for an uncalled static
-inline; clang validates the constraint while parsing. The first pass at this port answered by
-gating that body behind `__XTENSA__`, which edits a vendored file. That gate has been reverted,
-because upstream had already solved the same failure one commit earlier, in `1c0025f6`, which is
-an ancestor of `fe3e3e94` and was missed when the port was taken: `libjade/libjade.c` defines
-`__FMATH_H` before including `identify.c`, so the header never enters the amalgamated build, and
-defines the two functions quirc actually calls. The measurement behind that choice: `identify.c`
-is the only file that includes `fmath.h`, and the only symbols it uses from it are `fast_roundf()`
-at lines 108 and 109 and `fast_fabsf()` at 1134, 1179 and 1180. Both replacements match the
-header's own semantics, `(int)(x)` and `fabsf(d)` respectively, so nothing about QR decoding
-changes. `cos_table`, `sin_table` and the rest of the `fast_*` family are never referenced.
-`components/esp32-quirc/openmv/fmath.h` is now byte identical to upstream again (blob
+`components/esp32-quirc/openmv/fmath.h` with `invalid output constraint '=f' in asm`:
+`fast_sqrtf()` is an Xtensa `fsqrt.s` instruction with an Xtensa register constraint. It compiled
+on x86 and on 32-bit ARM only because nothing calls the function and GCC emits no body for an
+uncalled static inline; clang validates the constraint while parsing. The first pass at this port
+answered by gating that body behind `__XTENSA__`, which edits a vendored file. That gate has been
+reverted, because upstream had already solved the same failure one commit earlier, in `1c0025f6`,
+which is an ancestor of `fe3e3e94` and was missed when the port was taken: `libjade/libjade.c`
+defines `__FMATH_H` before including `identify.c`, so the header never enters the amalgamated
+build, and defines the two functions quirc actually calls. The measurement behind that choice:
+`identify.c` is the only file that includes `fmath.h`, and the only symbols it uses from it are
+`fast_roundf()` at lines 108 and 109 and `fast_fabsf()` at 1134, 1179 and 1180. Both replacements
+match the header's own semantics, `(int)(x)` and `fabsf(d)` respectively, so nothing about QR
+decoding changes. `cos_table`, `sin_table` and the rest of the `fast_*` family are never
+referenced. `components/esp32-quirc/openmv/fmath.h` is now byte identical to upstream again (blob
 `76c3b938`), and the ESP32 build still gets the Xtensa instruction, because there the header is
 included normally. One limit this leaves standing, stated rather than hidden: `identify.c` has a
 second consumer, `pijade/tools/t44_bench.c`, which includes it without the define. That file is
@@ -1183,8 +1207,8 @@ unconditional. Verified by configuring a Release tree in the container: all four
 the link line of `jade` and `libjade_daemon` (a static archive has no link line).
 
 **The build directory is separate on purpose.** `make_libjade.sh` writes `build_linux`, which the
-container bind-mounts from this same tree; running it on macOS would overwrite the emulator's build
-with host objects. The script now refuses to run on Darwin, and the host build goes to
+container bind-mounts from this same tree; running it on macOS would overwrite the emulator's
+build with host objects. The script now refuses to run on Darwin, and the host build goes to
 `build_macos`, which `.gitignore` carries along with its configure line. The source root is the
 repository, as it is for every other build in the fork (`build_linux` in the container,
 `build_sc_desc` in `.gitignore`, and `cmake -S /src` in `pijade/images/build-armv6.sh`); the root
@@ -1197,15 +1221,16 @@ IDF_PATH=~/esp/esp-idf cmake -S . -B build_macos -DCMAKE_BUILD_TYPE=Debug -DLOG=
 make -C build_macos -j8
 ```
 
-Only two things are needed from ESP-IDF: `components/mbedtls/mbedtls` and `components/http_parser`.
-No cross compiler is installed; the measured tree was ESP-IDF v5.5.4, whose mbedtls submodule
-matches the container's.
+Only two things are needed from ESP-IDF: `components/mbedtls/mbedtls` and
+`components/http_parser`. No cross compiler is installed; the measured tree was ESP-IDF v5.5.4,
+whose mbedtls submodule matches the container's.
 
 **What the macOS build does not prove.** The full `test_jade.py` is not run there (it needs
-`cbor`, `wallycore`, `pyserial` and `bleak`), the camera path is not built (`-DCAMERA=0`), and only
-Debug is exercised. The evidence collected for this port is: `libjade.dylib`, `libjade_static.a`
-and `libjade_daemon` all link, and the daemon answers a real `get_version_info` over a Unix socket
-with a 484-byte CBOR reply (`JADE_VERSION 1.0.41-pijade`, `JADE_CONFIG NORADIO`).
+`cbor`, `wallycore`, `pyserial` and `bleak`), the camera path is not built (`-DCAMERA=0`), and
+only Debug is exercised. The evidence collected for this port is: `libjade.dylib`,
+`libjade_static.a` and `libjade_daemon` all link, and the daemon answers a real `get_version_info`
+over a Unix socket with a 484-byte CBOR reply (`JADE_VERSION 1.0.41-pijade`, `JADE_CONFIG
+NORADIO`).
 
 **Entropy caveat.** `libjade_getrandom()` calls `arc4random_buf()` on macOS instead of Linux's
 `getrandom()`. That is upstream's own porting choice and is fine for a development host, but it
@@ -1231,13 +1256,13 @@ from the card. Of the two callers that set it, `main/process/auth_user.c:474-480
 An unset restriction is not neutral here: the expression above reads `none` as mainnet.
 
 **The handler.** `main/process/debug_set_network.c` is that screen and nothing more; the two calls
-it makes are the two `handle_network_type()` makes, so the emulator keeps the shipped behaviour. It
-refuses when no wallet is loaded, because the in-memory write is gated on `keychain_data` and the
-caller would otherwise get an `ok` reply and no change. `none` restores the unrestricted state a
-debug build starts in.
+it makes are the two `handle_network_type()` makes, so the emulator keeps the shipped behaviour.
+It refuses when no wallet is loaded, because the in-memory write is gated on `keychain_data` and
+the caller would otherwise get an `ok` reply and no change. `none` restores the unrestricted state
+a debug build starts in.
 
-It is a debug handler in the sense `debug_set_mnemonic.c` is, and the same gate keeps it out of the
-shipped image: `pijade/images/build-armv6.sh:54` passes `-DDEBUG_MODE=0`,
+It is a debug handler in the sense `debug_set_mnemonic.c` is, and the same gate keeps it out of
+the shipped image: `pijade/images/build-armv6.sh:54` passes `-DDEBUG_MODE=0`,
 `libjade/CMakeLists.txt:102-103` turns that into `-DCONFIG_LIBJADE_NO_DEBUG_MODE`, and
 `libjade/include/sdkconfig.h:10-12` defines `CONFIG_DEBUG_MODE` only when that macro is absent. In
 the production image the whole file compiles to nothing.
@@ -1253,15 +1278,15 @@ docker exec jade-dev sh -lc 'cd /jade && LD_LIBRARY_PATH=/jade/build_linux_log \
 ```
 
 `build_linux_log` is not just a name: it is a Release build with `CI=ON` and no camera, at
-320x200. Point the same command at a Debug `--no-ci --camera` build of the same tree and it ends at
-the first `debug_clean_reset` with a premature end of CBOR stream (measured 2026-09-15). Build the
-variant this line names before reading a failure as a regression.
+320x200. Point the same command at a Debug `--no-ci --camera` build of the same tree and it ends
+at the first `debug_clean_reset` with a premature end of CBOR stream (measured 2026-09-15). Build
+the variant this line names before reading a failure as a regression.
 
-`test_jade.py` sets the device to each fixture's own network and always restores `none` afterwards,
-because the restriction outlives the test that set it: `keychain_clear()` does not touch that
-variable, so a stray `testnet` would silently change the network every later test runs on. A failed
-restore is reported rather than swallowed. The fork's own constants sit together at the top of the
-file (`FORK_BITCOIN_NETWORKS` and the three refusal messages).
+`test_jade.py` sets the device to each fixture's own network and always restores `none`
+afterwards, because the restriction outlives the test that set it: `keychain_clear()` does not
+touch that variable, so a stray `testnet` would silently change the network every later test runs
+on. A failed restore is reported rather than swallowed. The fork's own constants sit together at
+the top of the file (`FORK_BITCOIN_NETWORKS` and the three refusal messages).
 
 **What the suite now measures as a refusal rather than a success.** Two paths rest on records this
 fork will not register, so the refusal is the whole test: the liquid 2of2 comparison against GA
@@ -1289,17 +1314,18 @@ parameter that used them. They were taken on 2026-09-15, one cherry-pick each, i
 | `b32b0929` | rpc: remove size_t getters |
 | `58c11066` | rpc: resolve implicit type conversion warning |
 
-**Why it matters on this board.** On the ESP32 `size_t` is already 32 bits, so upstream's change is
-a tidy-up there. In `libjade` it is not: the emulator and the host tools are 64-bit, and
-`rpc_get_sizet()` accepted values up to `SIZE_MAX` that the device would never have accepted. After
-the series both read the same width, so a value the emulator takes is a value the device takes.
+**Why it matters on this board.** On the ESP32 `size_t` is already 32 bits, so upstream's change
+is a tidy-up there. In `libjade` it is not: the emulator and the host tools are 64-bit, and
+`rpc_get_sizet()` accepted values up to `SIZE_MAX` that the device would never have accepted.
+After the series both read the same width, so a value the emulator takes is a value the device
+takes.
 
 **One conflict, in the one place that could corrupt a card.** Nine of the ten applied unchanged;
-`5aec9db0` conflicted in `main/multisig.c` (three blocks) and `main/multisig.h` (one), because this
-fork had already rewritten the record writer. The resolution and its reasoning are in that commit's
-own message. The short version: widening the parameter alone would have written four bytes where
-`MULTISIG_BODY_LEN()` counts one, so upstream's single-byte write had to come with it. The record
-format is unchanged, which is what the round trip below measures.
+`5aec9db0` conflicted in `main/multisig.c` (three blocks) and `main/multisig.h` (one), because
+this fork had already rewritten the record writer. The resolution and its reasoning are in that
+commit's own message. The short version: widening the parameter alone would have written four
+bytes where `MULTISIG_BODY_LEN()` counts one, so upstream's single-byte write had to come with it.
+The record format is unchanged, which is what the round trip below measures.
 
 **No collision with the fork's own `PRIu32` work.** Measured at the branch point, `main/` carried
 eight `PRIu32` uses in four files; before the series it carried the same eight (three of them the
@@ -1317,10 +1343,10 @@ on a scratch worktree, so the branch was untouched until it passed):
 2. All six custom selfchecks (`descriptor`, `urldecode`, `mining`, `bbqr`, `seedxor`, `slip39`)
    through `pijade/tools/run_libjade_selfchecks.py`: PASS, each with its own runtime marker.
 3. A multisig record round trip **across the two binaries**: a registration written by the daemon
-   built from the commit before the series is read back by the daemon built from the end of it, and
-   the reverse, on the same card file, with threshold 2 and two signers intact both ways. The card
-   slot holding the record came out the same size from both binaries. This is the test that would
-   have caught the four-byte threshold, and it is worth repeating for any future upstream commit
-   that touches `multisig_body_to_bytes()`.
+   built from the commit before the series is read back by the daemon built from the end of it,
+   and the reverse, on the same card file, with threshold 2 and two signers intact both ways. The
+   card slot holding the record came out the same size from both binaries. This is the test that
+   would have caught the four-byte threshold, and it is worth repeating for any future upstream
+   commit that touches `multisig_body_to_bytes()`.
 4. The full `test_jade.py --libjade` suite against the merged tree: exit code 0.
 
