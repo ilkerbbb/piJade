@@ -118,7 +118,7 @@ is used once it boots.
 | [`pijade/README.md`](./pijade/README.md) | The fork's own document: the two boards, what the device does, and how a card is built and updated |
 | [`pijade/UPSTREAM.md`](./pijade/UPSTREAM.md) | Every departure from upstream, a row for each text file, and the discipline for taking upstream updates into them |
 | [`pijade/SECURITY-AUDIT-2026-09-03.md`](./pijade/SECURITY-AUDIT-2026-09-03.md) | The security audit: threat model, what was measured, what is deliberately not claimed |
-| [`pijade/SEEDSIGNER-COMPARISON.md`](./pijade/SEEDSIGNER-COMPARISON.md) | Seed menu and settings, item by item against SeedSigner |
+| [`pijade/COMPARISON.md`](./pijade/COMPARISON.md) | This device set against SeedSigner, Coldcard, Passport, Trezor and Jade, and then SeedSigner row by row |
 | [`SECURITY.md`](./SECURITY.md) | How to report a vulnerability, in this fork and in upstream Jade |
 | [`JADE-BUILD.md`](./JADE-BUILD.md) | Blockstream Jade's own build document, for Jade's ESP32 hardware, kept as upstream wrote it |
 | [set the clock](https://ilkerbbb.github.io/piJade/clock) and [sign a message](https://ilkerbbb.github.io/piJade/sign) | The helper pages that draw the QR codes the device reads; source under `docs/`, works offline |

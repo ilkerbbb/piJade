@@ -1,4 +1,242 @@
-# SeedSigner comparison ; seed menu and settings
+# How piJade compares
+
+Several devices exist to keep a Bitcoin key away from a networked computer, and they disagree
+about how. This document puts those disagreements in one place: what reaches the device and
+through which opening, how a seed gets in, how one is made here, and what each device will not do.
+Below the tables, the row-by-row reading of SeedSigner that this document began as is kept in
+full, because SeedSigner is the closest relative and the only other device this fork has read line
+by line.
+
+**Every cell was read from the source of the device it names.** Where the reading left a question
+open the cell says `not measured`, which is a different statement from `no`. Nothing here comes
+from a product page or from memory.
+
+## The devices, and what was read of each
+
+| Device | Repository | What was read | At | Licence |
+|---|---|---|---|---|
+| **piJade** | this one | this tree | `bbb-airgap` | MIT |
+| Blockstream Jade | `Blockstream/Jade` | the other side of the fork point | `9c097297`, 2026-08-23 | MIT |
+| SeedSigner | `SeedSigner/seedsigner` | `src/` | `85cd9a0`, 2026-09-04 | MIT |
+| Coldcard | `Coldcard/firmware` | `shared/` | `948dc10`, 2026-08-29 | MIT with a Commons Clause |
+| Passport | `Foundation-Devices/passport2` | `ports/stm32/boards/Passport/` | `1fea63c8`, 2026-09-14, v2.4.0 | mostly GPL-3.0 |
+| Trezor | `trezor/trezor-firmware` | `core/` and `crypto/` | `7ab83a2`, 2026-09-11 | GPLv3, except `crypto/` which is MIT |
+
+SeedSigner appears at two commits, and the gap between them was measured rather than waved away:
+the row-by-row section below was read at `d70b322`, an ancestor of the `85cd9a0` this table was
+measured at, and the fifteen commits between them change two files under `src/`,
+`models/psbt_parser.py` and `views/psbt_views.py`. Neither is the source of a cell above.
+
+The repository column is there because of what it cost to get the Passport row right. This
+document first read `Foundation-Devices/passport-firmware`, whose name and history make it look
+like the project's tree; its `main` branch ends at 2022-08-02 and the firmware has been developed
+since in `passport2`. Every Passport cell measured against the old repository described a release
+four years old, and five of them were wrong. Nothing in the old tree says it has been superseded,
+and the dates only look wrong when they sit next to the other five columns, which is why they are
+now in the table.
+
+Two of the six are assembled from parts bought separately. SeedSigner's own README lists a
+Raspberry Pi Zero and a Waveshare 1.3 inch 240x240 LCD (`README.md:89-91`); those are the two
+boards this fork runs on as well. The other four are firmware for a device its maker builds.
+
+The licence column is not decoration, because it decides what this fork may borrow. Of the code
+each project wrote itself, only SeedSigner's and Trezor's `crypto/` can be copied into an MIT
+tree. Coldcard's Commons Clause forbids selling the software, which MIT does not, so its code
+cannot come here however useful. Passport's own modules are GPL-3.0, though the tree also carries
+permissively licensed files it vendors from elsewhere, and those travel under their own terms
+rather than Passport's. Ideas travel freely, and the Seed XOR row below is one of them: the
+scheme is Coldcard's, the code here is not.
+
+## How data reaches the device
+
+| | piJade | Jade | SeedSigner | Coldcard | Passport | Trezor |
+|---|---|---|---|---|---|---|
+| Camera, for QR | yes | yes | yes | yes, on the Q | yes | no |
+| USB data | no, cut | yes | no | yes | no | yes |
+| Bluetooth | no, cut | yes | no | no | no | yes |
+| NFC | no | no | no | yes, on the Mk4 | no | yes |
+| microSD | the system disk | no | yes | yes | yes | yes |
+| Secure element | no | no | no | yes | yes | yes |
+
+piJade's row reads the way it does for a physical reason rather than a setting: the Pi Zero W's
+WiFi and Bluetooth circuits are cut on the board, and the fork removes the code that would have
+driven them. What is left is the camera in and the screen out, which is the whole interface.
+
+Two cells need their qualifier. Coldcard's camera belongs to the Q (`shared/q1.py`); the Mk4 has
+none, and its NFC tag is the Mk4's (`shared/nfc.py:3`). Jade's camera is code in the tree too
+(`main/camera.c`), and which Jade models carry one was not measured either. Trezor's NFC and
+Bluetooth are drivers in the tree (`core/embed/io/nfc/st25/nfc.c`, `core/embed/io/ble`); which
+models carry the parts was not measured.
+
+The last row is the one this fork loses on its own hardware. A secure element stores the key where
+firmware cannot read it back. Coldcard has two, SE1 and SE2, and draws randomness from both
+(`shared/mk4.py:43-44`); Passport has an ATECC608A (`se-atecc608a.c`), Trezor its own
+`core/embed/sec/`. A Pi Zero has nothing of the kind,
+so piJade encrypts the wallet with the user's PIN and writes it to the same card it boots from.
+SeedSigner does not have the part either, and answers differently: it stores no seed at all.
+
+## Getting a seed onto the device
+
+| | piJade | Jade | SeedSigner | Coldcard | Passport | Trezor |
+|---|---|---|---|---|---|---|
+| Type the words | yes | yes | yes | yes | yes | yes |
+| Enter words by their number | yes | yes | no | no | no | no |
+| Scan a standard SeedQR | yes | yes | yes | yes | yes | no |
+| Scan a CompactSeedQR | yes | yes | yes | no | yes | no |
+| SLIP-0039 shares | recover only | no | no | no | no | create and recover |
+| Seed XOR | yes | no | no | yes | no | no |
+
+Three rows carry a history. **Entering words by number** comes from upstream Jade
+(`main/ui/mnemonic.c`, the `WORD_NUMBERS` buttons) and, measured against the other four, exists
+nowhere else: SeedSigner spells words on a keyboard (`gui/screens/seed_screens.py`) and Coldcard
+narrows them letter by letter (`shared/seed.py:112`). **SeedQR** was SeedSigner's invention and
+has travelled furthest of anything in this table; Coldcard reads the standard form and writes it
+(`shared/decoders.py:23`, `shared/actions.py:701`), Passport carries an encoder and a decoder for
+both forms and reaches them from restoring and from viewing a seed
+(`modules/data_codecs/seedqr_codec.py`, `compact_seedqr_codec.py`), and Jade exports the compact
+form and scans it back to check the drawing, calling it by SeedSigner's name
+(`main/process/mnemonic.c:68`). **Seed XOR** went the
+other way: the scheme is Coldcard's (`shared/xor_seed.py`), and the implementation here is this
+fork's own C (`main/seedxor.c`).
+
+SLIP-0039 is the row where this fork is deliberately half a device. Trezor both splits a seed into
+shares and puts it back together; piJade only puts it back together, so a backup made on a Trezor
+can be restored here, and a wallet created here cannot be split into SLIP-0039 shares. Splitting
+is offered in the other scheme instead, Seed XOR, where every part is needed.
+
+## Making a seed on the device
+
+| | piJade | Jade | SeedSigner | Coldcard | Passport | Trezor |
+|---|---|---|---|---|---|---|
+| Camera frames as entropy | yes | yes, at boot | yes | no | no | no |
+| Dice rolls as entropy | yes | no | yes | yes | no | no |
+| Coin flips as entropy | no | no | yes, for the final word | yes | no | no |
+| Another hardware source, besides the camera | no | yes | no | yes | yes | yes |
+
+The last row is where leaving the ESP32 cost something measurable. Jade's `get_random()` hashes
+power and temperature sensor readings, a cycle counter and the chip's own generator into every
+draw (`main/random.c`). On a Pi none of that exists, and this fork's `get_random()` is the
+`getrandom` system call (`libjade/libjade.c`), which is the operating system's generator rather
+than a source the firmware reads itself. The other three read one: Passport combines
+an avalanche source, the MCU generator and the secure element's in a single call, and makes a new
+seed from all three at once (`noise.h:12-16`, `modules/tasks/new_seed_task.py`), Coldcard hashes
+its own generator with both secure elements
+(`shared/seed.py:647-659`), and Trezor exclusive-ors the MCU generator with the Optiga or Tropic
+chip and halts the device if either source fails (`core/embed/sec/rng/rng_strong.c`). SeedSigner
+stands where this fork stands and answers it the same way.
+
+What the user supplies is the other half of the question, and only the two Pi devices and Coldcard
+ask for any. Coldcard asks for the most and claims the least for it: dice rolls and coin flips are
+supplemental on top of a seed that is already the generator plus both secure elements, each entry
+is checked for a lopsided distribution, and the separate dice-only mode says in as many words that
+no hardware randomness is mixed in (`shared/seed.py`). This fork's `Combined` does the same thing
+with the sources it has, taking dice first and then camera frames and ending the chain in
+`get_random()`, while the plain `Dice Rolls` path stays unmixed for anyone who wants to check the
+arithmetic by hand. SeedSigner mixes in nothing of the device's own: the camera chain is the CPU
+serial number, the clock and the frames (`views/tools_views.py`), and the dice path is the rolls
+alone. Its coin-flip cell is narrower than Coldcard's and needs its qualifier: the menu offers
+coin flips only for the last word of a mnemonic the user already holds, as one of three ways to
+fill those final bits (`views/tools_views.py:321`, the view that runs the entry screen at
+`:366`), while the function that would build a whole mnemonic out of flips exists and is called
+from nowhere in `src/` (`helpers/mnemonic_generation.py:85`).
+
+Jade's camera cell is the one that needs its qualifier. There is no ceremony behind it: while
+the splash screen is up, ten frames go straight into the entropy pool and the user is never asked
+(`main/main.c`, `rnd_camera_feed`). Coldcard's Q has a camera and uses it only to read QR codes
+(`shared/scanner.py`).
+
+## Signing, and everyday use
+
+| | piJade | Jade | SeedSigner | Coldcard | Passport | Trezor |
+|---|---|---|---|---|---|---|
+| Animated QR (UR) | yes | yes | yes | no | yes | no |
+| BBQr | read | no | read | read and write | no | no |
+| Multisig | yes | yes | yes | yes | yes | yes |
+| Address explorer | yes | no | yes | yes | yes | no |
+| Sign a message | yes | yes | yes | yes | yes | yes |
+| BIP-85 child seeds | yes | yes | yes | yes | yes | no |
+
+The two QR transports split the field rather than ranking it. UR is what Jade, SeedSigner,
+Passport and this fork speak; BBQr is Coinkite's, and Coldcard is the only device here that both
+reads and writes it. This fork reads BBQr and does not produce it, which is enough to accept a
+transaction prepared by a Coldcard but not to hand one back the same way. Of the trees read here
+Coldcard is the only one that both reads and writes BBQr; nothing in Passport's tree mentions the
+format or its `B$` frame header, which is worth saying plainly because this fork's own source
+called BBQr the format Coldcard and Passport emit until this table was measured.
+
+Two cells are easy to misread. Trezor's device firmware carries no address explorer; whether its
+desktop software offers one was not measured, and this table is about the device. Jade's `no` is
+narrower than it looks: upstream will check an address you scan at it and say whether the wallet
+owns it (`main/qrmode.c`, `Address verified:`), which this fork inherits; what the fork added is
+the listing, so the row separates browsing your own addresses from confirming one.
+
+## Protecting the device
+
+| | piJade | Jade | SeedSigner | Coldcard | Passport | Trezor |
+|---|---|---|---|---|---|---|
+| Duress or wipe PIN | yes | yes | no | yes | yes | yes |
+| Wallet kept on the device | yes, encrypted | yes | no, memory only | yes | yes | yes |
+| Firmware signature checked at boot | no | not measured | no | not measured | yes | yes |
+
+The duress row is the one where the four makers agree and SeedSigner opts out: Coldcard keeps
+fourteen trick-PIN slots (`shared/trick_pins.py:18`), Passport a duress secret
+(`modules/pincodes.py:33`), Trezor a wipe code (`core/src/apps/management/change_wipe_code.py`),
+and this fork inherits Jade's wallet-erase PIN. What differs is where the setting can be read back
+from, and on this hardware that question has a sharp edge: with no secure element, the duress PIN
+lives on the same card as everything else. The guide's `The duress PIN` section states that limit
+rather than dressing it up.
+
+The last row is where this fork is behind on purpose and says so. Verifying a firmware signature
+at boot needs a root of trust the Pi Zero does not have, and the code doing the verifying would
+sit on the same removable card as the code it verifies. SeedSigner answers the same way for the
+same reason. Passport's bootloader refuses an image whose signature does not check
+(`bootloader/flash.c:380`, the error reaching the screen at `bootloader/main.c:594`), and Trezor's
+has a check of its own (`core/embed/projects/bootloader/fw_check.c`). Two cells say `not measured`
+and mean different things: Coldcard's bootloader is not in the repository that was read, while
+what was read on the Jade side is an update-time comparison against a hash the client sends
+(`main/process/ota_util.c`), which is not a signature checked at boot; whether ESP32 secure boot
+is turned on in a shipped Jade was not measured.
+
+## How these cells were measured
+
+Each axis was a targeted search in the repository named above, and then the file was opened and
+the symbol read. The count of matching files was never the answer. Every trap below was caught
+that way, and each of them would have put a wrong cell in a table built from counts alone.
+
+- **The tree can be the wrong tree.** The Passport column was first measured against
+  `passport-firmware`, which is the project's old repository and stops in 2022. Five cells were
+  wrong: SeedQR, CompactSeedQR, BIP-85, the address explorer and NFC. That is why the table now
+  carries a repository and a date for every device rather than a hash alone.
+- **A word can match something else.** `NFC` matched SeedSigner's `models/seed.py`, where it is
+  Unicode's `normalize("NFC")`; the cell is `no`.
+- **A zero can be a vocabulary gap.** `duress` matched nothing in Trezor, because Trezor calls
+  it a wipe code. That zero was a measurement artefact, not an absence; the cell is `yes`.
+- **A repository can contain another one, and it can move.** Passport's tree carries the whole
+  of `trezor-firmware`, in a different place in each repository. In the 2022 tree it sat inside
+  the directory read here, where an unfiltered search for `slip39` returned seventy-five files
+  and seventy-four of them were Trezor's; in `passport2` it moved to `extmod/`, outside that
+  directory, and the same search inside the read scope now returns nothing. A scope that was
+  safe once is not safe in the next repository, so every Passport search here excludes that
+  directory by name as well.
+- **A wordlist is not a feature.** Searched without word boundaries, `dice` matches in Trezor,
+  Passport and Jade, and not one match is a die: they are the word `indices` and the BIP-39 word
+  `dice` sitting in a wordlist. Bounded to the word, Trezor's declared scope has a single match
+  and it is that wordlist, Jade's tree has none, and Passport's two are both wordlists. All
+  three cells are `no`.
+- **A file can be compiled and never reached.** Passport builds the vendored `slip39.c` in both
+  repositories, from a different list in each: the object list at `py/py.mk:350` in `passport2`,
+  next to the `bip39.o` that the firmware does use, and the source list at `mpconfigboard.mk:47`
+  in the 2022 tree. Nothing in Passport's own modules calls it in either tree, and the cell is
+  `no` because of the second measurement rather than the first.
+
+The piJade column was not searched for at all; it was read from this tree, and the section below
+carries its evidence line by line. One claim ran the other way: this fork's `main/bbqr.h` called
+BBQr the format Coldcard and Passport emit, and measuring Passport's tree for this table is what
+showed the second half had no evidence behind it.
+
+---
+
+## SeedSigner, row by row: the seed menu and the settings
 
 > First written 2026-08-31; **remeasured in full on 2026-09-13** against `d5a4c095`, because the
 > fork had moved on and the document was still listing as missing several features that now exist.
@@ -8,9 +246,10 @@
 > `views/tools_views.py` (775), `models/settings_definition.py` (814), `views/settings_views.py`
 > (387), `views/psbt_views.py`, `views/scan_views.py` and `views/view.py` were read in full or
 > against specific questions, and for individual claims `models/decode_qr.py`, `models/seed.py`,
-> `gui/renderer.py`, `gui/screens/screen.py` and `gui/screens/tools_screens.py`; that side has not
-> changed since the first version, and every `file:line` cited for it was matched against the
-> symbol it is cited for rather than carried over on trust. The piJade side was verified through
+> `gui/renderer.py`, `gui/screens/screen.py` and `gui/screens/tools_screens.py`; between the first
+> version and that reading the SeedSigner side had not changed, and every `file:line` cited for it
+> was matched against the symbol it is cited for rather than carried over on trust. The piJade
+> side was verified through
 > `main/process/dashboard.c`, `main/ui/dashboard.c`, `main/process/mnemonic.c`,
 > `main/ui/mnemonic.c`, `main/process/sign_psbt.c`, `main/process/auth_user.c`,
 > `main/utils/psbt.c`, `main/qrmode.c`, `main/ui/qrmode.c`, `main/ui/sign_tx.c`,
@@ -35,7 +274,7 @@ layer, so Tools was deliberately included. On the settings side the single sourc
 
 ---
 
-## 1. The seed menu ; row by row
+### 1. The seed menu ; row by row
 
 **SeedSigner:** `Home > Seeds > <fingerprint>` ; `SeedOptionsView` (`views/seed_views.py:528`),
 menu rows built at `:572-587`, the title being the seed's fingerprint (`:592`).
@@ -55,7 +294,7 @@ wallet rows built at `:3442-3481`, the title being the slot's fingerprint (`:342
 | 6 | **BIP-85 child seed** | `seed_views.py:585`, guarded by `SETTING__BIP85_CHILD_SEEDS == ENABLED` (**off** by default, `settings_definition.py:663-668`) and `seed.bip85_supported` | **Present, and guarded the same way** | `dashboard.c:3461` -> `handle_bip85_mnemonic()`, offered when `FEATURE_FLAGS_BIP85` is set (`:3460`; `Options > Features`); 12 or 24 words (`ui/mnemonic.c:187-188`) |
 | 7 | **Discard seed** | `seed_views.py:587` -> `SeedDiscardView:459`; the screen reads "Wipe seed {fingerprint} from the device?" (`:478`) | **Partly: temporary wallets only** | `Forget` at `dashboard.c:3479-3481`; no row appears for a persistent wallet, and the way to drop one is `Log Out` (`:3379`). The reason is written in the code (`:3475-3478`): `keychain_load()` refuses to read the blob back while a wallet is in memory |
 
-### 1.1 One more difference: the fingerprint list itself
+#### 1.1 One more difference: the fingerprint list itself
 
 SeedSigner's `SeedsMenuView` (`seed_views.py:26`) puts one uniform icon next to each fingerprint
 (`:45`) and ends the list with a **"Load a seed"** row (`:46`), so a new seed can be loaded straight
@@ -66,7 +305,7 @@ favour ; but there is no row for loading a new wallet from the list itself; that
 
 ---
 
-## 2. Loading and generating seeds (SeedSigner `Tools` and `LoadSeedView`)
+### 2. Loading and generating seeds (SeedSigner `Tools` and `LoadSeedView`)
 
 | Feature | SS evidence | piJade state | Evidence / note |
 |---|---|---|---|
@@ -85,7 +324,7 @@ favour ; but there is no row for loading a new wallet from the list itself; that
 
 ---
 
-## 3. Settings comparison
+### 3. Settings comparison
 
 SeedSigner's settings live in `models/settings_definition.py:551-757`; each entry carries a
 **visibility layer** (`GENERAL` / `ADVANCED` / `HARDWARE` / `HIDDEN`, `:384-388`) and the menu is
@@ -127,7 +366,7 @@ The `Features` screen is what several rows of the table below now map onto: it i
 features, each a bit in one stored byte (`storage.h:53-59`), read where the feature is offered
 rather than once per session. That is the same shape as SeedSigner's per-setting switches.
 
-### 3.1 What each SeedSigner setting maps to here
+#### 3.1 What each SeedSigner setting maps to here
 
 Together, sections 3.1 and 3.2 cover all 24 `SettingsEntry` values exactly once. This table has
 twenty-one rows: eighteen settings and three menu or import extras. Counted at this round: four
@@ -160,7 +399,7 @@ column is that SeedSigner splits its three warnings across two settings and this
 | **Version** | menu extra | `settings_views.py:20`, `:367` | **Present** (`Info`, the firmware version as the first row, `ui/dashboard.c:477`) |
 | **SettingsQR** (importing settings by QR) | separate flow | `settings_views.py:310` | **Absent.** There is no general settings import. QR configuration handles specific messages, including Blind Oracle configuration (`ui/dashboard.c:336`) and clock synchronisation (`qrmode.c:2740`, `:2773`) |
 
-### 3.2 SeedSigner settings that do not apply to this port
+#### 3.2 SeedSigner settings that do not apply to this port
 
 These are not treated as gaps here: persistence is already provided, the hardware and project
 options are specific to the port, and neither side offers another mnemonic language:
@@ -177,7 +416,7 @@ options are specific to the port, and neither side offers another mnemonic langu
 
 ---
 
-## 4. Architectural constraints ; which gaps can be closed and which need a decision
+### 4. Architectural constraints ; which gaps can be closed and which need a decision
 
 Two measured facts decide whether a row above is a gap or a decision:
 
@@ -208,7 +447,7 @@ clear the slot table with `wally_bzero` (`keychain.c:323-330`; `dashboard.c:3565
 
 ---
 
-## 5. The other direction (short note)
+### 5. The other direction (short note)
 
 What this fork has and SeedSigner does not was not inventoried, because the question ran one way.
 Still, worth knowing when planning: a persistent encrypted wallet with a PIN, the duress PIN, OTP,
@@ -232,7 +471,7 @@ both sides have the feature, the row identifies the narrower difference:
 
 ---
 
-## 6. Classifying the gaps
+### 6. Classifying the gaps
 
 Measured again at this round against the code, seven of the eight items this section used to list
 are closed: matching a psbt to the right slot, the address explorer, the message-signing menu

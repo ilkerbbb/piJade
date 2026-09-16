@@ -65,7 +65,7 @@ WARN_UNUSED_RESULT bool bcur_build_cbor_crypto_psbt(
 // In either case the caller takes ownership, and must free the output data bytes and any type string.
 // Returns false if scanning fails or is abandoned - in which case there is nothing to free.
 // BBB-AIRGAP: if 'bbqr_file_type' is passed, BBQr frames are collected in the same camera session
-// (BBQr is the animated format Coldcard and Passport emit; see main/bbqr.h).  A completed BBQr
+// (BBQr is the animated format Coldcard emits; see main/bbqr.h).  A completed BBQr
 // transfer is returned like a non-BC-UR payload - type NULL, caller owns the bytes - with the BBQr
 // file-type character written here, which is what tells the caller a BBQr transfer arrived and what
 // it claims to hold.  Passing NULL turns the collector off entirely, and a 'B$' frame is then taken
