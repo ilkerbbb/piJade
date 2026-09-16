@@ -4,7 +4,7 @@ DO NOT ATTEMPT TO FLASH DIY FIRMWARE TO OFFICIAL BLOCKSTREAM JADE HW UNITS
 DO NOT ATTEMPT TO FLASH OFFICIAL BLOCKSTREAM FIRMWARE TO YOUR DIY HARDWARE
 
 # Hardware Selection
-There are a number of hardware devices that can run Jade firmware with minimal configuration by simply following the build guide in the main readme.
+There are a number of hardware devices that can run Jade firmware with minimal configuration by simply following the build guide in JADE-BUILD.md.
 
 ## No-Camera Hardware Options:
 

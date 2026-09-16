@@ -7,7 +7,7 @@ The firmware can also be updated using a small script provided in this repo, as 
 NOTE: Blockstream Jade units will only run firmware signed by Blockstream, therefore it is not possible to build and flash the firmware on a 'diy' basis.
 The signed firmware must be downloaded from Blockstream servers, and can only be updated using the 'OTA' function of the currently installed firmware.
 
-NOTE: To build and flash firmware for other supported esp32 devices - e.g. M5Stack or TTGO T-Display, follow the developers instructions in the main README.md.
+NOTE: To build and flash firmware for other supported esp32 devices - e.g. M5Stack or TTGO T-Display, follow the developers instructions in JADE-BUILD.md.
 
 
 # Method 1 - Download and Update - One Step

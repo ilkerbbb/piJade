@@ -18,7 +18,7 @@
 The `master` branch is kept as a mirror of upstream; no change is ever written on top of `master`.
 All work happens on `bbb-airgap`.
 
-## 2. Divergence inventory (2026-09-15 22:16, after the documentation round)
+## 2. Divergence inventory (2026-09-16, after the root README was rebuilt)
 
 > The numbers were measured with `git diff --numstat fdb67a3f..HEAD -- . ':(exclude)pijade'`.
 > `fdb67a3f` is the branch point. `pijade/` is ours and has no upstream counterpart, so it does
@@ -34,9 +34,9 @@ All work happens on `bbb-airgap`.
 > file, so a refresh that parses the two numbers drops every binary silently and the table looks
 > complete while it is not. Twenty-seven diverging files are binary and are therefore absent from
 > the rows below: the twenty-six `test_data/qr_{q,}vga_*.dat` camera recordings and
-> `test_data/sign_message_golden_qr.png`. Counting them, the divergence covers 213 files against
-> the table's 186 rows. They are fixtures, and what they are for is written where they are used,
-> not here; the point of the note is that the difference between 186 and 213 is accounted for
+> `test_data/sign_message_golden_qr.png`. Counting them, the divergence covers 216 files against
+> the table's 189 rows. They are fixtures, and what they are for is written where they are used,
+> not here; the point of the note is that the difference between 189 and 216 is accounted for
 > rather than unexplained. Use `--name-only` when checking the table against reality, which
 > reports binaries like any other file and also resolves renames to the new path on its own.
 >
@@ -141,7 +141,10 @@ All work happens on `bbb-airgap`.
 | `SECURITY.md` | +14 / -0 | Upstream file | A fork preface above Blockstream's own reporting document. Left alone until 2026-09-15, it sent a vulnerability in code that exists only in this fork to Blockstream's maintainer; the preface scopes the document below to what the fork shares with upstream and routes fork-only findings to this repository's private advisory channel, with `pijade/UPSTREAM.md` as the line between the two. Not one line of Blockstream's text was changed |
 | `.gitignore` | +23 / -0 | Upstream file | feat(emulator): add --settings to the daemon and measure the failed-erase branch; feat(ui): registered multisig and descriptor wallets in the address explorer |
 | `main/ui/sign_message.c` | +23 / -7 | Upstream file | camera: capture at VGA, and refuse a message the screen cannot show |
-| `README.md` | +25 / -0 | Upstream file | With the repository made public, a fork introduction was added at the top of the root README: what it is, the warning that it is experimental, and pointers to the documents under `pijade/` and to the two helper pages. The pointer table was rewritten on 2026-09-15 against what those documents actually hold, because the cell for `pijade/README.md` had been promising an install section that file did not have; a row for `SECURITY.md` was added at the same time. On 2026-09-16 the opening paragraph gained the board variant: the measurements were taken on a Zero W whose radio circuitry was cut, and a plain Zero has no such circuitry to cut, with the detail left to `pijade/README.md`. Upstream's own build document stays below exactly as it was; only a prefix was added, and not one line was removed |
+| `README.md` | +141 / -316 | Upstream file | The root README is now the fork's own landing page: what piJade is, three screenshots of the device, a table of contents, what it does, the parts it needs, and where each document sits. Upstream's build document, which covers Jade's ESP32 boards and the toolchain they need, occupied lines 27 to 342 of this file and was moved byte for byte to `JADE-BUILD.md`; nothing in it was edited. **Merge discipline:** an upstream hunk that lands in the build document will conflict here against a file that no longer holds it. Resolve the README side with ours and apply that hunk to `JADE-BUILD.md` by hand; the two files are one document split in two, and a hunk dropped at the conflict is a silently missed upstream fix |
+| `JADE-BUILD.md` | +316 / -0 | **New file** | Blockstream Jade's own build document, moved out of the root README on 2026-09-16 and byte for byte identical to the lines it came from. It keeps the relative links it always had (`./diy/`, `./FWUPDATE.md`, `./REPRODUCIBLE.md`, `./libjade/README.md`, the two `jade-client-requirements.txt` files), which is why it sits at the root beside them rather than under `docs/`: moving it a directory down would have broken every one of those links and widened the divergence for nothing |
+| `FWUPDATE.md` | +1 / -1 | Upstream file | One sentence points readers at the build instructions for other ESP32 boards; it said `the main README.md`, which stopped carrying them on 2026-09-16, so it now names `JADE-BUILD.md` |
+| `diy/README.md` | +1 / -1 | Upstream file | The hardware-selection page sends the reader to the build guide "in the main readme"; that guide moved to `JADE-BUILD.md` on 2026-09-16, so the sentence now names it |
 | `libjade/gui.py` | +22 / -2 | Upstream file | camera: capture at VGA, and refuse a message the screen cannot show |
 | `main/descriptor_text.h` | +22 / -0 | **New file** | descriptor: a parser reducing text and Specter JSON descriptors to wally's canonical policy-template form |
 | `main/selfcheck.c` | +94 / -641 | Upstream file | test: descriptor tests moved into the libjade verification branch; multisig: record v4, body sealed with AES; the legacy v0-v2 read paths were removed; the same-record check happens in the clear; storage: a third case stores and reloads a SLIP-0039 master secret, so the tagged blob branch is exercised at both supported lengths |
@@ -234,8 +237,8 @@ All work happens on `bbb-airgap`.
 | `main/process/get_blinding_factor.c` | +1 / -1 | Upstream file | The upstream `uint32_t` RPC series (`c95ed4ee` to `58c11066`, ten commits), taken on 2026-09-15; this file carried no divergence before it |
 | `docs/.nojekyll` | +0 / -0 | **New file** | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
 
-**Totals (measured 2026-09-15 at `d082d348`):** 212 files, of which 185 are text
-(+37814 / -3027) and 27 are binary fixtures, listed below rather than in the table because
+**Totals (measured 2026-09-16, with this commit staged):** 216 files, of which 189 are text
+(+38233 / -3345) and 27 are binary fixtures, listed below rather than in the table because
 `--numstat` reports no line counts for them. A refresh on 2026-09-12 listed 175 files and 148 text
 files, and a later one the same day listed 187 and 160; the macOS port of libjade, the
 `_Static_assert` round, the quirc round and the test-suite network adaptation are the difference.
@@ -271,13 +274,17 @@ mnemonic flows (`main/ui/mnemonic.c`, `main/process/mnemonic.c`), and moving the
 out of `main/selfcheck.c` into `libjade/selfcheck/`. A rebase conflict is likelier in those files
 than anywhere else.
 
-**Breakdown by area (measured 2026-09-15 at `5a2a1043`):** the `libjade/` emulator layer
-+4863 / -85 (30 files), Jade's own `main/` files +14918 / -2716 (112 files), the `components/miner/`
-mining component +1151 / -0 (4 files), the vendored `components/esp32-quirc/` scanner +45 / -3
-(3 files), the vendored `components/libwally-core/` config header +10 / -0 (1 file), the helper
-pages under `docs/` +16226 / -0 (6 files), the recorded QR fixtures under `test_data/` +98 / -15
-(49 files), `jadepy/` +27 / -1 (2 files), and files at the repository root +403 / -208 (5 files).
-The nine areas add up to the 212 files above.
+**Breakdown by area (measured 2026-09-16, with this commit staged):** the `libjade/` emulator
+layer +4861 / -85 (30 files), Jade's own `main/` files +14961 / -2715 (112 files), the
+`components/miner/` mining component +1151 / -0 (4 files), the vendored `components/esp32-quirc/`
+scanner +45 / -3 (3 files), the vendored `components/libwally-core/` config header +10 / -0
+(1 file), the helper pages under `docs/` +16226 / -0 (6 files), the recorded QR fixtures under
+`test_data/` +98 / -15 (49 files), `jadepy/` +27 / -1 (2 files), the `diy/` hardware-selection
+page +1 / -1 (1 file), and files at the repository root +853 / -525 (8 files). The ten areas add
+up to the 216 files above. Measured against the previous commit, the root went from 6 files
+(+421 / -208) to 8 (+853 / -525) in this round: `JADE-BUILD.md` is new, `FWUPDATE.md` and
+`diy/README.md` now name it instead of the README, and the README itself traded upstream's build
+document for the fork's own landing page.
 
 **A paragraph that aged, corrected on 2026-09-12.** It used to say that five files carried a
 one-line change on the same reason, that user data is not written to the log. Measured today, only

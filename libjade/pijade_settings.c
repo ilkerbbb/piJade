@@ -61,10 +61,10 @@ static const struct {
     // (main/storage.c:694) writes sizeof(uint8_t).
     //
     // Two other fields main/storage.c names are deliberately still absent, and the reason is that
-    // nothing on this port writes them: 'bleflags' because the port builds without
-    // CONFIG_BT_ENABLED, so main/ble/ble.h:27 is the empty implementation, and 'clickevent'
-    // because only main/storage.c:363 touches it, to erase it.  Either would need its writer back
-    // before persisting it would mean anything.
+    // nothing on this port writes them: 'bleflags' because its only writer storage_set_ble_flags()
+    // is reached only from main/process/dashboard.c:1029 and :1035, both inside the
+    // #ifdef CONFIG_BT_ENABLED block this port does not build, and 'clickevent' because only
+    // main/storage.c:363 touches it, to erase it.  Either would need its writer back first.
     { "featflags", 1, 1, false },
     { "walleterasepin", 48, 48, false }, // WALLET_ERASE_PIN_RECORD_LEN (main/storage.h): 16 salt + 32 verifier
     { "networktype", 4, 4, false },

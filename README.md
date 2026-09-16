@@ -1,14 +1,117 @@
 # piJade
 
-A fork of the Blockstream Jade firmware that turns a Raspberry Pi Zero W or Zero into an airgapped
-hardware wallet. The only cable reaching the device is power; everything else travels by QR code.
-The board this was built and measured on is a Zero W with its radio circuitry physically cut; a
-plain Zero has no such circuitry to begin with, and `pijade/README.md` describes what each variant
-needs.
+**An airgapped Bitcoin hardware wallet built on a Raspberry Pi Zero, where the only cable that
+reaches the device is power and everything else travels by QR code.**
 
-> **Warning: this is experimental work.** The device is not used with real funds; testing is done
-> on testnet or with an empty wallet. The code in this repository has not had an independent
-> security audit.
+<p align="center">
+  <img src="./pijade/img/home-session.png" width="200" alt="Home screen, Session selected">
+  <img src="./pijade/img/home-scan-qr.png" width="200" alt="Home screen, Scan QR selected">
+  <img src="./pijade/img/home-options.png" width="200" alt="Home screen, Options selected">
+</p>
+
+piJade is a fork of the [Blockstream Jade](https://github.com/Blockstream/Jade) firmware. Jade's
+wallet, its screens and its cryptography are kept; what changes is the hardware underneath and the
+way the device talks to the outside world. Jade is an ESP32 device that speaks over USB or
+Bluetooth. piJade runs on a Raspberry Pi Zero whose radio hardware is cut or absent, and every
+exchange upstream drives over a cable is carried by a QR code instead.
+
+> **This is experimental work.** The device is not used with real funds; testing is done on
+> testnet or with an empty wallet. The code in this repository has not had an independent security
+> audit.
+
+---
+
+## Contents
+
+- [What it does](#what-it-does)
+- [What you need](#what-you-need)
+- [Getting started](#getting-started)
+- [Documentation](#documentation)
+- [Relationship with upstream Jade](#relationship-with-upstream-jade)
+- [Licence](#licence)
+
+---
+
+## What it does
+
+**Holding a wallet**
+
+- A **temporary wallet** lives in RAM. It is loaded by scanning a SeedQR or by typing the words,
+  and it is gone at power off or when Log Out is pressed; nothing about it reaches the card.
+- A **PIN-unlocked wallet** is Jade's own scheme: the seed sits on the card encrypted, and the key
+  that decrypts it is released by a remote server against the right PIN. That exchange goes by QR
+  code here, so unlocking one needs an internet-connected companion device. A temporary wallet
+  needs nothing but the device itself.
+- A duress PIN erases the stored wallet when it is entered. It is held as a salt and a one-way
+  verifier rather than in the clear, which is not the same as being deniable against someone who
+  takes the card; the fork's own document says where that line falls.
+
+**Creating a seed**
+
+- The entropy source is chosen from a menu: the device CSPRNG, dice rolls, camera frames, or the
+  dice and camera chains combined.
+- Dice rolls are 50 for twelve words and 99 for twenty-four, hashed exactly the way SeedSigner
+  hashes them, so a seed made here can be reproduced on independent hardware.
+- The camera chain ends in the device CSPRNG, so the floor of the result is the CSPRNG and the
+  camera is a layer on top of it.
+- Collection runs to at least 50 frames and then waits for the user to end it. Flat frames,
+  repeats and frames too close to the previous one are thrown away, so a sensor that has stopped
+  producing usable images cannot quietly collapse the chain.
+
+**Restoring and backing up**
+
+- Twelve or twenty-four words, spelled out or given by their position in the BIP39 list.
+- Compact and standard SeedQR, a BC-UR `crypto-bip39` phrase, or the words as plain text.
+- **SeedXOR**: reassemble a seed from parts that are each themselves a valid mnemonic. Splitting
+  offers two, three or four parts.
+- **SLIP-39**: read Shamir shares of 20 or 33 words, entered by word or scanned as QR codes. The
+  fork reads SLIP-39; it does not produce shares.
+- A backup draws a SeedQR the device's own camera can read back, with a zoom step for copying the
+  grid by hand and a closing check against the wallet it came from.
+
+**Reading and signing**
+
+- Single-frame QR codes, animated BC-UR sequences, and BBQr sequences. A finished BBQr transfer is
+  routed on the file type its own header declares, so a PSBT is signed and a Coldcard multisig
+  setup file goes to the text reader.
+- An address scanned on its own is checked for ownership across accounts 0, 1 and 2 plus the
+  account of the last xpub export, on the receive and the change branch alike.
+- An xpub or a multisig wallet record gets a warning screen before its QR is drawn: whoever scans
+  one can see every address and payment of that wallet from then on.
+
+**What the cable used to do**
+
+- The clock is set by a QR code drawn by a [helper page](https://ilkerbbb.github.io/piJade/clock)
+  that keeps working once loaded, with the browser offline.
+- A message is signed from a second [helper page](https://ilkerbbb.github.io/piJade/sign); the
+  signature comes back on the screen as a QR code.
+
+## What you need
+
+- A **Raspberry Pi Zero W with its WiFi and Bluetooth circuitry physically cut**, or a plain
+  **Raspberry Pi Zero**, which carries no radio hardware to begin with. Everything here was
+  measured on the cut Zero W.
+- A **Waveshare 1.3" LCD HAT**: 240x240 pixels, three buttons and a joystick.
+- A **camera** the host opens as `/dev/video0`.
+- A **microSD card**, which holds the operating system, the piJade binaries and the settings file.
+
+Neither board has a secure element or secure boot, so the card is readable by anyone who takes it.
+What that means for a wallet kept on it is written out in the security audit.
+
+## Getting started
+
+The card is prepared with Docker, in three steps. A Raspberry Pi OS image is fetched and turned
+into a build container that carries the target's own ARMv6 root filesystem, the piJade binaries
+are built inside it, and a second container embeds them in a copy of that image, which is then
+written to a microSD card. The first step refuses to start unless the image it was handed
+matches its published fingerprint, and the last refuses unless the binaries match the hash it is
+given; handing it that hash from the build log, rather than letting it read the one sitting next
+to the package, is what makes the check an authenticity check. The chain, with the commands and
+what each step checks, is in
+[`pijade/README.md`](./pijade/README.md), which is also the document to read for how the device
+is used once it boots.
+
+## Documentation
 
 | Where to look | What is there |
 |---|---|
@@ -17,326 +120,22 @@ needs.
 | [`pijade/SECURITY-AUDIT-2026-09-03.md`](./pijade/SECURITY-AUDIT-2026-09-03.md) | The security audit: threat model, what was measured, what is deliberately not claimed |
 | [`pijade/SEEDSIGNER-COMPARISON.md`](./pijade/SEEDSIGNER-COMPARISON.md) | Seed menu and settings, item by item against SeedSigner |
 | [`SECURITY.md`](./SECURITY.md) | How to report a vulnerability, in this fork and in upstream Jade |
+| [`JADE-BUILD.md`](./JADE-BUILD.md) | Blockstream Jade's own build document, for Jade's ESP32 hardware, kept as upstream wrote it |
 | [set the clock](https://ilkerbbb.github.io/piJade/clock) and [sign a message](https://ilkerbbb.github.io/piJade/sign) | The helper pages that draw the QR codes the device reads; source under `docs/`, works offline |
 
-The section below is Blockstream Jade's own build document; the fork keeps it as it is and takes
-upstream updates into it.
-
----
-
-# Jade Firmware Development
-
-* DO NOT ATTEMPT TO BUILD/FLASH WITH OFFICIAL BLOCKSTREAM JADE HARDWARE UNITS
-
-The below instructions are for developers with access to Jade development
-devices, or for those wanting to build and flash their own esp32/esp32s3
-DIY consumer devices such as M5Stack or TTGO T-Display boards.
-
-Official Blockstream Jade hardware units can only be updated via a supported
-companion app, or by using the [Firmware Update Instructions](./FWUPDATE.md).
-
-# DIY Hardware & Programming Notes
-For information about suitable DIY hardware, as well as suggested configuration
-profiles and notes on secure boot, see the [DIY Guide](./diy/)
-
-# Build dependencies
-
-Cmake and ninja are needed to build Jade firmware images.
-
-On Debian based distributions, install with with:
-
-```
-sudo apt install cmake ninja-build
-```
-
-On MacOS:
-
-```
-brew install cmake ninja
-```
-
-Make sure to use a recent Python version (Python 3.11+) when running the
-commands below. Failure to do so may result in problems installing Python
-dependencies.
-
-# Set up the build environment
-
-Jade requires the esp-idf SDK. You can use our docker image to build or
-install the esp-idf toolchain locally using the commands below.
-
-See the [Espressif official guide](https://docs.espressif.com/projects/esp-idf/en/v5.4/esp32/get-started/index.html)
-for more information on the available tooling.
-
-# Device targets
-
-There are currently four official Jade device targets:
-- jade: The original Jade 1.0 with a selection wheel.
-- jade_v1_1: Jade 1.1, with a rocker/jog-wheel instead of the selection wheel.
-- jade_v2: Jade Plus, with a larger screen and left/right selection buttons
-  instead of a wheel or rocker.
-- jade_v2c: Jade Core, Jade Plus without camera and battery.
-
-Change `jade` in any calls to the `switch_to.sh` script below to the
-appropriate device you wish to target from the list above.
-
-# Serial port
-
-The serial port pseudo-tty file for Jade access via USB is usually
-`/dev/ttyACM0` or `/dev/ttyUSB0` (or `/dev/cu.SLAB_USBtoUART` on MacOS).
-
-In order to have permission to use USB to install firmware, your user should
-be in the `dialout` group on Debian based distributions. Other distributions
-may use a different group name: Check the group of the serial port pseudo-tty
-file using `ls -l` to determine the required group, e.g:
-
-```
-$ ls -l /dev/ttyACM0
-crw-rw----+ 1 root dialout 166, 0 Apr 15 14:37 /dev/ttyACM0
-```
-
-The group name (`dialout` here) is shown after the owner (`root`). You can check
-that `dialout` appears in your user groups by running:
-
-```
-$ groups
-docker libvirt dialout storage kvm wheel plugdev
-```
-
-If not present you should add your user to the group:
-
-```
-sudo usermod -aG dialout $USER
-```
-
-You should then login/logout or reboot for the group changes to take effect.
-
-**NOTE**: For docker builds no group changes are usually required as the
-docker image is privileged.
-
-You should set the environment variable `JADESERIALPORT` to the Jade USB
-device to default its value when running development scripts.
-
-## Docker build environment
-
-NOTE: MacOS users should set up the environment locally as detailed below to
-avoid issues with device access. For more information see
-[this article](https://dev.to/rubberduck/using-usb-with-docker-for-mac-3fdd).
-
-Blockstream provides the `blockstream/jade_build` docker image which provides
-the idf tooling and other dependencies required to build. To run a shell inside
-the Jade development builder, use:
-
-```
-docker run -it blockstream/jade_build:latest bash
-```
-
-Run `get_idf` within this container to enable the idf tools.
-
-Alternately, the `docker-compose.yml` file in this repository can be used to
-work on the current respository source code from within the `jade_build`
-container.
-
-```
-$ # Build the image and run a shell inside it
-$ docker compose run dev bash
-(docker)$ Set up idf environment
-(docker)$ get_idf
-(docker)# Make the serial device available to internal scripts, for example:
-(docker)$ export JADESERIALPORT=/dev/ttyACM0
-```
-
-You can then build and flash as detailed below.
-
-## Local build environment
-
-Install the esp-idf SDK and required tools. From a checked-out Jade
-git repository, run the following commands:
-
-```
-$ export ESP_IDF_BRANCH=$(grep ESP_IDF_BRANCH Dockerfile | sed 's/.*=//g')
-$ mkdir ~/esp
-$ cd ~/esp
-$ git clone https://github.com/espressif/esp-idf.git
-$ cd esp-idf
-$ git checkout $ESP_IDF_BRANCH
-$ git submodule update --init --recursive
-$ ./install.sh --enable-gdbgui esp32 esp32s3
-$ python ./tools/idf_tools.py install qemu-xtensa
-```
-
-Set up the idf environment to make the `idf.py` command available,
-and then install the Jade dependencies into the idf environment:
-
-```
-$ . ~/esp/esp-idf/export.sh
-$ pip install --require-hashes -r ./requirements.txt
-```
-
-You can then build and flash as detailed below.
-
-# Build The firmware
-
-First, you'll need the Jade source code including its sub-modules checked out:
-
-```
-git clone --recursive https://github.com/Blockstream/Jade.git $HOME/jade
-cd $HOME/jade
-git submodule update --init --recursive
-```
-
-Choose your configuration. For official Jade devices, the script `tools/switch_to.sh` allows
-choosing the device and features you want. Run `tools/switch_to.sh --help` to see the
-available options. A standard development Jade Plus build for example would use something
-like:
-
-```
-$ ./tools/switch_to.sh jade_v2 --dev --log --jtag [--noradio]
-```
-
-For other devices, copy (and modify if desired) a suitable config from the `configs`
-directory to `sdkconfig.defaults`. You should also run e.g. `idf.py set-target esp32` or
-`idf.py set-target esp32s3` once initially to ensure you are targeting the correct
-toolchain for your hardware. So for example for the TTGO T-Display:
-
-```
-$ cp configs/sdkconfig_display_ttgo_tdisplay.defaults sdkconfig.defaults
-```
-
-To build the firmware, run:
-
-```
-$ idf.py all
-```
-
-To flash the resulting build to your device, run:
-
-```
-$ idf.py -p $JADESERIALPORT flash [monitor]
-```
-
-Some hardware configurations (e.g. M5StickC-Plus) may not support the default baud
-rate and so won't be detected. If this occurs you can force a specific baud rate
-for flash/monitor by using the `-b` argument, e.g:
-
-```
-idf.py -p $JADESERIALPORT -b 115200 flash [monitor]
-```
-
-If you have errors relating to unknown bytes when flashing, place your device
-into download mode. This is device specific, for Jade development devices,
-turn off the device, then hold the select and power buttons for 10 seconds.
-Note the device screen will stay blank when in download mode.
-
-If you switch between JTAG and non-JTAG builds in particular, you will need to
-flash from download mode.
-
-If you flash multiple device types, or make changes to the sdkconfig.config file,
-delete the `sdkconfig` file that gets created from `sdkconfig.defaults` between
-builds. Otherwise, your changes will not get picked up when re-building/flashing
-the firmware.
-
-# Build customization
-
-Beyond the build configurations in the `configs/` directory, you can edit the config
-manually with the `menuconfig` tool:
-
-```
-$ idf.py menuconfig
-```
-
-**NOTE**: for any but the simplest CI-like build with no GUI, no camera, no
-user-interaction etc. it is recommended that PSRAM (available under
-`Component Config -> ESP-32 specific -> Support external SPI connected RAM`
-is available and enabled.
-
-# Run the tests
-
-Virtualenv and bluez-tools are required, you can install them on Debian
-based distributions with:
-
-```
-sudo apt install virtualenv bluez-tools
-```
-
-Then to run the tests:
-
-```
-$ cd $HOME/jade
-$ # Create and activate a Python virtualenv
-$ virtualenv -p python3 venv3
-$ source venv3/bin/activate
-$ pip install -r requirements.txt
-$ pip install -r pinserver/requirements.txt
-$ # Run the tests
-$ python test_jade.py --serialport $JADESERIALPORT
-$ # Cleanup
-$ deactivate
-```
-
-The tests require a CI build; this is a configuration that automatically
-accepts the default action without requiring user interaction. This is enabled using
-the `--ci` argument to `switch_to.sh` or by setting `CONFIG_DEBUG_UNATTENDED_CI=y`
-in sdkconfig.defaults.
-
-Debug support is also required to expose debug functions for testing. Use `--debug`
-or set `CONFIG_DEBUG_MODE=y` to enable this.
-
-# Emulator/Virtualizer (qemu in Docker)
-
-The firmware can be built and run under emulation via qemu:
-
-```
-$ # Build the default Jade emulation image (debug CI build)
-$ docker build -t jade-qemu -f Dockerfile.qemu .
-$
-$ # Pass switch_to.sh args via QEMU_CONFIG_ARGS, e.g. for a no-psram build:
-$ docker build -t jade-qemu -f Dockerfile.qemu . --build-arg QEMU_CONFIG_ARGS="--dev --ci"
-$
-$ # Pass `--build-arg QEMU_GDB="--gdb"` to enable gdb debugging.
-$
-$ # For a web-enabled 'virtual Jade':
-$ docker build -t jade-qemu -f Dockerfile.qemu . --build-arg QEMU_CONFIG_ARGS="--dev --psram --webdisplay"
-$
-$ # Point your browser to http://localhost:30122 to interface with the virtual Jade.
-$ # Replace --webdisplay with --webdisplay-larger for a larger display.
-```
-
-Run any of the above images with e.g.:
-
-```
-$ # Note you can remove `-p 30122:30122` if not using --webdisplay
-$ docker run --rm -p 30121:30121 -p 30122:30122 -it jade-qemu
-```
-
-The jadepy python package can talk to the emulated jade via serial over tcp.
-Pass the device string `"tcp:localhost:30121"` when connecting, e.g.:
-
-```
-python -c "from jadepy.jade import JadeAPI; jade = JadeAPI.create_serial(device='tcp:localhost:30121'); jade.connect(); print(jade.get_version_info()); jade.disconnect()"
-```
-
-# Reproducible Build
-
-See [REPRODUCIBLE.md](./REPRODUCIBLE.md) for instructions on locally reproducing the official Blockstream Jade firmware images (minus the Blockstream signature block).
-
-# DIY
-
-Seen working on M5 Stack gray/black/FIRE, M5 Stick Plus, Core 2, Core S3, LilyGO T-Display, T-DisplayS3, RPI Zero + display shield (via QEMU), and Desktop via Qemu (browser for display/webcam).
-
-# Client
-
-A python client is available to communicate with genuine or DIY Jade units:
-
-```
-pip install jade-client
-```
-
-This installs the `jadepy` directory from this repository.  See [jade-client-requirements.txt](./jade-client-requirements.txt) and [jade-client-requirements.txt.asc](./jade-client-requirements.txt.asc)
-
-# Firmware development
-
-See [libjade](./libjade/README.md) For a local build setup that allows for initial feature development and debugging off-device.
-
-# License
-
-The collection is subject to GPL3 but individual source components can be used under their specific licenses.
+## Relationship with upstream Jade
+
+The fork tracks upstream and keeps the departure small enough to stay readable. Jade's own build
+document, which covers the ESP32 boards and the toolchain they need, used to occupy most of this
+README; it now sits in [`JADE-BUILD.md`](./JADE-BUILD.md), unchanged, and upstream's edits to it
+are taken in there. Everything the fork alters is listed file by file in
+[`pijade/UPSTREAM.md`](./pijade/UPSTREAM.md), which is the place to look before changing anything
+upstream also maintains.
+
+## Licence
+
+Blockstream Jade is MIT licensed and this fork is under the same licence; the `LICENSE` file at
+the root is untouched, as is the `COPYING` file upstream ships beside it. Upstream's own wording
+is that the collection is subject to GPL3 while individual source components can be used under
+their specific licences. Third-party code the fork brings in keeps its own licence, recorded where
+it sits and listed in [`pijade/README.md`](./pijade/README.md).

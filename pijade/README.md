@@ -2,18 +2,19 @@
 
 Blockstream Jade's firmware, running on a Raspberry Pi Zero W or Zero with a Waveshare 1.3"
 240x240 LCD HAT and a camera. The only cable reaching the device is power. Everything else travels
-by QR code: the device reads with its camera and answers on its screen. The board this fork was
-built and measured on is a Zero W whose WiFi and Bluetooth circuitry has been physically cut; the
-next section says what a plain Zero needs instead.
+by QR code: the device reads with its camera and answers on its screen. The only board it has
+ever run on is a Zero W whose WiFi and Bluetooth circuitry has been physically cut; the next
+section says what a plain Zero needs instead.
 
 > **Warning: this is experimental work.** The device is not used with real funds; testing is done
 > on testnet or with an empty wallet. The code in this repository has not had an independent
 > security audit.
 
 This document describes what the fork itself brings and how the device is used. Jade's own
-features, and the build document for Jade's hardware, stay with upstream; the root `README.md`
-carries that document unchanged. Every departure from upstream is recorded in `UPSTREAM.md`: a
-row for each text file, and a note accounting for the binary fixtures a row cannot describe.
+features, and the build document for Jade's hardware, stay with upstream; `JADE-BUILD.md` at
+the root carries that document unchanged. Every departure from upstream is recorded in
+`UPSTREAM.md`: a row for each text file, and a note accounting for the binary fixtures a row
+cannot describe.
 
 ## The hardware
 
@@ -31,17 +32,19 @@ by anyone who takes it; what that means for stored secrets is written out in
 ### The two boards
 
 The airgap is a property of the board, not of the software. A Zero W has the radio hardware on it,
-so it has to be cut; that is what was done to the board this fork was built and measured on. A
+so it has to be cut; that is what was done to the board these measurements were taken on. A
 plain Zero carries no WiFi and no Bluetooth chip at all, so there is nothing to cut and nothing to
 switch off, and that variant is airgapped as it arrives.
 
-The software is the same on both. piJade is built without `CONFIG_BT_ENABLED`, so `main/ble/ble.c`
-contributes no code and the firmware has no Bluetooth in it on either board. The card image also
-masks the radio services, NetworkManager, wpa_supplicant, bluetooth and the rest, but masking is a
-filesystem link that does not ask what hardware is present; it is housekeeping, not the guarantee.
-The guarantee is the cut on a Zero W and the absence on a plain Zero.
+The software is the same on both, and it carries no radio driver at all. piJade is built without
+`CONFIG_BT_ENABLED`, so `main/ble/ble.c` never reaches the compiler, and the WiFi code in
+`main/wifi.c` is ESP32-only and compiles away to nothing here. What survives into the binary is
+three empty stubs from `main/ble/ble.h` that return false; nothing that can reach a radio. The
+card image also masks the radio services, NetworkManager, wpa_supplicant, bluetooth and the rest,
+but masking is a filesystem link that does not ask what hardware is present; it is housekeeping,
+not the guarantee. The guarantee is the cut on a Zero W and the absence on a plain Zero.
 
-What has not been tried: piJade has only ever been built, written and measured on a Zero W. A
+What has not been tried: piJade has only ever been run and measured on a Zero W. A
 plain Zero has never been booted with this image. Nothing in the build or in the image depends on
 the radio being present, which is a reason to expect it to work, not a measurement of it.
 
