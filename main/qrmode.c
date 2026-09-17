@@ -2432,8 +2432,10 @@ static void show_mining_solution_qr(const mining_solution_t* sol, const char* id
     JADE_ASSERT(id);
     JADE_ASSERT(id_len && id_len <= MAXLEN_ID);
 
-    // Same envelope upstream sent over serial ({"id","result":bytes}, main/process.c:508-531),
-    // so a later companion parses the qr reply with the code it already has for the serial one.
+    // BBB-AIRGAP: same envelope upstream sent over serial ({"id","result":bytes},
+    // main/process.c:508-531), so the reply keeps a shape that already exists rather than one
+    // invented here. The scripts under pijade/tools read it back off the screen and check it;
+    // nothing in this fork carries it to a node, and the chain stops there.
     // Room for the map header, "id" plus up to MAXLEN_ID chars, "result" plus the byte string.
     uint8_t reply_cbor[MINING_SOLUTION_MAX + 48];
     CborEncoder root;
@@ -2449,7 +2451,10 @@ static void show_mining_solution_qr(const mining_solution_t* sol, const char* id
     const size_t len = cbor_encoder_get_buffer_size(&root, reply_cbor);
     JADE_LOGI("Mining solution %u bytes, reply cbor %u bytes", (unsigned)sol->len, (unsigned)len);
 
-    const char* message[] = { "Scan with", "mining", "companion" };
+    // BBB-AIRGAP: upstream's wording ("Scan with ... companion") names a tool this fork does not
+    // ship, so the screen says what the code is instead, the way the two screens that already hand
+    // something back do (show_address_detail, handle_sign_message_payload).
+    const char* message[] = { "Scan QR", "solved", "block" };
     display_bcur_qr(message, 3, BCUR_TYPE_JADE_MINE_REPLY, reply_cbor, len, NULL);
 }
 

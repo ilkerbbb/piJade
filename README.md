@@ -85,6 +85,9 @@ exchange upstream drives over a cable is carried by a QR code instead.
   that keeps working once loaded, with the browser offline.
 - A message is signed from a second [helper page](https://ilkerbbb.github.io/piJade/sign); the
   signature comes back on the screen as a QR code.
+- Mining is started by scanning a block template QR, and a solved block comes back on the screen
+  as a QR code. Nothing in this repository carries that QR to a node, and no block the device
+  produced has been offered to one; `pijade/README.md` says what was measured and what was not.
 
 ## What you need
 

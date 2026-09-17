@@ -173,6 +173,56 @@ turns a message and a derivation path into the QR the device reads:
 The device shows the message and the path, and the signature comes back on the screen as a QR
 code.
 
+## Mining
+
+The device can mine a block. Upstream drives this from a program on the computer at the other end
+of the cable; here it is reached the way everything else is, by QR code.
+
+`Options > Mining > Start` opens the camera and waits for a mining template: a QR carrying six
+fields a node's `getblocktemplate` returns, which are the version, the previous block hash, the
+target, the time, the bits and the height, and a seventh the node never supplies: an address,
+chosen by whoever prepared the template. A QR of any other type is turned away with a message that
+says so. The device then shows the height and that address, with the reject button highlighted
+rather than the tick, and starts only once the screen is accepted. While it works the screen
+shows the current hash rate and the block reward, which it works out from the height rather than
+believing the template. The header button stops it.
+
+`Options > Mining > Reward Address` decides who the reward goes to: `Template`, the address the
+scanned QR named, or `This Wallet`, an address derived on the device from the loaded seed. The
+second needs an unlocked wallet. The setting is applied wherever a template arrives, including one
+reached through the ordinary scan, so a QR prepared by somebody else cannot quietly redirect the
+reward. Whichever address wins ends up in the coinbase transaction and therefore inside the
+solution QR, where anyone who reads that code can see it; a block has to say who it pays.
+
+When a block is solved the screen reads `Scan QR / solved / block` and draws the solution as a
+BC-UR sequence. What it carries is the two-field reply upstream sends back over the cable, an id
+and a result; the result holds the block header, the transaction count and the coinbase
+transaction the device built, which together are the serialised block `submitblock` expects.
+
+**Nothing carries that QR to a node, and no block this device produced has ever been offered to
+one.** The repository holds scripts that draw a template QR and read a solution back off the
+screen, and the chain stops there: no `getblocktemplate` puts a real template into one, and no
+`submitblock` takes a solution out. The only check ever run on a solution was a local one: the
+header fields were compared against the template they came from, and the double SHA-256 of the
+header was confirmed to be at or below the template's target. Whether a node would accept the
+block is a different question, and it has not been asked.
+
+The speed is measured. On a Pi Zero W powered over USB the device holds about 156,942 hashes per
+second, falling to 155,927 after fifteen minutes of unbroken work, a drop of 0.65 per cent and
+not thermal throttling. What that is worth depends entirely on the target:
+
+- A regtest template is solved at once; its target lets through about half of all hashes.
+- A template at the minimum difficulty, which is what a testnet template can carry, takes about
+  4.3 billion hashes on average, about seven and a half hours at this rate. That figure holds for
+  a minimum-difficulty target and nothing else.
+- Bitcoin itself is out of reach and will stay there. At the difficulty of 2 September 2026 the
+  network was running at roughly 9 x 10^20 hashes per second, which makes this device about one
+  part in 6 x 10^15 of it. The average wait for a block works out near 10^11 years, and the
+  universe is about 1.4 x 10^10 years old.
+
+No screen offers odds, an estimate, or a bar filling toward a block, because there is no honest
+version of any of them.
+
 ## The duress PIN
 
 A second PIN can be set which, when entered, erases the stored wallet. It is not stored in the
