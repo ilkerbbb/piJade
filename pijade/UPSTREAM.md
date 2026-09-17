@@ -128,7 +128,7 @@ All work happens on `bbb-airgap`.
 | `main/registration_seal.h` | +32 / -0 | **New file** | seal: AES-256-CBC plus HMAC seal primitives for registered-wallet records; the AES_PADDED_LEN argument was parenthesised |
 | `components/miner/miner.h` | +31 / -0 | **New file** | feat(miner): take in the mining component, write two sims, close three defects; fix(miner): close the indefinite hang in production, and fit the esp_log shim to the API |
 | `main/ui/sign_tx.c` | +36 / -7 | Upstream file | feat(ui): phase 4E, setting flags, the xpub type restriction and the I/O test; feat(mining): the mining menu, reward address selection and a two-line screen; also the upstream `uint32_t` RPC series (`c95ed4ee` to `58c11066`, ten commits), taken on 2026-09-15 |
-| `main/process.c` | +32 / -2 | Upstream file | libjade: fix deadlock between standard CBOR and libjade CBOR messages |
+| `main/process.c` | +29 / -2 | Upstream file | libjade: fix deadlock between standard CBOR and libjade CBOR messages |
 | `libjade/nvs_flash.c` | +29 / -3 | Emulator layer | `nvs_commit()` and `nvs_flash_erase()` notify the host; the single hook for settings persistence. It covers all five namespaces, asks for every copy to be removed on a factory reset, and provides access to `pijade_settings_storage()` |
 | `main/utils/psbt.c` | +30 / -0 | Upstream file | feat(psbt): suggest the right slot with several wallets, and ask early when there is no input to sign |
 | `main/ui/keyboard.c` | +27 / -0 | Upstream file | Turns the ALT event into the existing Shift button event, opening the next keyboard page |
@@ -192,14 +192,14 @@ All work happens on `bbb-airgap`.
 | `test_data/msgfile_bbb_nonascii.json` | +6 / -0 | **New file** | camera: capture at VGA, and refuse a message the screen cannot show |
 | `test_data/msgfile_bbb_nul.json` | +6 / -0 | **New file** | camera: capture at VGA, and refuse a message the screen cannot show |
 | `test_data/msgfile_bbb_tab.json` | +6 / -0 | **New file** | camera: capture at VGA, and refuse a message the screen cannot show |
-| `jadepy/jade_sw.py` | +8 / -1 | Upstream file | libjade: fix deadlock between standard CBOR and libjade CBOR messages |
+| `jadepy/jade_sw.py` | +6 / -1 | Upstream file | libjade: fix deadlock between standard CBOR and libjade CBOR messages |
 | `main/process/sign_bip85_digest.c` | +6 / -4 | Upstream file | The upstream `uint32_t` RPC series (`c95ed4ee` to `58c11066`, ten commits), taken on 2026-09-15; this file carried no divergence before it |
 | `components/miner/CMakeLists.txt` | +5 / -0 | **New file** | feat(miner): take in the mining component, write two sims, close three defects |
 | `libjade/include/freertos/FreeRTOS.h` | +5 / -0 | Emulator layer | feat(miner): take in the mining component, write two sims, close three defects |
 | `main/idletimer.h` | +5 / -0 | Upstream file | The `idletimer_stop()` and `idletimer_request_stop()` declarations |
 | `main/process/update_pinserver.c` | +5 / -0 | Upstream file | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
 | `main/qrscan.h` | +5 / -0 | Upstream file | The second `quirc` instance and its buffer, declared next to the first so both are destroyed in one place |
-| `main/process/ota_util.c` | +18 / -9 | Upstream file | The custom app descriptor's `.rodata_custom_desc` section attribute is skipped under `CONFIG_LIBJADE`; the host linkers have no such section; also the upstream `uint32_t` RPC series (`c95ed4ee` to `58c11066`, ten commits), taken on 2026-09-15 |
+| `main/process/ota_util.c` | +14 / -9 | Upstream file | Upstream commits only, nothing of ours: the `CONFIG_LIBJADE` guard around the custom app descriptor's section attribute is upstream's own hunk in `fe3e3e94`, taken here as `6ee15ad0`; the rest is the upstream `uint32_t` RPC series (`c95ed4ee` to `58c11066`, ten commits), taken on 2026-09-15 |
 | `libjade/include/freertos/task.h` | +4 / -0 | Emulator layer | The `libjade_tick_epoch_reset()` declaration |
 | `main/ui/update_pinserver.c` | +4 / -0 | Upstream file | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
 | `main/ui/signer.c` | +3 / -0 | Upstream file | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
@@ -239,7 +239,7 @@ All work happens on `bbb-airgap`.
 | `docs/.nojekyll` | +0 / -0 | **New file** | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
 
 **Totals (measured 2026-09-17, with this commit staged):** 216 files, of which 189 are text
-(+38270 / -3348) and 27 are binary fixtures, listed below rather than in the table because
+(+38261 / -3348) and 27 are binary fixtures, listed below rather than in the table because
 `--numstat` reports no line counts for them. A refresh on 2026-09-12 listed 175 files and 148 text
 files, and a later one the same day listed 187 and 160; the macOS port of libjade, the
 `_Static_assert` round, the quirc round and the test-suite network adaptation are the difference.
@@ -353,13 +353,12 @@ the card.
    every line that differs from the branch point: the diff against `fdb67a3f` also contains
    upstream commits this fork has taken, and those stay as upstream wrote them.
 
-   Measured on 2026-09-16. The diff touches 137 files that existed at the branch point, and 92 of
-   them carry the marker. Of the 45 that do not: 13 are fixtures the fork deleted, 16 are
-   byte-identical to `upstream/master` and so hold nothing of ours, 2 are JSON fixtures that
-   cannot carry a comment, 4 are documents, 1 is `format.sh`, and 9 are source or build files
-   whose own change is genuinely unmarked. That last group is a debt. It is written here rather
-   than dissolved by softening the rule, because a rule that describes less than it promises is
-   worse than a rule with a counted exception.
+   Measured on 2026-09-17. The diff touches 150 files that existed at the branch point, 13 of
+   which are fixtures the fork deleted. Of the 137 that survive, 98 carry the marker. Of the 39
+   that do not: 16 are byte-identical to `upstream/master`, 3 differ from `upstream/master` only
+   by upstream commits this fork has not taken, and so neither group holds anything of ours; 15
+   are JSON fixtures that cannot carry a comment, 4 are documents, and 1 is `format.sh`. No
+   source or build file carries a change of ours that is unmarked.
 
 ## 4. Taking an upstream update
 
@@ -373,8 +372,9 @@ git rebase upstream/master
 
 If there is a conflict: it can only be in the upstream files listed above. In most of them our
 side is marked with a `BBB-AIRGAP` comment; upstream's new state is kept, and our lines are placed
-back on top of it. In the nine files named as debt in rule 3 the marker is missing, so there the
-diff against `upstream/master` is what separates our side from upstream's.
+back on top of it. Where rule 3 counts the marker as absent (the JSON fixtures, the four
+documents and `format.sh`) the diff against `upstream/master` is what separates our side from
+upstream's.
 
 ## 5. Mandatory verification after a rebase
 

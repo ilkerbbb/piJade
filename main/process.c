@@ -27,9 +27,6 @@ static RingbufHandle_t qemu_tcp_out = NULL;
 static TaskHandle_t internal_handle = NULL;
 static RingbufHandle_t internal_out = NULL;
 #ifdef CONFIG_LIBJADE
-// BBB-AIRGAP: SOURCE_LIBJADE is this fork's in-process message channel, used by the emulator and
-// the host driver (libjade/).  Every CONFIG_LIBJADE block in this file belongs to it, and none
-// of them is built for the card.
 static RingbufHandle_t libjade_out = NULL;
 #endif
 static jade_msg_source_t last_message_source = SOURCE_NONE;

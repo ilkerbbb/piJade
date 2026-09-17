@@ -7,14 +7,12 @@ from .jade_error import JadeError
 logger = logging.getLogger(__name__)
 
 try:
-    # BBB-AIRGAP: this fork builds libjade for macOS as well as Linux (pijade/host), so the
-    # library name is chosen at import time rather than fixed to the Linux one.
     _libjade = CDLL('libjade.dylib' if sys.platform == 'darwin' else 'libjade.so')
     _libjade.libjade_receive.restype = POINTER(c_ubyte)
 except Exception as _:
     raise ImportError  # libjade.so not available
 
-# BBB-AIRGAP: method name used for libjade GUI/display requests
+# Method name used for libjade GUI/display requests
 # mirrors LIBJADE_REQUEST_METHOD in libjade.h
 _LIBJADE_REQUEST_METHOD = 'libjade_request'
 
