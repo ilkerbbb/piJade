@@ -2433,7 +2433,7 @@ static void show_mining_solution_qr(const mining_solution_t* sol, const char* id
     JADE_ASSERT(id_len && id_len <= MAXLEN_ID);
 
     // BBB-AIRGAP: same envelope upstream sent over serial ({"id","result":bytes},
-    // main/process.c:511-534), so the reply keeps a shape that already exists rather than one
+    // main/process.c:508-531), so the reply keeps a shape that already exists rather than one
     // invented here. The scripts under pijade/tools read it back off the screen and check it;
     // nothing in this fork carries it to a node, and the chain stops there.
     // Room for the map header, "id" plus up to MAXLEN_ID chars, "result" plus the byte string.
