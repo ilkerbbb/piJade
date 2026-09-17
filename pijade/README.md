@@ -182,10 +182,10 @@ of the cable; here it is reached the way everything else is, by QR code.
 fields a node's `getblocktemplate` returns, which are the version, the previous block hash, the
 target, the time, the bits and the height, and a seventh the node never supplies: an address,
 chosen by whoever prepared the template. A QR of any other type is turned away with a message that
-says so. The device then shows the height and that address, with the reject button highlighted
-rather than the tick, and starts only once the screen is accepted. While it works the screen
-shows the current hash rate and the block reward, which it works out from the height rather than
-believing the template. The header button stops it.
+says so. The device then shows the height and the address the block will pay, with the reject
+button highlighted rather than the tick, and starts only once the screen is accepted. While it
+works the screen shows the current hash rate and the block reward, which it works out from the
+height rather than believing the template. The header button stops it.
 
 `Options > Mining > Reward Address` decides who the reward goes to: `Template`, the address the
 scanned QR named, or `This Wallet`, an address derived on the device from the loaded seed. The
