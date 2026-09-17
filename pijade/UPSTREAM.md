@@ -15,8 +15,8 @@
 | `upstream` | https://github.com/Blockstream/Jade.git | Read only; NEVER pushed to |
 | `origin` | https://github.com/ilkerbbb/piJade.git | Where the fork is published; made public on 2026-09-08, default branch `bbb-airgap` |
 
-The `master` branch is kept as a mirror of upstream; no change is ever written on top of `master`.
-All work happens on `bbb-airgap`.
+`master` only ever moves by a fast-forward to `upstream/master` and never carries a change of
+ours, so it lags until the next rebase is taken. All work happens on `bbb-airgap`.
 
 ## 2. Divergence inventory (2026-09-17, after the marker debt was closed)
 
