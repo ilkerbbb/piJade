@@ -7,7 +7,11 @@
 
 __attribute__((__noreturn__)) void jade_abort(const char* file, const int line_n);
 
-void __wrap_abort(void);
+// BBB-AIRGAP: on ESP32 abort() is wrapped at link time and the compiler still sees stdlib's own
+// noreturn abort(). The amalgamated build instead rewrites abort() to this name with a macro in
+// main/amalgamated.c, so left unmarked it makes every noreturn function that ends in abort() look
+// to the compiler as if it falls off its end.
+__attribute__((__noreturn__)) void __wrap_abort(void);
 
 #ifndef __FILE_NAME__
 // Compiling natively: work around a lack of __FILE_NAME__ support
