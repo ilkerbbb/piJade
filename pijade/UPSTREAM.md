@@ -18,7 +18,7 @@
 The `master` branch is kept as a mirror of upstream; no change is ever written on top of `master`.
 All work happens on `bbb-airgap`.
 
-## 2. Divergence inventory (2026-09-16, after the root README was rebuilt)
+## 2. Divergence inventory (2026-09-17, after the marker debt was closed)
 
 > The numbers were measured with `git diff --numstat fdb67a3f..HEAD -- . ':(exclude)pijade'`.
 > `fdb67a3f` is the branch point. `pijade/` is ours and has no upstream counterpart, so it does
@@ -49,7 +49,7 @@ All work happens on `bbb-airgap`.
 | File | Added / removed | Kind | Reason |
 |---|---|---|---|
 | `docs/sign/index.html` | +15071 / -0 | **New file** | docs: read the signature back on the sign page |
-| `main/qrmode.c` | +1925 / -209 | Upstream file | An error reply to the pinserver exchange is reported rather than falling into the payload check and being logged as a malformed message (the user abandoning PIN entry arrives as `CBOR_RPC_USER_CANCELLED`, and upstream has no arm for it). Wallet QR codes go full screen; the information screen and the code screen were separated. Also the xpub density/rate ladder: xpub transfer follows the user's QR setting, and a device with no setting is treated as Low. A completed transfer is now routed by what it is rather than by the single format the scanner used to return: the signing tail was split out so a PSBT can arrive either wrapped in BC-UR/CBOR or as the plain serialised transaction BBQr carries, a `U` file goes to the existing multisig registration parser, and every other BBQr file type is refused by name instead of being guessed at. A privacy warning now stands in front of the xpub code when `Features > Warnings` is on; the activity to return to is read BEFORE that warning, because `await_yesno_activity_loop()` returns from inside its own loop and leaves the warning as the current activity. The address the user scans to verify is now searched for on the receive and the change branch together, and across accounts 0, 1 and 2 plus whichever account the last xpub export used, rather than on the one branch of the one account the menu happened to hold; the search is breadth-first over those roots so a low change index is not queued behind five hundred receive addresses.  The three errors that carry a message the device did not choose - the entropy request, the epoch value and the Oracle update - put the caller's fixed words in the title bar instead of a second message row, because a two-row dialog gives each row a fixed height and cuts what does not fit; those messages run to 515 px against a 236 px row, and each is also the reply text sent back to the host, so shortening them would blind it |
+| `main/qrmode.c` | +1933 / -217 | Upstream file | An error reply to the pinserver exchange is reported rather than falling into the payload check and being logged as a malformed message (the user abandoning PIN entry arrives as `CBOR_RPC_USER_CANCELLED`, and upstream has no arm for it). Wallet QR codes go full screen; the information screen and the code screen were separated. Also the xpub density/rate ladder: xpub transfer follows the user's QR setting, and a device with no setting is treated as Low. A completed transfer is now routed by what it is rather than by the single format the scanner used to return: the signing tail was split out so a PSBT can arrive either wrapped in BC-UR/CBOR or as the plain serialised transaction BBQr carries, a `U` file goes to the existing multisig registration parser, and every other BBQr file type is refused by name instead of being guessed at. A privacy warning now stands in front of the xpub code when `Features > Warnings` is on; the activity to return to is read BEFORE that warning, because `await_yesno_activity_loop()` returns from inside its own loop and leaves the warning as the current activity. The address the user scans to verify is now searched for on the receive and the change branch together, and across accounts 0, 1 and 2 plus whichever account the last xpub export used, rather than on the one branch of the one account the menu happened to hold; the search is breadth-first over those roots so a low change index is not queued behind five hundred receive addresses.  The three errors that carry a message the device did not choose - the entropy request, the epoch value and the Oracle update - put the caller's fixed words in the title bar instead of a second message row, because a two-row dialog gives each row a fixed height and cuts what does not fit; those messages run to 515 px against a 236 px row, and each is also the reply text sent back to the host, so shortening them would blind it |
 | `main/process/mnemonic.c` | +2012 / -461 | Upstream file | Entropy source selection; the two SeedQR export formats (Compact and Standard), a bounds check against the silent overflow in `qrcode_initText()`, and not logging the word count. Seed XOR: the combine flow that joins parts into the wallet they were split from, the split flow that shows and quizzes each part, and the entropy-to-words helper the two share with the SeedQR import. On the same `Warnings` flag, a screen saying the drawn code is the wallet itself, placed after the export is offered rather than before it, so a user who was going to skip the step is not made to read it. A persisted SLIP-0039 recovery hands its master secret to `keychain_cache_slip39_master_secret()` after `keychain_set()`, so the card is written with that secret behind a tag byte rather than with the serialised keychain, and the wallet comes back from a restart carrying its seed the way a BIP39 wallet re-derived from its entropy does. The call sits after `keychain_set()` because that call is what clears the cache, and a temporary restore skips it, having nothing to persist |
 | `main/process/dashboard.c` | +1413 / -220 | Upstream file | The main menu submenu; the camera rotation setting and its label; the `QR Settings` event branch; the same macro added to both board gates of the brightness handler; `select_initial_connection()` no longer builds a connection menu, because this board has neither channel it offered: the QR flow is entered directly, the `QR Mode` double-check follows its own flag rather than the menu's existence (upstream gated it on both, so deleting the menu alone would have dropped the question silently), and the cleanup the menu's back button did, forgetting a derived but sourceless wallet, is `forget_unsourced_wallet()`, shared by the QR back button and the KEY3 escape; `make_connect_to_activity()` is called with no arguments; `Session > Sleep` draws an information screen before shutting down (`#ifdef CONFIG_LIBJADE`; the Pi cannot cut its own supply, so the user learns of the shutdown from the screen, and the message deliberately does not say when the power may be pulled, with the reason written in a comment in the code); the `Set Clock` event first shows the page address on a back/continue screen, and on `Continue` opens the `handle_scan_qr()` flow and leaves the menu loop (a scan can also load a wallet, so screens the menu was holding may be released), while the back arrow keeps it in the menu; `handle_scan_qr()` now takes the help address as a parameter; the `Buttons` check (`handle_io_test_buttons()`): each input turns its own mark green, centre click and KEY2 produce the same event so both light up together, and KEY3 leaves the screen; the `debug_set_network` method branch and its forward declaration, both inside the existing `CONFIG_DEBUG_MODE` blocks; exporting a registered multisig record asks a privacy question first when `Features > Warnings` is on, because that file carries the account key of every signer, and it is asked before the unsorted-multisig note that follows it, since that note has no 'no' to give; the comment above the `Authenticator` row now records which wallet shapes reach it without a seed: neither of the two a wallet is persisted in today does, because BIP39 stores its entropy and SLIP-0039 its master secret and both are re-derived on load, and the condition stays because the serialised branch still exists and still reads back seedless; also the upstream `uint32_t` RPC series (`c95ed4ee` to `58c11066`, ten commits), taken on 2026-09-15 |
 | `components/miner/miner.c` | +1109 / -0 | **New file** | feat(miner): take in the mining component, write two sims, close three defects; fix(miner): close three P2 and three P3 findings from review round 1 |
@@ -128,9 +128,9 @@ All work happens on `bbb-airgap`.
 | `main/registration_seal.h` | +32 / -0 | **New file** | seal: AES-256-CBC plus HMAC seal primitives for registered-wallet records; the AES_PADDED_LEN argument was parenthesised |
 | `components/miner/miner.h` | +31 / -0 | **New file** | feat(miner): take in the mining component, write two sims, close three defects; fix(miner): close the indefinite hang in production, and fit the esp_log shim to the API |
 | `main/ui/sign_tx.c` | +36 / -7 | Upstream file | feat(ui): phase 4E, setting flags, the xpub type restriction and the I/O test; feat(mining): the mining menu, reward address selection and a two-line screen; also the upstream `uint32_t` RPC series (`c95ed4ee` to `58c11066`, ten commits), taken on 2026-09-15 |
-| `main/process.c` | +29 / -2 | Upstream file | libjade: fix deadlock between standard CBOR and libjade CBOR messages |
+| `main/process.c` | +32 / -2 | Upstream file | libjade: fix deadlock between standard CBOR and libjade CBOR messages |
 | `libjade/nvs_flash.c` | +29 / -3 | Emulator layer | `nvs_commit()` and `nvs_flash_erase()` notify the host; the single hook for settings persistence. It covers all five namespaces, asks for every copy to be removed on a factory reset, and provides access to `pijade_settings_storage()` |
-| `main/utils/psbt.c` | +28 / -0 | Upstream file | feat(psbt): suggest the right slot with several wallets, and ask early when there is no input to sign |
+| `main/utils/psbt.c` | +30 / -0 | Upstream file | feat(psbt): suggest the right slot with several wallets, and ask early when there is no input to sign |
 | `main/ui/keyboard.c` | +27 / -0 | Upstream file | Turns the ALT event into the existing Shift button event, opening the next keyboard page |
 | `components/esp32-quirc/lib/quirc.c` | +26 / -0 | Vendored library | quirc: the row scratch `threshold()` works on is allocated by `quirc_resize()` alongside the image buffers, from the same width, and zeroed there; `quirc_destroy()` frees it |
 | `test_data/sign_message_golden.json` | +26 / -0 | **New file** | docs: read the signature back on the sign page |
@@ -149,7 +149,7 @@ All work happens on `bbb-airgap`.
 | `libjade/gui.py` | +22 / -2 | Upstream file | camera: capture at VGA, and refuse a message the screen cannot show |
 | `main/descriptor_text.h` | +22 / -0 | **New file** | descriptor: a parser reducing text and Specter JSON descriptors to wally's canonical policy-template form |
 | `main/selfcheck.c` | +94 / -641 | Upstream file | test: descriptor tests moved into the libjade verification branch; multisig: record v4, body sealed with AES; the legacy v0-v2 read paths were removed; the same-record check happens in the clear; storage: a third case stores and reloads a SLIP-0039 master secret, so the tagged blob branch is exercised at both supported lengths |
-| `jadepy/jade.py` | +21 / -0 | Upstream file | `set_network_restriction()`, the client side of the debug handler above; section 28 |
+| `jadepy/jade.py` | +24 / -0 | Upstream file | `set_network_restriction()`, the client side of the debug handler above; section 28 |
 | `libjade/include/esp_attr.h` | +19 / -0 | **New file** | feat(miner): take in the mining component, write two sims, close three defects |
 | `main/multisig.h` | +20 / -7 | Upstream file | multisig: record v4, body sealed with AES; the legacy v0-v2 read paths were removed; the same-record check happens in the clear |
 | `main/process/pinclient.c` | +20 / -1 | Upstream file | security: the pinserver AES key and the decrypted padding are cleared |
@@ -192,23 +192,23 @@ All work happens on `bbb-airgap`.
 | `test_data/msgfile_bbb_nonascii.json` | +6 / -0 | **New file** | camera: capture at VGA, and refuse a message the screen cannot show |
 | `test_data/msgfile_bbb_nul.json` | +6 / -0 | **New file** | camera: capture at VGA, and refuse a message the screen cannot show |
 | `test_data/msgfile_bbb_tab.json` | +6 / -0 | **New file** | camera: capture at VGA, and refuse a message the screen cannot show |
-| `jadepy/jade_sw.py` | +6 / -1 | Upstream file | libjade: fix deadlock between standard CBOR and libjade CBOR messages |
+| `jadepy/jade_sw.py` | +8 / -1 | Upstream file | libjade: fix deadlock between standard CBOR and libjade CBOR messages |
 | `main/process/sign_bip85_digest.c` | +6 / -4 | Upstream file | The upstream `uint32_t` RPC series (`c95ed4ee` to `58c11066`, ten commits), taken on 2026-09-15; this file carried no divergence before it |
 | `components/miner/CMakeLists.txt` | +5 / -0 | **New file** | feat(miner): take in the mining component, write two sims, close three defects |
 | `libjade/include/freertos/FreeRTOS.h` | +5 / -0 | Emulator layer | feat(miner): take in the mining component, write two sims, close three defects |
 | `main/idletimer.h` | +5 / -0 | Upstream file | The `idletimer_stop()` and `idletimer_request_stop()` declarations |
 | `main/process/update_pinserver.c` | +5 / -0 | Upstream file | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
 | `main/qrscan.h` | +5 / -0 | Upstream file | The second `quirc` instance and its buffer, declared next to the first so both are destroyed in one place |
-| `main/process/ota_util.c` | +14 / -9 | Upstream file | The custom app descriptor's `.rodata_custom_desc` section attribute is skipped under `CONFIG_LIBJADE`; the host linkers have no such section; also the upstream `uint32_t` RPC series (`c95ed4ee` to `58c11066`, ten commits), taken on 2026-09-15 |
+| `main/process/ota_util.c` | +18 / -9 | Upstream file | The custom app descriptor's `.rodata_custom_desc` section attribute is skipped under `CONFIG_LIBJADE`; the host linkers have no such section; also the upstream `uint32_t` RPC series (`c95ed4ee` to `58c11066`, ten commits), taken on 2026-09-15 |
 | `libjade/include/freertos/task.h` | +4 / -0 | Emulator layer | The `libjade_tick_epoch_reset()` declaration |
 | `main/ui/update_pinserver.c` | +4 / -0 | Upstream file | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
 | `main/ui/signer.c` | +3 / -0 | Upstream file | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
 | `libjade/esp_event.c` | +3 / -5 | Emulator layer | The event loop names itself from inside the thread through `libjade_thread_setname()`, because Darwin can only name the calling thread |
 | `libjade/README.md` | +3 / -1 | Emulator layer | The macOS build outputs (`libjade.dylib`) and `DYLD_LIBRARY_PATH` |
 | `main/rsa.h` | +3 / -3 | Upstream file | The upstream `uint32_t` RPC series (`c95ed4ee` to `58c11066`, ten commits), taken on 2026-09-15; this file carried no divergence before it |
-| `main/CMakeLists.txt` | +2 / -2 | Upstream file | feat(qr): take in the jade-mine template, bound it, reject it; no mining yet; feat(mining): the mining menu, reward address selection and a two-line screen |
+| `main/CMakeLists.txt` | +4 / -2 | Upstream file | feat(qr): take in the jade-mine template, bound it, reject it; no mining yet; feat(mining): the mining menu, reward address selection and a two-line screen |
 | `main/aes.h` | +2 / -1 | Upstream file | seal: AES-256-CBC plus HMAC seal primitives for registered-wallet records; the AES_PADDED_LEN argument was parenthesised |
-| `main/process/debug_scan_qr.c` | +2 / -2 | Upstream file | security: camera entropy advances with movement, and the user ends the collection |
+| `main/process/debug_scan_qr.c` | +5 / -2 | Upstream file | security: camera entropy advances with movement, and the user ends the collection |
 | `main/process/sign_tx.c` | +13 / -14 | Upstream file | A multisig record name is user data; only the threshold and the number of xpubs are logged; also the upstream `uint32_t` RPC series (`c95ed4ee` to `58c11066`, ten commits), taken on 2026-09-15 |
 | `main/ui/confirm_address.c` | +2 / -0 | Upstream file | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
 | `main/ui/sign_identity.c` | +2 / -0 | Upstream file | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
@@ -216,9 +216,9 @@ All work happens on `bbb-airgap`.
 | `main/utils/cbor_rpc.h` | +2 / -2 | Upstream file | The upstream `uint32_t` RPC series (`c95ed4ee` to `58c11066`, ten commits), taken on 2026-09-15; this file carried no divergence before it |
 | `main/process/get_bip85_pubkey.c` | +2 / -2 | Upstream file | The upstream `uint32_t` RPC series (`c95ed4ee` to `58c11066`, ten commits), taken on 2026-09-15; this file carried no divergence before it |
 | `format.sh` | +1 / -1 | Upstream file | libjade: add support for custom debug_selfcheck functions |
-| `main/main.c` | +1 / -1 | Upstream file | security: camera entropy advances with movement, and the user ends the collection |
+| `main/main.c` | +4 / -1 | Upstream file | security: camera entropy advances with movement, and the user ends the collection |
 | `main/otpauth.h` | +1 / -0 | Upstream file | otp: validation added for URL-encoded strings in an OTP context |
-| `main/smoketest.c` | +1 / -1 | Upstream file | security: camera entropy advances with movement, and the user ends the collection |
+| `main/smoketest.c` | +3 / -1 | Upstream file | security: camera entropy advances with movement, and the user ends the collection |
 | `test_data/msg_large.json` | +1 / -1 | Upstream file | camera: capture at VGA, and refuse a message the screen cannot show |
 | `test_data/msgfile_large.json` | +1 / -1 | Upstream file | camera: capture at VGA, and refuse a message the screen cannot show |
 | `test_data/qr_vga_bcur_psbt.json` | +1 / -1 | **New file** | Recorded at VGA; the QVGA recording it replaced was removed in `14afea47`, when capture moved to VGA. Git reports the pair as a rename because the payload is the same scene |
@@ -238,8 +238,8 @@ All work happens on `bbb-airgap`.
 | `main/process/get_blinding_factor.c` | +1 / -1 | Upstream file | The upstream `uint32_t` RPC series (`c95ed4ee` to `58c11066`, ten commits), taken on 2026-09-15; this file carried no divergence before it |
 | `docs/.nojekyll` | +0 / -0 | **New file** | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
 
-**Totals (measured 2026-09-16, with this commit staged):** 216 files, of which 189 are text
-(+38233 / -3345) and 27 are binary fixtures, listed below rather than in the table because
+**Totals (measured 2026-09-17, with this commit staged):** 216 files, of which 189 are text
+(+38268 / -3348) and 27 are binary fixtures, listed below rather than in the table because
 `--numstat` reports no line counts for them. A refresh on 2026-09-12 listed 175 files and 148 text
 files, and a later one the same day listed 187 and 160; the macOS port of libjade, the
 `_Static_assert` round, the quirc round and the test-suite network adaptation are the difference.
@@ -275,17 +275,19 @@ mnemonic flows (`main/ui/mnemonic.c`, `main/process/mnemonic.c`), and moving the
 tests out of `main/selfcheck.c` into `libjade/selfcheck/`. A rebase conflict is likelier in those
 files than anywhere else.
 
-**Breakdown by area (measured 2026-09-16, with this commit staged):** the `libjade/` emulator
-layer +4861 / -85 (30 files), Jade's own `main/` files +14961 / -2715 (112 files), the
+**Breakdown by area (measured 2026-09-17, with this commit staged):** the `libjade/` emulator
+layer +4861 / -85 (30 files), Jade's own `main/` files +14988 / -2718 (112 files), the
 `components/miner/` mining component +1151 / -0 (4 files), the vendored `components/esp32-quirc/`
 scanner +45 / -3 (3 files), the vendored `components/libwally-core/` config header +10 / -0
 (1 file), the helper pages under `docs/` +16226 / -0 (6 files), the recorded QR fixtures under
-`test_data/` +98 / -15 (49 files), `jadepy/` +27 / -1 (2 files), the `diy/` hardware-selection
-page +1 / -1 (1 file), and files at the repository root +853 / -525 (8 files). The ten areas add
-up to the 216 files above. Measured against the previous commit, the root went from 6 files
-(+421 / -208) to 8 (+853 / -525) in this round: `JADE-BUILD.md` is new, `FWUPDATE.md` and
-`diy/README.md` now name it instead of the README, and the README itself traded upstream's build
-document for the fork's own landing page.
+`test_data/` +98 / -15 (49 files), `jadepy/` +32 / -1 (2 files), the `diy/` hardware-selection
+page +1 / -1 (1 file), and files at the repository root +856 / -525 (8 files). The ten areas add
+up to the 216 files above. Measured against the 2026-09-16 refresh, no area gained or lost a file;
+three grew in place. `main/` went from +14961 / -2715 to +14988 / -2718 and `jadepy/` from
++27 / -1 to +32 / -1, because the round that closed the marker debt wrote a `BBB-AIRGAP:` comment
+into nine upstream files whose fork lines carried none, and removed a dead `CBOR_RPC_USER_CANCELLED`
+arm in `main/qrmode.c` that `params_set_epoch_time()` could never reach. The root went from
++853 / -525 to +856 / -525 when the mining round added its section to the README.
 
 **A paragraph that aged, corrected on 2026-09-12.** It used to say that five files carried a
 one-line change on the same reason, that user data is not written to the log. Measured today, only

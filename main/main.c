@@ -255,6 +255,9 @@ static void boot_process(void)
 
 #if defined(CONFIG_HAS_CAMERA) && !defined(CONFIG_ETH_USE_OPENETH)
     size_t counter = 0;
+    // BBB-AIRGAP: the trailing NULL is this fork's extra label_out argument (see main/camera.h),
+    // which hands the caller the camera screen's label so it can be updated while the loop runs;
+    // boot entropy draws no screen and has no label to update.
     jade_camera_process_images(&rnd_camera_feed, &counter, false, false, NULL, QR_GUIDE_HIDE, NULL, NULL, NULL, NULL);
 #endif
 

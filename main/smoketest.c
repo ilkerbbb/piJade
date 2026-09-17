@@ -471,6 +471,8 @@ static void check_camera(void)
 {
     // Run the camera task until the user quits
     bool ok = false;
+    // BBB-AIRGAP: label shortened from "Click front button" for this fork's 240x240 panel, and
+    // the trailing NULL is the extra label_out argument (see main/camera.h).
     jade_camera_process_images(camera_cb, &ok, true, "Click front", false, QR_GUIDE_HIDE, NULL, NULL, NULL, NULL);
     JADE_ASSERT(ok); // Must have processed at least one good image
 }

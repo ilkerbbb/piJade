@@ -52,7 +52,9 @@ idf_component_register(SRC_DIRS "."
                           "${usbdir}"
                           "${wallydirs}"
                           "${secpdir}"
-        PRIV_REQUIRES assets libwally-core libsodium esp32-rotary-encoder esp32-quirc bootloader_support app_update nvs_flash bt autogenlang cbor esp_netif esp32_bsdiff esp32_deflate nghttp esp32_bc-ur driver mbedtls http_parser esp_hw_support efuse esp_eth miner esp_http_server esp_lcd usb vfs app_trace spi_flash google-otpauth-migrate miner ${extra_priv_requires}
+        # BBB-AIRGAP: 'miner' is this fork's own component (components/miner), which hashes
+        # block headers for the mining screen; upstream has no such component.
+        PRIV_REQUIRES assets libwally-core libsodium esp32-rotary-encoder esp32-quirc bootloader_support app_update nvs_flash bt autogenlang cbor esp_netif esp32_bsdiff esp32_deflate nghttp esp32_bc-ur driver mbedtls http_parser esp_hw_support efuse esp_eth miner esp_http_server esp_lcd usb vfs app_trace spi_flash google-otpauth-migrate ${extra_priv_requires}
         EMBED_FILES ${PROJECT_DIR}/pinserver_public_key.pub ${logo_files} ${qemu_display_file})
 
 if(CONFIG_ETH_USE_OPENETH)

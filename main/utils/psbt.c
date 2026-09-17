@@ -7,7 +7,7 @@
 #include "jade_wally_verify.h"
 #include "util.h"
 
-#include <string.h>
+#include <string.h> // BBB-AIRGAP: memcmp() for psbt_inputs_name_fingerprint() below
 
 #include <wally_map.h>
 #include <wally_psbt.h>
@@ -117,6 +117,8 @@ static bool key_iter_get_green_2of3_recovery_key(const key_iter* iter, const str
     return false;
 }
 
+// BBB-AIRGAP: added for offer_wallet_named_by_psbt() in main/process/sign_psbt.c, which asks
+// whether to switch wallets when a PSBT's inputs name a loaded slot other than the one in use.
 bool psbt_inputs_name_fingerprint(
     const struct wally_psbt* psbt, const uint8_t* fingerprint, const size_t fingerprint_len)
 {

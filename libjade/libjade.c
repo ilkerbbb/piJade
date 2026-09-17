@@ -627,7 +627,7 @@ bool libjade_send(const uint8_t* data, size_t len)
 uint8_t* libjade_receive(const unsigned int timeout, size_t* len_out)
 {
     // BBB-AIRGAP: the deadlock fix gives a synchronously dispatched libjade_request reply its own
-    // ring (main/process.c:323) so it cannot block behind a full serial_out. Draining two rings
+    // ring (main/process.c:326) so it cannot block behind a full serial_out. Draining two rings
     // through this single-ring API first ran off a count of internal replies expected to be
     // pending, but a caller that sends and receives on different threads can read that count
     // before the sending thread raises it: the reader then commits to serial_out while the reply
@@ -639,7 +639,7 @@ uint8_t* libjade_receive(const unsigned int timeout, size_t* len_out)
     for (;;) {
         // Both rings are created by jade_process_init(), which runs on the firmware thread that
         // libjade_start() spawns rather than before it returns, so a receive can arrive before
-        // either exists. libjade_out is created last (main/process.c:189), so it gates both.
+        // either exists. libjade_out is created last (main/process.c:192), so it gates both.
         if (libjade_out) {
             void* item = xRingbufferReceive(libjade_out, len_out, 0);
             if (item) {

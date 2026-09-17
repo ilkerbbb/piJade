@@ -124,6 +124,8 @@ void debug_capture_image_data_process(void* process_ptr)
     const bool show_click_button = true;
     image_capture_into_t info = { .process = process, .check_qr = ret && check_qr };
     const qr_guide_type_t qr_guide_type = check_qr ? QR_GUIDE_SHOW : QR_GUIDE_HIDE;
+    // BBB-AIRGAP: the label is this fork's (upstream passes none) and fits the 240x240 panel;
+    // the trailing NULL is the extra label_out argument (see main/camera.h).
     jade_camera_process_images(
         return_image_data, &info, show_camera_ui, "Capture", show_click_button, qr_guide_type, NULL, NULL, NULL, NULL);
 
@@ -172,6 +174,7 @@ void debug_scan_qr_process(void* process_ptr)
 
     // Attempt to scan a qr
     qr_data_t qr_data = { .len = 0 };
+    // BBB-AIRGAP: label shortened from "Test Scan Image" for this fork's 240x240 panel.
     if (!jade_camera_scan_qr(&qr_data, "Test Scan", QR_GUIDE_SHOW, NULL)) {
         JADE_LOGW("QR scanning failed!");
     }

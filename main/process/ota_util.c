@@ -11,7 +11,7 @@
 #include <ctype.h>
 #include <esp_efuse.h>
 #include <sodium/utils.h>
-#include <stdint.h>
+#include <stdint.h> // BBB-AIRGAP: uint32_t for the RPC size fields below
 #include <string.h>
 
 bool show_ota_versions_activity(
@@ -20,6 +20,8 @@ bool show_ota_versions_activity(
 // The running firmware info, loaded at startup
 extern esp_app_desc_t running_app_info;
 
+// BBB-AIRGAP: the custom section is an ESP32 image layout detail; a CONFIG_LIBJADE build is an
+// ordinary host shared library, whose linker has no such section.
 const
 #ifndef CONFIG_LIBJADE
     __attribute__((section(".rodata_custom_desc")))
@@ -205,6 +207,8 @@ jade_ota_ctx_t* ota_init(jade_process_t* process, const bool is_delta)
         JADE_ASSERT(!keychain_has_temporary());
     }
 
+    // BBB-AIRGAP: sizes are read as uint32 rather than size_t so the wire contract is the same
+    // on the 32-bit device and the 64-bit host build; rpc_get_uint32() is this fork's helper.
     uint32_t firmwaresize = 0;
     uint32_t compressedsize = 0;
     uint32_t uncompressedpatchsize = 0;

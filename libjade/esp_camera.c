@@ -179,7 +179,7 @@ void jade_camera_process_images(camera_process_fn_t fn, void* ctx, const bool sh
     // already has a message for a device without a camera - main/camera.c and main/qrscan.c show it
     // when CONFIG_HAS_CAMERA is undefined - so say the same thing here rather than inventing a
     // second wording. Only where the caller asked for camera UI, though: main.c harvests startup
-    // entropy with show_ui false (main/main.c:258), and an error screen there would block the boot
+    // entropy with show_ui false (main/main.c:261), and an error screen there would block the boot
     // of every camera-less build on a button press.
     JADE_LOGW("No camera and no debug image - nothing to scan");
     if (show_ui) {

@@ -2433,7 +2433,7 @@ static void show_mining_solution_qr(const mining_solution_t* sol, const char* id
     JADE_ASSERT(id_len && id_len <= MAXLEN_ID);
 
     // BBB-AIRGAP: same envelope upstream sent over serial ({"id","result":bytes},
-    // main/process.c:508-531), so the reply keeps a shape that already exists rather than one
+    // main/process.c:511-534), so the reply keeps a shape that already exists rather than one
     // invented here. The scripts under pijade/tools read it back off the screen and check it;
     // nothing in this fork carries it to a node, and the chain stops there.
     // Room for the map header, "id" plus up to MAXLEN_ID chars, "result" plus the byte string.
@@ -2777,13 +2777,13 @@ static bool handle_epoch_qr(const uint8_t* cbor, const size_t cbor_len)
     const char* errmsg = NULL;
     const int errcode = params_set_epoch_time(&params, &errmsg);
     if (errcode) {
-        if (errcode != CBOR_RPC_USER_CANCELLED) {
-            JADE_LOGE("Error setting epoch time: %s", errmsg);
-            // BBB-AIRGAP: the title carries the caller's fixed words for the same reason as the
-            // entropy error above; params_set_epoch_time() can hand over "Failed to extract valid
-            // epoch value from parameters", 514 px against a 236 px row.
-            await_titled_message("Failed to set time", errmsg);
-        }
+        JADE_LOGE("Error setting epoch time: %s", errmsg);
+        // BBB-AIRGAP: the title carries the caller's fixed words for the same reason as the entropy
+        // error above; params_set_epoch_time() can hand over "Failed to extract valid epoch value
+        // from parameters", 514 px against a 236 px row.  No cancelled-code arm here, unlike its
+        // siblings in this file: params_set_epoch_time() returns bad-parameters, internal-error or
+        // zero and never the cancelled code, so that arm would be dead.
+        await_titled_message("Failed to set time", errmsg);
         return false;
     }
 

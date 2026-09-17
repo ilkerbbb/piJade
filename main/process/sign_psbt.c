@@ -718,7 +718,7 @@ network_t network_from_psbt_type(struct wally_psbt* psbt)
 // Returns 0 if no errors occurred - does not necessarily indicate that signatures were added.
 // Returns an rpc/message error code on error, and the error string should be populated.
 // BBB-AIRGAP: ownership is decided by deriving keys, and that only happens for the wallet in use
-// (main/utils/psbt.c:162).  Upstream holds one wallet, so "the wallet in use" and "the wallet the
+// (main/utils/psbt.c:164).  Upstream holds one wallet, so "the wallet in use" and "the wallet the
 // psbt belongs to" were the same thing; with several wallets held at once they are not, and
 // scanning a psbt that belongs to another one would otherwise walk the user through every output
 // and the fee before saying nothing could be signed.  So before any of that work, offer the wallet

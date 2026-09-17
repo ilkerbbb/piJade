@@ -692,6 +692,9 @@ class JadeAPI:
         params = {'seed': seed}
         return self._jadeRpc('debug_set_mnemonic', params)
 
+    # BBB-AIRGAP: added for this fork's test harness.  A loaded wallet here is restricted to
+    # main or test networks, so test_jade.py has to put the device on the fixture's network
+    # before it runs; upstream has no such restriction.
     def set_network_restriction(self, network):
         """
         RPC call to set the device's main/test network restriction, as the
