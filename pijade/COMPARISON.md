@@ -354,7 +354,7 @@ Options                                   main/process/dashboard.c:2771 (run_opt
 |   |-- Duress PIN                        :2917  (PIN wallet unlocked)
 |   `-- BIP39 Passphrase                  :2921
 |-- Info                                  :2835 -> ui/dashboard.c:492
-|   `-- firmware version (:477), Device Info (:482), I/O Test (:487), Legal (:491, official Jade hardware only)
+|   `-- firmware version (:474), Device Info (:479), I/O Test (:484), Legal (:488, official Jade hardware only)
 `-- Factory Reset                         :2849
 ```
 
@@ -394,7 +394,7 @@ column is that SeedSigner splits its three warnings across two settings and this
 | **Show QR brightness tips** | ADVANCED / on | `:706-710` | **Absent.** SeedSigner conditionally overlays Brighter / Darker tips (`gui/screens/screen.py:791-844`). This fork has a brightness button (`ui/qrmode.c:31`, "P"), but no equivalent tip overlay or switch |
 | **Camera rotation** | ADVANCED / 180 degrees | `:648-655` | **Present** (`Display > Camera Rotation`, `ui/dashboard.c:284`) |
 | **QR background color** | HIDDEN / 62 | `settings_definition.py:750-756`; adjusted on QR screens and saved (`gui/screens/screen.py:893-910`) | **Partly.** The brightness button cycles five QR colours (`ui/qrmode.c:31`, `main/gui.c:128`, `:355-362`), but its index is only in memory (`main/gui.c:133`); SeedSigner saves its background brightness in Settings |
-| **I/O test** | menu extra | `settings_views.py:18`, `:351` | **Present.** `Info > I/O Test` (`ui/dashboard.c:484`), the screen itself at `:505-525`: Screen, Buttons and Camera |
+| **I/O test** | menu extra | `settings_views.py:18`, `:351` | **Present.** `Info > I/O Test` (`ui/dashboard.c:484`), the screen itself at `:502-522`: Screen, Buttons and Camera |
 | **Version** | menu extra | `settings_views.py:20`, `:367` | **Present** (`Info`, the firmware version as the first row, `ui/dashboard.c:474`) |
 | **SettingsQR** (importing settings by QR) | separate flow | `settings_views.py:310` | **Absent.** There is no general settings import. QR configuration handles specific messages, including Blind Oracle configuration (`ui/dashboard.c:336`) and clock synchronisation (`qrmode.c:2740`, `:2773`) |
 

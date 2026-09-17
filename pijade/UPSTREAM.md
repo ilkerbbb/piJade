@@ -239,7 +239,7 @@ ours, so it lags until the next rebase is taken. All work happens on `bbb-airgap
 | `docs/.nojekyll` | +0 / -0 | **New file** | piJade: airgapped Jade fork for Raspberry Pi Zero hardware |
 
 **Totals (measured 2026-09-17, with this commit staged):** 216 files, of which 189 are text
-(+38261 / -3348) and 27 are binary fixtures, listed below rather than in the table because
+(+38263 / -3349) and 27 are binary fixtures, listed below rather than in the table because
 `--numstat` reports no line counts for them. A refresh on 2026-09-12 listed 175 files and 148 text
 files, and a later one the same day listed 187 and 160; the macOS port of libjade, the
 `_Static_assert` round, the quirc round and the test-suite network adaptation are the difference.
@@ -276,20 +276,20 @@ tests out of `main/selfcheck.c` into `libjade/selfcheck/`. A rebase conflict is 
 files than anywhere else.
 
 **Breakdown by area (measured 2026-09-17, with this commit staged):** the `libjade/` emulator
-layer +4861 / -85 (30 files), Jade's own `main/` files +14981 / -2718 (112 files), the
+layer +4861 / -85 (30 files), Jade's own `main/` files +14983 / -2719 (112 files), the
 `components/miner/` mining component +1151 / -0 (4 files), the vendored `components/esp32-quirc/`
 scanner +45 / -3 (3 files), the vendored `components/libwally-core/` config header +10 / -0
 (1 file), the helper pages under `docs/` +16226 / -0 (6 files), the recorded QR fixtures under
 `test_data/` +98 / -15 (49 files), `jadepy/` +30 / -1 (2 files), the `diy/` hardware-selection
 page +1 / -1 (1 file), and files at the repository root +858 / -525 (8 files). The ten areas add
 up to the 216 files above. Measured against the 2026-09-16 refresh, no area gained or lost a file;
-three grew in place. `main/` went from +14961 / -2715 to +14981 / -2718 and `jadepy/` from
-+27 / -1 to +30 / -1, because the round that closed the marker debt wrote a `BBB-AIRGAP:` comment
-into six upstream files whose fork lines carried none, and removed a dead `CBOR_RPC_USER_CANCELLED`
-arm in `main/qrmode.c` that `params_set_epoch_time()` could never reach. The root went from
+three grew in place. `main/` went from +14961 / -2715 to +14983 / -2719 and `jadepy/` from
++27 / -1 to +30 / -1: the marker-debt round wrote a `BBB-AIRGAP:` comment into six upstream files
+whose fork lines carried none, removed a dead `CBOR_RPC_USER_CANCELLED` arm in `main/qrmode.c`
+that `params_set_epoch_time()` could never reach, dropped a marked comment that described nothing
+from `main/ui/dashboard.c`; a separate fix marked `__wrap_abort()` `noreturn`. The root went from
 +853 / -525 to +856 / -525 when the mining round added its section to the README, and to
-+858 / -525 when the screenshot round said on the page that those three images come from the
-emulator.
++858 / -525 when the screenshot round said those three images come from the emulator.
 
 **A paragraph that aged, corrected on 2026-09-12.** It used to say that five files carried a
 one-line change on the same reason, that user data is not written to the log. Measured today, only
