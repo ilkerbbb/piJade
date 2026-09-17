@@ -407,7 +407,7 @@ $M btn:right btn:right shot:anchor || report "N10: could not capture dashboard a
 $M btn:click btn:down btn:down btn:down btn:down btn:down btn:down btn:click shot:info \
     || report "N10: could not reach Info menu"
 $M btn:down btn:down btn:down btn:click shot:iotest || report "N10: could not reach I/O Test menu"
-# I/O Test rows: Screen, Buttons, Camera (main/ui/dashboard.c:511-524); three down presses reach Camera.
+# I/O Test rows: Screen, Buttons, Camera (main/ui/dashboard.c:508-521); three down presses reach Camera.
 $M btn:down btn:down btn:down btn:click shot:camera || report "N10: could not open camera"
 # Positive control: the camera actually ran. Frame comparison alone could pass
 # even if the camera had never been entered.

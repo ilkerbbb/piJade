@@ -417,9 +417,6 @@ gui_activity_t* make_wallet_erase_pin_options_activity(void)
     return act;
 }
 
-// BBB-AIRGAP: the loaded wallet appears here under its fingerprint, and its operations hang off
-// that entry. 'seed_label' is only read while the menu is built - the builder keeps its own copy
-// of the text (main/gui.c:1290-1292) - so a caller's stack buffer is enough.
 gui_activity_t* make_ble_activity(gui_view_node_t** ble_status_item)
 {
     JADE_INIT_OUT_PPTR(ble_status_item);
