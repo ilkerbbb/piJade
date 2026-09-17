@@ -9,6 +9,8 @@ reaches the device is power and everything else travels by QR code.**
   <img src="./pijade/img/home-options.png" width="200" alt="Home screen, Options selected">
 </p>
 
+<p align="center"><em>Emulator screens of the home menu.</em></p>
+
 piJade is a fork of the [Blockstream Jade](https://github.com/Blockstream/Jade) firmware. Jade's
 wallet, its screens and its cryptography are kept; what changes is the hardware underneath and the
 way the device talks to the outside world. Jade is an ESP32 device that speaks over USB or

@@ -118,6 +118,13 @@ default.
 
 A restored wallet can be kept for the session or, with a PIN, written to the card.
 
+<p align="center">
+  <img src="./img/restore-menu.png" width="200" alt="Restore Wallet menu, Split Backup selected">
+  <img src="./img/split-backup.png" width="200" alt="Split Backup menu offering SeedXOR and SLIP39">
+</p>
+
+<p align="center"><em>Emulator: the restore menu and the two schemes behind its fourth row.</em></p>
+
 ## Backing up a seed
 
 Every backup screen shows the words, so the row that offers it appears only for a wallet whose
@@ -149,6 +156,12 @@ Exports that reveal more than they appear to carry a warning screen before the Q
 an xpub lets whoever scans it see every address and payment of that wallet forever, and a multisig
 wallet record carries the same exposure. The warnings can be switched off in the settings for
 someone who knows what they are doing.
+
+<p align="center">
+  <img src="./img/xpub-warning.png" width="200" alt="Warning shown before an xpub QR is drawn">
+</p>
+
+<p align="center"><em>Emulator: the warning that stands in front of an xpub export.</em></p>
 
 ## The clock and OTP codes
 
@@ -222,6 +235,12 @@ not thermal throttling. What that is worth depends entirely on the target:
 
 No screen offers odds, an estimate, or a bar filling toward a block, because there is no honest
 version of any of them.
+
+<p align="center">
+  <img src="./img/mining-menu.png" width="200" alt="Mining menu with Start and Reward Address">
+</p>
+
+<p align="center"><em>Emulator: the mining menu reached from Options.</em></p>
 
 ## The duress PIN
 
